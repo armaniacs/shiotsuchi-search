@@ -1,7 +1,7 @@
 # Shiotsuchi-Search Design Specification
 
 **Project**: shiotsuchi-search  
-**Tagline**: "Guiding your path through the data tide."  
+**Tagline**: "Guiding your path through the data tide." — As the deity Shiotsuchi guides travelers through misty seas, Shiotsuchi-Search guides you through the sea of your notes.  
 **Date**: 2026-04-29  
 **Status**: Draft
 
@@ -36,7 +36,7 @@ Vaporetto (Japanese tokenizer) × SQLite FTS5 = sub-second search across 10,000+
               ┌─────────▼─────────┐
               │   Core Library    │  ←  shared logic
               │  (lib obsidian-  │     - Indexing
-              │   mizusaki-vault │     - Search
+              │   shiotsuchi-vault │     - Search
               │      -core)      │     - DB ops
               └─────────┬─────────┘
                         │
@@ -63,7 +63,7 @@ Vaporetto (Japanese tokenizer) × SQLite FTS5 = sub-second search across 10,000+
 
 ---
 
-## 3. Core Library Design (`obsidian-mizusaki-vault-core`)
+## 3. Core Library Design (`obsidian-shiotsuchi-vault-core`)
 
 ### 3.1 Modules & Responsibilities
 
@@ -157,7 +157,7 @@ Input: query_string (Japanese or mixed)
 
 ## 4. Interface Layer Designs
 
-### 4.1 CLI (`obsidian-mizusaki-vault-cli`)
+### 4.1 CLI (`obsidian-shiotsuchi-vault-cli`)
 
 **Command Structure**:
 
@@ -165,11 +165,11 @@ Input: query_string (Japanese or mixed)
 shiotsuchi [GLOBAL_OPTS] <COMMAND> [ARGS]
 
 Commands:
-  dive <query>          Search notes (航海:潜る="dive")
+  dive <query>          Search notes (航海:潜る="dive") [alias: search]
   chart                 Build/rebuild index (海図作成)
   drift                 Start MCP server (漂流)
-  scan         Watch for changes (見張り)
-  tide                  Show vault status (潮況)
+  scan                  Watch for changes (見張り)
+  tide                  Show vault status (潮況) [alias: status]
   log                   Show statistics (航海日誌)
 
 Global Options:
@@ -255,7 +255,7 @@ Skill binary (`shiotsuchi-skill`) is a thin wrapper around core library, communi
 
 ---
 
-### 4.3 MCP Server (`obsidian-mizusaki-vault-mcp`)
+### 4.3 MCP Server (`obsidian-shiotsuchi-vault-mcp`)
 
 **Transport**: Standard Input/Output (stdio)
 
