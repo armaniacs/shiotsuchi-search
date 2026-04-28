@@ -9,7 +9,7 @@
 
 ## 1. Vision & Purpose
 
-**Shiotsuchi** (潮土) — "tide soil" — is a high-performance Rust tool that indexes Markdown note directories (including Obsidian vaults), enabling AI assistants (via MCP) and developers to instantly find relevant context across thousands of notes.
+**Shiotsuchi** (塩椎) is a high-performance Rust tool that indexes Markdown note directories (including Obsidian vaults), enabling AI assistants (via MCP) and developers to instantly find relevant context across thousands of notes.
 
 **Core Problem Solved**:  
 AI assistants like Claude Desktop lack knowledge of user's personal notes. Shiotsuchi bridges this gap by providing a blazingly fast, Japanese-aware search engine that surfaces the right snippet at the right time.
@@ -81,12 +81,13 @@ core/
 
 ```sql
 -- Main FTS5 table for search
+-- content='' (contentless) は削除。通常コンテンツテーブルとして扱う。
+-- 理由: contentless table は DELETE に特殊構文が必要で実装が複雑になるため。
 CREATE VIRTUAL TABLE notes_fts USING fts5(
     path UNINDEXED,        -- normalized relative path (e.g., "project/meeting.md")
     title,                 -- frontmatter title (if present) or filename
-    body,                  -- space-separated tokens from Vaporetto
-    tokenize='unicode61 remove_diacritics 0',
-    content=''             -- external content table reference
+    body,                  -- space-separated Vaporetto tokens
+    tokenize='unicode61 remove_diacritics 0'
 );
 
 -- Metadata table (not FTS)
@@ -97,8 +98,6 @@ CREATE TABLE notes_meta (
     indexed_at INTEGER NOT NULL,   -- when this record was last updated
     title TEXT                     -- cached title for quick access
 );
-
--- Trigger: auto-update indexed_at on FTS insert/update
 ```
 
 **Design Decisions**:
@@ -136,8 +135,10 @@ For each markdown file in directory tree:
 ```
 Input: query_string (Japanese or mixed)
 1. Tokenize query with Vaporetto (same settings as indexer)
-2. Build FTS5 query: "token1 token2" (implicit AND via space)
-3. Execute: SELECT path, rank FROM notes_fts WHERE body MATCH ? ORDER BY rank
+2. Build FTS5 AND query: "token1" AND "token2" (各トークンを "" で囲んで AND 結合)
+   ※ スペース区切りはフレーズ検索になるため使わない
+3. Execute: SELECT path, title, rank FROM notes_fts WHERE notes_fts MATCH ? ORDER BY rank
+   ※ body のみでなく title + body 全カラムを対象にする
 4. For top N results:
    a. Fetch full content from disk (lazy, on-demand)
    b. Extract 3-line snippet around first matched token
@@ -167,10 +168,11 @@ shiotsuchi [GLOBAL_OPTS] <COMMAND> [ARGS]
 Commands:
   dive <query>          Search notes (航海:潜る="dive") [alias: search]
   chart                 Build/rebuild index (海図作成)
-  drift                 Start MCP server (漂流)
   scan                  Watch for changes (見張り)
   tide                  Show vault status (潮況) [alias: status]
   log                   Show statistics (航海日誌)
+
+# NOTE: drift コマンドは廃止。MCP サーバは shiotsuchi-mcp として独立バイナリ。
 
 Global Options:
   --notes-dir <PATH>    Root directory (required, default: $PWD)
@@ -183,18 +185,25 @@ Global Options:
 
 #### `dive <query>`
 - **Action**: Search and print results as JSON array
-- **Output format**: Pretty-printed JSON for human reading
+- **Output format**: Pretty-printed JSON (デフォルト)。`--json` フラグで compact JSON（改行なし）
+- **Search mode**: AND 検索デフォルト（全トークンがマッチするノートを返す）
+- **Search target**: title + body 全カラム（タイトルのみのノートも拾える）
 - **Example**:
   ```bash
   $ shiotsuchi dive "プロジェクト計画"
   [
     {
       "path": "projects/2024/plan.md",
+      "title": "プロジェクト計画書",
       "snippet": "## プロジェクト計画\n\n**背景**: 市場の…",
       "score": 0.87
     },
     …
   ]
+
+  # compact 出力（パイプ処理向け）
+  $ shiotsuchi dive "プロジェクト計画" --json
+  [{"path":"projects/2024/plan.md","title":"...","snippet":"...","score":0.87}]
   ```
 
 #### `chart`
@@ -212,10 +221,6 @@ Global Options:
 - **Action**: Start persistent file watcher (requires `notify` feature)
 - **Behavior**: On file create/modify/delete, incrementally re-index
 - **Flags**: `--debounce <ms>` (default: 500)
-
-#### `drift`
-- **Action**: Start MCP server over stdio (no network)
-- **Env overrides**: `SHIOTSUCHI_DB_PATH`, `SHIOTSUCHI_NOTES_DIR`
 
 #### `log`
 - **Action**: Show indexing history and search analytics (future)
@@ -255,7 +260,24 @@ Skill binary (`shiotsuchi-skill`) is a thin wrapper around core library, communi
 
 ---
 
-### 4.3 MCP Server (`obsidian-shiotsuchi-vault-mcp`)
+### 4.3 MCP Server (`shiotsuchi-mcp` 独立バイナリ)
+
+**Binary**: `shiotsuchi-mcp`（`mcp/` クレート）。`shiotsuchi drift` コマンドは廃止。
+
+**Claude Desktop 設定例**:
+```json
+{
+  "mcpServers": {
+    "shiotsuchi": {
+      "command": "/usr/local/bin/shiotsuchi-mcp",
+      "env": {
+        "SHIOTSUCHI_NOTES_DIR": "/Users/name/Notes",
+        "SHIOTSUCHI_DB_PATH": "/Users/name/.shiotsuchi/db.sqlite3"
+      }
+    }
+  }
+}
+```
 
 **Transport**: Standard Input/Output (stdio)
 
@@ -434,8 +456,10 @@ CLI flags override config file values.
 - [ ] `main.rs` with subcommand structure
 - [ ] Implement `chart` command (wrap core::index)
 - [ ] Implement `dive` command (wrap core::search)
+  - `--json` フラグ: compact JSON 出力
+  - デフォルト: pretty-printed JSON
 - [ ] Implement `tide` command (stats)
-- [ ] Pretty-print JSON output
+- [ ] config.toml 読み込み対応（`~/.shiotsuchi/config.toml`）
 - [ ] Manual testing on sample vault
 
 ### Phase 3: Kilo Skill
@@ -453,7 +477,6 @@ CLI flags override config file values.
 
 ### Phase 5: Polishing
 - [ ] Watcher (`scan` command) using `notify` crate
-- [ ] Config file support (config.rs)
 - [ ] Version command with tagline
 - [ ] Error message UX improvements
 - [ ] Benchmark suite (criterion)
@@ -501,7 +524,7 @@ CLI flags override config file values.
 
 | Component | Crate | Why |
 |-----------|-------|-----|
-| Japanese Tokenizer | `vaporetto` | MeCab-compatible, fast, pre-trained model |
+| Japanese Tokenizer | `vaporetto` | MeCab-compatible, fast, pure Rust。モデルは `bccwj-suw+unidic_pos+kana.model.zst` を `include_bytes!` で埋め込み（リリースビルドのみ）。ランタイムフォールバック: `SHIOTSUCHI_MODEL_PATH` 環境変数 |
 | SQLite | `rusqlite` (bundled) | Zero-config, FTS5 built-in |
 | Markdown Parsing | `pulldown-cmark` | Fast, lossless, zero-copy where possible |
 | CLI Parser | `clap` | De facto standard, derive macros |
