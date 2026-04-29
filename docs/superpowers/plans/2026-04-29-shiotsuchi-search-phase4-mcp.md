@@ -1,6 +1,6 @@
 # Shiotsuchi-Search Phase 4: MCP Server Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Build the `shiotsuchi-mcp` standalone binary (`mcp/` crate) implementing the MCP (Model Context Protocol) server, exposing `search_vault`, `read_full_note`, `vault_status` tools over JSON-RPC 2.0 stdio transport.
 
@@ -56,7 +56,7 @@ mcp/
 - Create: `mcp/Cargo.toml`
 - Create: `mcp/src/main.rs`
 
-- [ ] **Step 1: Write mcp/Cargo.toml**
+- [x] **Step 1: Write mcp/Cargo.toml**
 
 ```toml
 [package]
@@ -80,7 +80,7 @@ env_logger = "0.11"
 dirs = "5"
 ```
 
-- [ ] **Step 2: Write mcp/src/main.rs skeleton**
+- [x] **Step 2: Write mcp/src/main.rs skeleton**
 
 ```rust
 mod handler;
@@ -93,12 +93,12 @@ fn main() {
 }
 ```
 
-- [ ] **Step 3: Verify workspace compiles**
+- [x] **Step 3: Verify workspace compiles**
 
 Run: `cargo check --workspace`
 Expected: Compiles
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add mcp/Cargo.toml mcp/src/main.rs Cargo.toml
@@ -114,7 +114,7 @@ MCP uses JSON-RPC 2.0. Key message types: `initialize`, `tools/list`, `tools/cal
 **Files:**
 - Create: `mcp/src/protocol.rs`
 
-- [ ] **(RED) Step 1: Write failing tests for protocol types**
+- [x] **(RED) Step 1: Write failing tests for protocol types**
 
 Create `mcp/src/protocol.rs` with test module only:
 
@@ -157,12 +157,12 @@ mod tests {
 }
 ```
 
-- [ ] **(RED VERIFY) Step 2: Run tests, confirm they fail**
+- [x] **(RED VERIFY) Step 2: Run tests, confirm they fail**
 
 Run: `cargo test -p shiotsuchi-mcp protocol`
 Expected: Compilation error — `McpRequest`, `McpResponse`, `McpNotification` not found
 
-- [ ] **(GREEN) Step 3: Implement protocol.rs**
+- [x] **(GREEN) Step 3: Implement protocol.rs**
 
 ```rust
 use serde::{Deserialize, Serialize};
@@ -223,12 +223,12 @@ impl McpNotification {
 }
 ```
 
-- [ ] **(GREEN VERIFY) Step 4: Run protocol tests, confirm they pass**
+- [x] **(GREEN VERIFY) Step 4: Run protocol tests, confirm they pass**
 
 Run: `cargo test -p shiotsuchi-mcp protocol`
 Expected: 4 tests pass
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add mcp/src/protocol.rs
@@ -243,7 +243,7 @@ git commit -m "feat(mcp): add MCP JSON-RPC protocol types"
 - Create: `mcp/src/tools.rs`
 - Create: `mcp/src/handler.rs`
 
-- [ ] **(RED) Step 1: Write failing tests for tool list and handlers**
+- [x] **(RED) Step 1: Write failing tests for tool list and handlers**
 
 Create `mcp/src/tools.rs` and `mcp/src/handler.rs` with test modules only:
 
@@ -327,12 +327,12 @@ mod tests {
 }
 ```
 
-- [ ] **(RED VERIFY) Step 2: Run tests, confirm they fail**
+- [x] **(RED VERIFY) Step 2: Run tests, confirm they fail**
 
 Run: `cargo test -p shiotsuchi-mcp`
 Expected: Compilation errors — `tool_list`, `call_tool` not found
 
-- [ ] **(GREEN) Step 3: Implement tools.rs**
+- [x] **(GREEN) Step 3: Implement tools.rs**
 
 ```rust
 use serde::{Deserialize, Serialize};
@@ -379,7 +379,7 @@ pub fn tool_list() -> Vec<ToolDef> {
 }
 ```
 
-- [ ] **(GREEN) Step 4: Implement handler.rs**
+- [x] **(GREEN) Step 4: Implement handler.rs**
 
 ```rust
 use obsidian_shiotsuchi_vault_core::{
@@ -441,12 +441,12 @@ pub fn call_tool(
 }
 ```
 
-- [ ] **(GREEN VERIFY) Step 5: Run all MCP tests, confirm they pass**
+- [x] **(GREEN VERIFY) Step 5: Run all MCP tests, confirm they pass**
 
 Run: `cargo test -p shiotsuchi-mcp`
 Expected: All tests pass
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add mcp/src/tools.rs mcp/src/handler.rs
@@ -460,7 +460,7 @@ git commit -m "feat(mcp): add tool definitions and call handlers"
 **Files:**
 - Modify: `mcp/src/main.rs`
 
-- [ ] **(RED) Step 1: Write failing test for dispatch**
+- [x] **(RED) Step 1: Write failing test for dispatch**
 
 ```rust
 #[cfg(test)]
@@ -496,12 +496,12 @@ mod tests {
 }
 ```
 
-- [ ] **(RED VERIFY) Step 2: Run tests, confirm they fail**
+- [x] **(RED VERIFY) Step 2: Run tests, confirm they fail**
 
 Run: `cargo test -p shiotsuchi-mcp`
 Expected: Compilation error — `dispatch` not found
 
-- [ ] **(GREEN) Step 3: Implement dispatch and main.rs**
+- [x] **(GREEN) Step 3: Implement dispatch and main.rs**
 
 ```rust
 mod handler;
@@ -579,12 +579,12 @@ fn main() {
 }
 ```
 
-- [ ] **(GREEN VERIFY) Step 4: Run all MCP tests, confirm they pass**
+- [x] **(GREEN VERIFY) Step 4: Run all MCP tests, confirm they pass**
 
 Run: `cargo test -p shiotsuchi-mcp`
 Expected: All tests pass
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add mcp/src/main.rs
@@ -597,14 +597,14 @@ git commit -m "feat(mcp): add MCP dispatch loop with initialize/tools/list/tools
 
 **TDD exception:** Claude Desktop integration requires a live environment; cannot be automated.
 
-- [ ] **Step 1: Build release binary**
+- [x] **Step 1: Build release binary**
 
 ```bash
 cargo build -p shiotsuchi-mcp --release
 cp target/release/shiotsuchi-mcp /usr/local/bin/
 ```
 
-- [ ] **Step 2: Configure Claude Desktop**
+- [x] **Step 2: Configure Claude Desktop**
 
 Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
@@ -622,7 +622,7 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 }
 ```
 
-- [ ] **Step 3: Index vault first**
+- [x] **Step 3: Index vault first**
 
 ```bash
 SHIOTSUCHI_MODEL_PATH=models/bccwj-suw+unidic_pos+kana.model.zst \
@@ -631,12 +631,12 @@ SHIOTSUCHI_MODEL_PATH=models/bccwj-suw+unidic_pos+kana.model.zst \
   --db-path ~/.shiotsuchi/db.sqlite3
 ```
 
-- [ ] **Step 4: Restart Claude Desktop and verify**
+- [x] **Step 4: Restart Claude Desktop and verify**
 
 Open Claude Desktop → ask: "Search my notes for プロジェクト"
 Expected: Claude calls `search_vault` and returns relevant snippets.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git commit -m "feat(mcp): complete Claude Desktop MCP integration"
