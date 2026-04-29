@@ -1,4 +1,4 @@
-use crate::models::{NoteMetadata, VaultStats};
+use crate::models::{NoteMetadata, SearchResult, VaultStats};
 use rusqlite::{params, Connection, Result as SqliteResult};
 use std::path::{Path, PathBuf};
 use thiserror::Error;
@@ -191,6 +191,33 @@ impl NoteDatabase {
             last_indexed_at: last_indexed,
             db_path,
         })
+    }
+
+    /// Search notes using tokenized query. Returns results ordered by BM25 relevance.
+    /// `fts5_query` は呼び出し側で `tokenizer.and_query()` を使って構築すること。
+    /// 例: `"東京" AND "検索"` — スペース区切り（フレーズ検索）は誤りなので使わない。
+    pub fn search(&self, fts5_query: &str, limit: usize) -> Result<Vec<SearchResult>, DbError> {
+        let sql = format!(
+            "SELECT path, title, rank
+             FROM notes_fts
+             WHERE notes_fts MATCH ?1
+             ORDER BY rank
+             LIMIT {}",
+            limit
+        );
+
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map(params![fts5_query], |row| {
+            Ok(SearchResult {
+                path: row.get(0)?,
+                title: row.get(1)?,
+                snippet: String::new(), // 呼び出し側が元ファイルから extract_snippet() で補完する
+                score: row.get(2)?,
+            })
+        })?;
+
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(DbError::Sqlite)
     }
 }
 
