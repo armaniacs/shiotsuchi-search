@@ -1,8 +1,43 @@
 # Shiotsuchi-Search Phase 1: Core Library Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Build the `obsidian-shiotsuchi-vault-core` crate providing Markdown indexing, Japanese-aware search via Vaporetto+SQLite FTS5, and file watching capabilities.
+
+---
+
+## 実装状況サマリー（2026-04-30 時点）
+
+### ✅ 実装済み（Tasks 1–9 完了）
+
+- `core/src/` 全モジュール（`lib.rs`, `models.rs`, `db.rs`, `indexer.rs`, `tokenizer.rs`, `search.rs`, `watcher.rs`）
+- `core/build.rs`（モデル埋め込み対応）
+- `tests/integration_test.rs`（end-to-end テスト）
+- `scripts/download-model.sh`
+- 全テスト通過（TDD サイクル RED→VERIFY→GREEN→VERIFY を全タスクで遵守）
+
+### ⚠️ 計画との差分（実装時に変更した点）
+
+| 箇所 | 計画 | 実装 |
+|------|------|------|
+| `core/src/lib.rs` の再エクスポート | `pub use indexer::Indexer`、`pub use search::Searcher` を含む | `Indexer`・`Searcher` 型は実装せず（関数形式 `index_directory` / `search` を直接公開）。`pub use` なし |
+| `core/src/lib.rs` の再エクスポート | `pub use tokenizer::{JapaneseTokenizer, TokenizerConfig}` | 実装済み（計画通り） |
+| `VaultStats.last_indexed_at` | `Option<i64>` | 計画通り実装済み |
+| ワークスペース `members` | 最初は `["core", "cli"]` → 段階追加 | 実際は最終的に `["core", "cli", "skill", "mcp"]` |
+
+### ❌ 未実施
+
+なし。Tasks 1–9 はすべて実装・コミット済み。
+
+### 🔜 次にやること
+
+**Phase 1 の追加作業（オプション）:**
+- `lib.rs` に `pub use indexer::{index_directory, cleanup_deleted}` 等を追加して API を整理する（現状は外部クレートが `use obsidian_shiotsuchi_vault_core::indexer::index_directory` と直接参照している）
+
+**Phase 5（将来）:**
+- `scan` コマンドへの `VaultWatcher` 統合（現在はスタブ）
+- ベンチマーク・エラー UX の改善
+- README 整備
 
 **Architecture:** A Rust library crate (`core/`) containing modules for database schema management (`db.rs`), file indexing with Vaporetto tokenization (`indexer.rs`), BM25 search with snippet extraction (`search.rs`), filesystem watching (`watcher.rs`), and shared data models (`models.rs`). Uses `rusqlite` with bundled SQLite FTS5, `vaporetto` for Japanese tokenization, `pulldown-cmark` for Markdown parsing, and `notify` for filesystem events.
 
@@ -58,7 +93,7 @@ core/
 - Create: `core/src/lib.rs`
 - Create: `.gitignore`
 
-- [ ] **Step 1: Write workspace root Cargo.toml**
+- [x] **Step 1: Write workspace root Cargo.toml**
 
 ```toml
 [workspace]
@@ -72,7 +107,7 @@ authors = ["Shiotsuchi Contributors"]
 license = "MIT"
 ```
 
-- [ ] **Step 2: Write core crate Cargo.toml**
+- [x] **Step 2: Write core crate Cargo.toml**
 
 ```toml
 [package]
@@ -118,7 +153,7 @@ tempfile = "3"
 # build.rs は std のみ使用。追加依存なし。
 ```
 
-- [ ] **Step 3: Write initial core/src/lib.rs**
+- [x] **Step 3: Write initial core/src/lib.rs**
 
 ```rust
 pub mod db;
@@ -133,7 +168,7 @@ pub use models::{NoteMetadata, SearchResult};
 pub use search::Searcher;
 ```
 
-- [ ] **Step 4: Write .gitignore**
+- [x] **Step 4: Write .gitignore**
 
 ```
 /target
@@ -147,12 +182,12 @@ db.sqlite3
 *.model
 ```
 
-- [ ] **Step 5: Verify workspace compiles**
+- [x] **Step 5: Verify workspace compiles**
 
 Run: `cargo check --workspace`
 Expected: Compiles successfully (empty crates)
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add Cargo.toml core/Cargo.toml core/src/lib.rs .gitignore
@@ -167,7 +202,7 @@ git commit -m "chore: initialize workspace and core crate skeleton"
 - Create: `core/src/models.rs`
 - Test: `core/src/models.rs` (doc tests / unit tests inline)
 
-- [ ] **(RED) Step 1: Write failing test for NoteMetadata**
+- [x] **(RED) Step 1: Write failing test for NoteMetadata**
 
 Create `core/src/models.rs` with test only (NoteMetadata not defined yet):
 
@@ -195,12 +230,12 @@ mod tests {
 }
 ```
 
-- [ ] **(RED VERIFY) Step 2: Run test, confirm it fails**
+- [x] **(RED VERIFY) Step 2: Run test, confirm it fails**
 
 Run: `cargo test -p obsidian-shiotsuchi-vault-core --lib`
 Expected: Compilation error (NoteMetadata not found)
 
-- [ ] **(GREEN) Step 3: Write minimal NoteMetadata struct**
+- [x] **(GREEN) Step 3: Write minimal NoteMetadata struct**
 
 Add NoteMetadata with derive attributes and fields to make test compile:
 
@@ -224,19 +259,19 @@ pub struct NoteMetadata {
 }
 ```
 
-- [ ] **(GREEN VERIFY) Step 4: Run test, confirm it passes**
+- [x] **(GREEN VERIFY) Step 4: Run test, confirm it passes**
 
 Run: `cargo test -p obsidian-shiotsuchi-vault-core --lib`
 Expected: test passes
 
-- [ ] **(REFACTOR) Step 5: Add remaining types (IndexResult, SearchResult, VaultStats, IndexConfig)**
+- [x] **(REFACTOR) Step 5: Add remaining types (IndexResult, SearchResult, VaultStats, IndexConfig)**
 
 Add the rest of the types from the full spec below. Keep tests green.
 
 Run: `cargo test -p obsidian-shiotsuchi-vault-core --lib`
 Expected: 1 test still passes (no regressions)
 
-- [ ] **(RED) Step 6: Write failing test for IndexConfig default**
+- [x] **(RED) Step 6: Write failing test for IndexConfig default**
 
 Add test `default_index_config` to `models.rs` — `IndexConfig` not defined yet, so compilation fails:
 
@@ -249,21 +284,21 @@ fn default_index_config() {
 }
 ```
 
-- [ ] **(RED VERIFY) Step 7: Run test, confirm it fails**
+- [x] **(RED VERIFY) Step 7: Run test, confirm it fails**
 
 Run: `cargo test -p obsidian-shiotsuchi-vault-core --lib`
 Expected: Compilation error — `IndexConfig` not found
 
-- [ ] **(GREEN) Step 8: Implement IndexConfig with Default**
+- [x] **(GREEN) Step 8: Implement IndexConfig with Default**
 
 Add IndexConfig struct and Default impl.
 
-- [ ] **(GREEN VERIFY) Step 9: Run all model tests**
+- [x] **(GREEN VERIFY) Step 9: Run all model tests**
 
 Run: `cargo test -p obsidian-shiotsuchi-vault-core --lib`
 Expected: 2 tests pass
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add core/src/models.rs
@@ -388,7 +423,7 @@ mod tests {
 - Create: `core/src/db.rs`
 - Test: `core/src/db.rs` (inline tests)
 
-- [ ] **(RED) Step 1: Write failing tests only in db.rs**
+- [x] **(RED) Step 1: Write failing tests only in db.rs**
 
 Create `core/src/db.rs` with the test module only — no implementation yet:
 
@@ -440,12 +475,12 @@ mod tests {
 }
 ```
 
-- [ ] **(RED VERIFY) Step 2: Run tests, confirm they fail**
+- [x] **(RED VERIFY) Step 2: Run tests, confirm they fail**
 
 Run: `cargo test -p obsidian-shiotsuchi-vault-core db::`
 Expected: Compilation error — `NoteDatabase` not found
 
-- [ ] **(GREEN) Step 3: Write minimal db.rs implementation**
+- [x] **(GREEN) Step 3: Write minimal db.rs implementation**
 
 Add the implementation above the test module to make all 4 tests pass:
 
@@ -639,12 +674,12 @@ impl NoteDatabase {
 }
 ```
 
-- [ ] **(GREEN VERIFY) Step 4: Run DB tests, confirm all pass**
+- [x] **(GREEN VERIFY) Step 4: Run DB tests, confirm all pass**
 
 Run: `cargo test -p obsidian-shiotsuchi-vault-core db::`
 Expected: 4 tests pass
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add core/src/db.rs
@@ -663,7 +698,7 @@ git commit -m "feat(core): add SQLite FTS5 schema and CRUD operations"
 - Create: `tests/fixtures/vault/frontmatter.md`
 - Create: `tests/fixtures/vault/empty.md`
 
-- [ ] **(RED) Step 1: Write failing tests only in indexer.rs**
+- [x] **(RED) Step 1: Write failing tests only in indexer.rs**
 
 Create `core/src/indexer.rs` with the test module only — no implementation yet:
 
@@ -709,12 +744,12 @@ mod parsing_tests {
 }
 ```
 
-- [ ] **(RED VERIFY) Step 2: Run tests, confirm they fail**
+- [x] **(RED VERIFY) Step 2: Run tests, confirm they fail**
 
 Run: `cargo test -p obsidian-shiotsuchi-vault-core parsing_tests`
 Expected: Compilation error — `extract_frontmatter`, `markdown_to_text`, `title_from_path` not found
 
-- [ ] **(GREEN) Step 3: Write minimal parsing implementation**
+- [x] **(GREEN) Step 3: Write minimal parsing implementation**
 
 Add the implementation above the test module:
 
@@ -784,12 +819,12 @@ pub fn title_from_path(path: &Path) -> String {
 }
 ```
 
-- [ ] **(GREEN VERIFY) Step 4: Run parsing tests, confirm all pass**
+- [x] **(GREEN VERIFY) Step 4: Run parsing tests, confirm all pass**
 
 Run: `cargo test -p obsidian-shiotsuchi-vault-core parsing_tests`
 Expected: 4 tests pass
 
-- [ ] **Step 5: Create fixture files**
+- [x] **Step 5: Create fixture files**
 
 File: `tests/fixtures/vault/simple.md`
 ```markdown
@@ -818,7 +853,7 @@ title: Empty Body
 ---
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add core/src/indexer.rs tests/fixtures/vault/
@@ -839,7 +874,7 @@ git commit -m "feat(core): add markdown parsing and frontmatter extraction"
 - Create: `scripts/download-model.sh`
 - Test: `core/src/tokenizer.rs` (inline tests)
 
-- [ ] **Step 1: Write `core/build.rs`（sqlite-vaporetto の build.rs パターン踏襲）**
+- [x] **Step 1: Write `core/build.rs`（sqlite-vaporetto の build.rs パターン踏襲）**
 
 `SHIOTSUCHI_EMBED_MODEL` 環境変数が設定されていれば `include_bytes!` でモデルをバイナリに埋め込む。
 未設定なら `EMBEDDED_MODEL_BYTES = None`（実行時に `SHIOTSUCHI_MODEL_PATH` 環境変数を参照）。
@@ -875,7 +910,7 @@ fn main() {
 }
 ```
 
-- [ ] **(RED) Step 2: Write failing tests only in tokenizer.rs**
+- [x] **(RED) Step 2: Write failing tests only in tokenizer.rs**
 
 Create `core/src/tokenizer.rs` with the test module only — no implementation yet:
 
@@ -900,12 +935,12 @@ mod tests {
 }
 ```
 
-- [ ] **(RED VERIFY) Step 3: Run tests, confirm they fail**
+- [x] **(RED VERIFY) Step 3: Run tests, confirm they fail**
 
 Run: `cargo test -p obsidian-shiotsuchi-vault-core tokenizer`
 Expected: Compilation error — `simple_tokenize`, `simple_and_query` not found
 
-- [ ] **(GREEN) Step 4: Write minimal tokenizer implementation**
+- [x] **(GREEN) Step 4: Write minimal tokenizer implementation**
 
 Add the implementation above the test module. Start with just `simple_tokenize` and `simple_and_query` to pass the tests, then add `JapaneseTokenizer`:
 
@@ -1045,12 +1080,12 @@ pub fn simple_and_query(text: &str) -> String {
 }
 ```
 
-- [ ] **(GREEN VERIFY) Step 5: Run tokenizer tests, confirm they pass**
+- [x] **(GREEN VERIFY) Step 5: Run tokenizer tests, confirm they pass**
 
 Run: `cargo test -p obsidian-shiotsuchi-vault-core tokenizer`
 Expected: 2 tests pass（モデル未埋め込みでも `simple_tokenize` / `simple_and_query` テストは通る）
 
-- [ ] **Step 6: Write `scripts/download-model.sh`**
+- [x] **Step 6: Write `scripts/download-model.sh`**
 
 sqlite-vaporetto のリリース tarball から同じモデルを抽出する。
 
@@ -1070,7 +1105,7 @@ if [ ! -f "$DEST" ]; then
 fi
 ```
 
-- [ ] **Step 7: Add tokenizer module to lib.rs**
+- [x] **Step 7: Add tokenizer module to lib.rs**
 
 Modify `core/src/lib.rs`:
 ```rust
@@ -1088,7 +1123,7 @@ pub use search::Searcher;
 pub use tokenizer::{JapaneseTokenizer, TokenizerConfig};
 ```
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add core/build.rs core/src/tokenizer.rs core/src/lib.rs scripts/download-model.sh .gitignore
@@ -1105,7 +1140,7 @@ git commit -m "feat(core): add Vaporetto tokenizer with build.rs model embedding
 - Modify: `core/src/indexer.rs` (complete implementation)
 - Test: `core/src/indexer.rs` (integration tests)
 
-- [ ] **(RED) Step 1: Add failing tests for index_directory and cleanup_deleted**
+- [x] **(RED) Step 1: Add failing tests for index_directory and cleanup_deleted**
 
 Append to the existing test module in `indexer.rs` — `index_directory` and `cleanup_deleted` are not yet defined:
 
@@ -1166,12 +1201,12 @@ use std::io::Write;
 use tempfile::TempDir;
 ```
 
-- [ ] **(RED VERIFY) Step 2: Run tests, confirm they fail**
+- [x] **(RED VERIFY) Step 2: Run tests, confirm they fail**
 
 Run: `cargo test -p obsidian-shiotsuchi-vault-core indexer`
 Expected: Compilation error — `index_directory`, `cleanup_deleted` not found
 
-- [ ] **(GREEN) Step 3: Complete indexer.rs implementation**
+- [x] **(GREEN) Step 3: Complete indexer.rs implementation**
 
 Add `index_file`, `index_directory`, `cleanup_deleted`, and `compute_hash` to `indexer.rs`:
 
@@ -1265,12 +1300,12 @@ pub fn cleanup_deleted(db: &NoteDatabase, config: &IndexConfig) -> Result<Vec<St
 }
 ```
 
-- [ ] **(GREEN VERIFY) Step 4: Run indexer tests, confirm all pass**
+- [x] **(GREEN VERIFY) Step 4: Run indexer tests, confirm all pass**
 
 Run: `cargo test -p obsidian-shiotsuchi-vault-core indexer`
 Expected: 6 tests pass (4 parsing + 2 new indexer tests)
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add core/src/indexer.rs
@@ -1288,7 +1323,7 @@ git commit -m "feat(core): implement file walker and indexer with hash tracking"
 - Modify: `core/src/db.rs` (add `search()` method)
 - Test: `core/src/search.rs` (inline tests)
 
-- [ ] **(RED) Step 1: Write failing tests only in search.rs**
+- [x] **(RED) Step 1: Write failing tests only in search.rs**
 
 Create `core/src/search.rs` with the test module only — no implementation yet:
 
@@ -1315,12 +1350,12 @@ mod tests {
 }
 ```
 
-- [ ] **(RED VERIFY) Step 2: Run tests, confirm they fail**
+- [x] **(RED VERIFY) Step 2: Run tests, confirm they fail**
 
 Run: `cargo test -p obsidian-shiotsuchi-vault-core search`
 Expected: Compilation error — `extract_snippet` not found
 
-- [ ] **(GREEN) Step 3: Write minimal search.rs implementation**
+- [x] **(GREEN) Step 3: Write minimal search.rs implementation**
 
 Add implementation above the test module:
 
@@ -1403,12 +1438,12 @@ pub fn extract_snippet(text: &str, query: &str, max_lines: usize) -> String {
 }
 ```
 
-- [ ] **(GREEN VERIFY) Step 4: Run search tests, confirm they pass**
+- [x] **(GREEN VERIFY) Step 4: Run search tests, confirm they pass**
 
 Run: `cargo test -p obsidian-shiotsuchi-vault-core search`
 Expected: 2 tests pass
 
-- [ ] **(RED) Step 5: Write failing test for NoteDatabase::search() in db.rs**
+- [x] **(RED) Step 5: Write failing test for NoteDatabase::search() in db.rs**
 
 Add to `db.rs` test module — `NoteDatabase::search()` not yet defined:
 
@@ -1424,12 +1459,12 @@ fn test_search_returns_results() {
 }
 ```
 
-- [ ] **(RED VERIFY) Step 6: Run test, confirm it fails**
+- [x] **(RED VERIFY) Step 6: Run test, confirm it fails**
 
 Run: `cargo test -p obsidian-shiotsuchi-vault-core db::tests::test_search`
 Expected: Compilation error — `NoteDatabase::search` not found
 
-- [ ] **(GREEN) Step 7: Add search() method to NoteDatabase in db.rs**
+- [x] **(GREEN) Step 7: Add search() method to NoteDatabase in db.rs**
 
 Modify `core/src/db.rs` to add:
 
@@ -1461,12 +1496,12 @@ pub fn search(&self, fts5_query: &str, limit: usize) -> Result<Vec<SearchResult>
 }
 ```
 
-- [ ] **(GREEN VERIFY) Step 8: Run all db and search tests**
+- [x] **(GREEN VERIFY) Step 8: Run all db and search tests**
 
 Run: `cargo test -p obsidian-shiotsuchi-vault-core`
 Expected: All tests pass (db: 5 tests, search: 2 tests)
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add core/src/db.rs core/src/search.rs
@@ -1485,7 +1520,7 @@ git commit -m "feat(core): add BM25 search and snippet extraction"
 
 Note: `VaultWatcher::new()` does not fail (watcher is created inside `watch()`), so the test simply verifies that construction succeeds — a minimal but meaningful assertion about the API contract.
 
-- [ ] **(RED) Step 1: Write failing test only in watcher.rs**
+- [x] **(RED) Step 1: Write failing test only in watcher.rs**
 
 Create `core/src/watcher.rs` with the test module only — no implementation yet:
 
@@ -1516,12 +1551,12 @@ mod tests {
 }
 ```
 
-- [ ] **(RED VERIFY) Step 2: Run test, confirm it fails**
+- [x] **(RED VERIFY) Step 2: Run test, confirm it fails**
 
 Run: `cargo test -p obsidian-shiotsuchi-vault-core watcher`
 Expected: Compilation error — `VaultWatcher` not found
 
-- [ ] **(GREEN) Step 3: Write minimal watcher.rs implementation**
+- [x] **(GREEN) Step 3: Write minimal watcher.rs implementation**
 
 Add implementation above the test module:
 
@@ -1620,12 +1655,12 @@ impl VaultWatcher {
 }
 ```
 
-- [ ] **(GREEN VERIFY) Step 4: Run watcher test, confirm it passes**
+- [x] **(GREEN VERIFY) Step 4: Run watcher test, confirm it passes**
 
 Run: `cargo test -p obsidian-shiotsuchi-vault-core watcher`
 Expected: 1 test passes
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add core/src/watcher.rs
@@ -1644,7 +1679,7 @@ git commit -m "feat(core): add filesystem watcher with incremental re-indexing"
 テスト実行前提: `SHIOTSUCHI_MODEL_PATH=models/bccwj-suw+unidic_pos+kana.model.zst`
 （または `make release-embedded` でモデル埋め込みビルド後）
 
-- [ ] **(RED) Step 1: Write integration test**
+- [x] **(RED) Step 1: Write integration test**
 
 ```rust
 use obsidian_shiotsuchi_vault_core::{
@@ -1720,21 +1755,21 @@ fn test_snippet_extraction() {
 }
 ```
 
-- [ ] **(RED VERIFY) Step 2: Run tests, confirm they fail**
+- [x] **(RED VERIFY) Step 2: Run tests, confirm they fail**
 
 Run: `cargo test --test integration_test`
 Expected: Compilation error — some symbols not yet exported from `lib.rs`, or test fails due to missing behavior
 
-- [ ] **(GREEN) Step 3: Fix any compilation errors**
+- [x] **(GREEN) Step 3: Fix any compilation errors**
 
 If the integration test fails to compile, fix the exports in `core/src/lib.rs`. Do NOT change the test assertions — fix the production code only.
 
-- [ ] **(GREEN VERIFY) Step 4: Run integration tests, confirm all pass**
+- [x] **(GREEN VERIFY) Step 4: Run integration tests, confirm all pass**
 
 Run: `cargo test --test integration_test`
 Expected: 2 tests pass
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add tests/integration_test.rs

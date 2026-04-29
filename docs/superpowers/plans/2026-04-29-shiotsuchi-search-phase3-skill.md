@@ -4,6 +4,41 @@
 
 **Goal:** Build the `shiotsuchi-skill` binary (`skill/` crate) implementing the Kilo skill protocol, exposing `search-vault`, `read-note`, `vault-status` commands over JSON-RPC stdio.
 
+---
+
+## 実装状況サマリー（2026-04-30 時点）
+
+### ✅ 実装済み（Tasks 1–4 + リリースビルド）
+
+- `skill/` 全ソースファイル（`Cargo.toml`, `skill.yaml`, `src/protocol.rs`, `src/handler.rs`, `src/main.rs`）
+- 9テスト全パス（TDD サイクル RED→VERIFY→GREEN→VERIFY を全タスクで遵守）
+- リリースビルド確認済み（`cargo build -p shiotsuchi-skill --release`）
+- stdin/stdout パイプでのスモークテスト済み
+
+### ⚠️ 計画との差分（実装時に変更した点）
+
+| 箇所 | 計画 | 実装 |
+|------|------|------|
+| `skill/Cargo.toml` | `dirs` 依存なし | `dirs = "5"` を追加（`main()` のデフォルト db パス解決に必要） |
+| `skill/Cargo.toml` | `[dev-dependencies]` なし | `tempfile = "3"` を追加（handler テストで一時ディレクトリを使用） |
+| `search-vault` の `limit` | 計画に記述なし | パラメータ `limit`（デフォルト 20）を `dispatch` で受け取り `handle_search_vault` に渡す |
+| Kilo 登録形式 | `~/.config/killo/agents/skills/*.yaml` にコピー | **未実施**（下記参照） |
+
+### ❌ 未実施
+
+- **Kilo への実際の登録** — 調査の結果、Kilo v7.0.43 はスキルを `~/.config/kilo/agent/` 以下の **Markdown ファイル**として管理する形式であり、計画が想定した `~/.config/killo/agents/skills/*.yaml` とは異なる。`skill/skill.yaml` はリポジトリ内のドキュメントとして保存済みだが、実際の登録は手動で形式を合わせる必要がある
+- `kilo agent run shiotsuchi-search search-vault --query "テスト"` による動作確認 — 上記登録が未完のため未実施
+
+### 🔜 次にやること
+
+**Phase 3 の残作業（手動）:**
+1. Kilo v7.0.43 の実際のエージェント形式を確認し（`ls ~/.config/kilo/agent/` で既存エージェントの Markdown 構造を参照）、対応する登録ファイルを作成する
+2. 登録後に `kilo` 経由で `search-vault` を呼び出して結果を目視確認する
+
+**Phase 5（将来）:**
+- Kilo 統合の完全動作確認
+- README 整備
+
 **Architecture:** A Rust binary crate (`skill/`) that is a thin wrapper around `obsidian-shiotsuchi-vault-core`. Communicates with the Kilo agent via JSON-RPC 2.0 over stdin/stdout. Reads configuration from `~/.shiotsuchi/config.toml`.
 
 **Tech Stack:** Rust, serde, serde_json, obsidian-shiotsuchi-vault-core

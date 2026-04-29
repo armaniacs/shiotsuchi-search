@@ -1,8 +1,43 @@
 # Shiotsuchi-Search Phase 2: CLI Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Build the `shiotsuchi` CLI binary (`cli/` crate) exposing `dive`, `chart`, `tide`, `scan`, `log` subcommands backed by `obsidian-shiotsuchi-vault-core`.
+
+---
+
+## 実装状況サマリー（2026-04-30 時点）
+
+### ✅ 実装済み（Tasks 1–7 完了）
+
+- `cli/` 全ソースファイル（`Cargo.toml`, `config.rs`, `commands/chart.rs`, `commands/dive.rs`, `commands/tide.rs`, `commands/scan.rs`, `commands/log.rs`, `commands/mod.rs`, `main.rs`）
+- 全テスト通過（TDD サイクル遵守）
+- CLI 統合テスト（`chart → dive`）通過
+
+### ⚠️ 計画との差分（実装時に変更した点）
+
+| 箇所 | 計画 | 実装 |
+|------|------|------|
+| `cli/Cargo.toml` | `dirs` 依存なし | `dirs = "5"` を追加（`VaultConfig::default()` でホームディレクトリを解決するため） |
+| `WatcherConfig` | `#[derive(Default)]` と `impl Default` が二重定義 | `#[derive(Default)]` を削除し `impl Default` のみ残した（コンパイルエラー回避） |
+| `cli/src/commands/log.rs` | 独立ファイル `log.rs` | `scan.rs` に統合（`pub fn run_log()` を `scan.rs` 末尾に追加）。`log.rs` ファイルは存在しない |
+| `scan` コマンド | 引数 `--debounce`（`ScanArgs` に含む） | 計画通り実装済み（ただし `run_scan` の本体はスタブ） |
+
+### ❌ 未実施
+
+- `scan` コマンドの本体実装 — 現在は `eprintln!("scan: not yet implemented")` を出力するスタブ
+- `log` コマンドの本体実装 — 現在は `println!("log: not yet implemented")` を出力するスタブ
+
+### 🔜 次にやること
+
+**Phase 2 の残作業（Phase 5 で実施予定）:**
+1. `scan` コマンド — `VaultWatcher` を使ったファイル監視ループの実装
+2. `log` コマンド — インデックス履歴や検索ログの表示機能の実装
+
+**Phase 5（将来）:**
+- `scan` / `log` の完全実装
+- ベンチマーク・エラー UX の改善
+- README 整備
 
 **Architecture:** A Rust binary crate (`cli/`) using `clap` for argument parsing. Each subcommand wraps the corresponding core library function. Config is loaded from `~/.shiotsuchi/config.toml` (overridable by CLI flags and env vars).
 
@@ -61,7 +96,7 @@ cli/
 - Create: `cli/Cargo.toml`
 - Create: `cli/src/main.rs`
 
-- [ ] **Step 1: Write cli/Cargo.toml**
+- [x] **Step 1: Write cli/Cargo.toml**
 
 ```toml
 [package]
@@ -86,7 +121,7 @@ log = "0.4"
 env_logger = "0.11"
 ```
 
-- [ ] **Step 2: Write cli/src/main.rs skeleton**
+- [x] **Step 2: Write cli/src/main.rs skeleton**
 
 ```rust
 mod commands;
@@ -125,19 +160,19 @@ fn main() {
 }
 ```
 
-- [ ] **Step 3: Add `cli` to workspace Cargo.toml**
+- [x] **Step 3: Add `cli` to workspace Cargo.toml**
 
 ```toml
 [workspace]
 members = ["core", "cli", "skill", "mcp"]
 ```
 
-- [ ] **Step 4: Verify workspace compiles**
+- [x] **Step 4: Verify workspace compiles**
 
 Run: `cargo check --workspace`
 Expected: Compiles (with unimplemented stubs)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add cli/Cargo.toml cli/src/main.rs Cargo.toml
@@ -151,7 +186,7 @@ git commit -m "chore(cli): initialize CLI crate skeleton"
 **Files:**
 - Create: `cli/src/config.rs`
 
-- [ ] **(RED) Step 1: Write failing tests for config loading**
+- [x] **(RED) Step 1: Write failing tests for config loading**
 
 Create `cli/src/config.rs` with test module only:
 
@@ -189,12 +224,12 @@ mod tests {
 }
 ```
 
-- [ ] **(RED VERIFY) Step 2: Run tests, confirm they fail**
+- [x] **(RED VERIFY) Step 2: Run tests, confirm they fail**
 
 Run: `cargo test -p shiotsuchi config`
 Expected: Compilation error — `ShiotsuchiConfig` not found
 
-- [ ] **(GREEN) Step 3: Implement config.rs**
+- [x] **(GREEN) Step 3: Implement config.rs**
 
 ```rust
 use serde::{Deserialize, Serialize};
@@ -280,12 +315,12 @@ impl ShiotsuchiConfig {
 
 Add `dirs = "5"` to `cli/Cargo.toml` dependencies.
 
-- [ ] **(GREEN VERIFY) Step 4: Run config tests, confirm they pass**
+- [x] **(GREEN VERIFY) Step 4: Run config tests, confirm they pass**
 
 Run: `cargo test -p shiotsuchi config`
 Expected: 2 tests pass
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add cli/src/config.rs cli/Cargo.toml
@@ -300,7 +335,7 @@ git commit -m "feat(cli): add config.toml loading with defaults"
 - Create: `cli/src/commands/chart.rs`
 - Create: `cli/src/commands/mod.rs`
 
-- [ ] **(RED) Step 1: Write failing test for chart command**
+- [x] **(RED) Step 1: Write failing test for chart command**
 
 Create `cli/src/commands/chart.rs` with test only:
 
@@ -328,12 +363,12 @@ mod tests {
 }
 ```
 
-- [ ] **(RED VERIFY) Step 2: Run test, confirm it fails**
+- [x] **(RED VERIFY) Step 2: Run test, confirm it fails**
 
 Run: `cargo test -p shiotsuchi chart`
 Expected: Compilation error — `ChartArgs`, `run_chart` not found
 
-- [ ] **(GREEN) Step 3: Implement chart.rs**
+- [x] **(GREEN) Step 3: Implement chart.rs**
 
 ```rust
 use clap::Args;
@@ -393,12 +428,12 @@ pub fn run_chart(
 }
 ```
 
-- [ ] **(GREEN VERIFY) Step 4: Run chart tests, confirm they pass**
+- [x] **(GREEN VERIFY) Step 4: Run chart tests, confirm they pass**
 
 Run: `cargo test -p shiotsuchi chart`
 Expected: 1 test passes
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add cli/src/commands/
@@ -412,7 +447,7 @@ git commit -m "feat(cli): add chart command for indexing"
 **Files:**
 - Create: `cli/src/commands/dive.rs`
 
-- [ ] **(RED) Step 1: Write failing tests for dive command**
+- [x] **(RED) Step 1: Write failing tests for dive command**
 
 Create `cli/src/commands/dive.rs` with test only:
 
@@ -456,12 +491,12 @@ mod tests {
 }
 ```
 
-- [ ] **(RED VERIFY) Step 2: Run tests, confirm they fail**
+- [x] **(RED VERIFY) Step 2: Run tests, confirm they fail**
 
 Run: `cargo test -p shiotsuchi dive`
 Expected: Compilation error — `DiveArgs`, `run_dive` not found
 
-- [ ] **(GREEN) Step 3: Implement dive.rs**
+- [x] **(GREEN) Step 3: Implement dive.rs**
 
 ```rust
 use clap::Args;
@@ -506,12 +541,12 @@ pub fn print_results(results: &[SearchResult], compact_json: bool) {
 }
 ```
 
-- [ ] **(GREEN VERIFY) Step 4: Run dive tests, confirm they pass**
+- [x] **(GREEN VERIFY) Step 4: Run dive tests, confirm they pass**
 
 Run: `cargo test -p shiotsuchi dive`
 Expected: 2 tests pass
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add cli/src/commands/dive.rs
@@ -525,7 +560,7 @@ git commit -m "feat(cli): add dive command for search with --json flag"
 **Files:**
 - Create: `cli/src/commands/tide.rs`
 
-- [ ] **(RED) Step 1: Write failing test for tide command**
+- [x] **(RED) Step 1: Write failing test for tide command**
 
 ```rust
 #[cfg(test)]
@@ -544,12 +579,12 @@ mod tests {
 }
 ```
 
-- [ ] **(RED VERIFY) Step 2: Run test, confirm it fails**
+- [x] **(RED VERIFY) Step 2: Run test, confirm it fails**
 
 Run: `cargo test -p shiotsuchi tide`
 Expected: Compilation error — `run_tide` not found
 
-- [ ] **(GREEN) Step 3: Implement tide.rs**
+- [x] **(GREEN) Step 3: Implement tide.rs**
 
 ```rust
 use clap::Args;
@@ -572,12 +607,12 @@ pub fn print_stats(stats: &VaultStats) {
 }
 ```
 
-- [ ] **(GREEN VERIFY) Step 4: Run tide test, confirm it passes**
+- [x] **(GREEN VERIFY) Step 4: Run tide test, confirm it passes**
 
 Run: `cargo test -p shiotsuchi tide`
 Expected: 1 test passes
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add cli/src/commands/tide.rs
@@ -593,7 +628,7 @@ git commit -m "feat(cli): add tide command for vault stats"
 - Create: `cli/src/commands/log.rs`
 - Modify: `cli/src/main.rs`
 
-- [ ] **(RED) Step 1: Write failing test for main dispatch**
+- [x] **(RED) Step 1: Write failing test for main dispatch**
 
 ```rust
 // cli/src/main.rs (test module)
@@ -608,7 +643,7 @@ mod tests {
 }
 ```
 
-- [ ] **Step 2: Implement scan.rs stub**
+- [x] **Step 2: Implement scan.rs stub**
 
 ```rust
 use clap::Args;
@@ -628,7 +663,7 @@ pub fn run_scan(_args: &ScanArgs, _notes_dir: &std::path::Path, _db_path: &std::
 }
 ```
 
-- [ ] **Step 3: Implement log.rs stub**
+- [x] **Step 3: Implement log.rs stub**
 
 ```rust
 pub fn run_log() {
@@ -636,7 +671,7 @@ pub fn run_log() {
 }
 ```
 
-- [ ] **Step 4: Wire all commands in main.rs**
+- [x] **Step 4: Wire all commands in main.rs**
 
 ```rust
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -669,12 +704,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-- [ ] **(GREEN VERIFY) Step 5: Run all CLI tests and build**
+- [x] **(GREEN VERIFY) Step 5: Run all CLI tests and build**
 
 Run: `cargo test -p shiotsuchi && cargo build -p shiotsuchi`
 Expected: All tests pass, binary builds
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add cli/src/
@@ -688,7 +723,7 @@ git commit -m "feat(cli): wire all subcommands in main.rs"
 **Files:**
 - Create: `cli/tests/integration_test.rs`
 
-- [ ] **(RED) Step 1: Write integration test**
+- [x] **(RED) Step 1: Write integration test**
 
 ```rust
 use std::fs;
@@ -723,21 +758,21 @@ fn test_chart_then_dive() {
 }
 ```
 
-- [ ] **(RED VERIFY) Step 2: Run integration test, confirm it fails**
+- [x] **(RED VERIFY) Step 2: Run integration test, confirm it fails**
 
 Run: `cargo test -p shiotsuchi --test integration_test`
 Expected: Fails (binary not yet fully wired or test logic catches a gap)
 
-- [ ] **(GREEN) Step 3: Fix any gaps found**
+- [x] **(GREEN) Step 3: Fix any gaps found**
 
 Fix production code only; do not change test assertions.
 
-- [ ] **(GREEN VERIFY) Step 4: Run integration test, confirm it passes**
+- [x] **(GREEN VERIFY) Step 4: Run integration test, confirm it passes**
 
 Run: `cargo test -p shiotsuchi --test integration_test`
 Expected: 1 test passes
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add cli/tests/integration_test.rs
