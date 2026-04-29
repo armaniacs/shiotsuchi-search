@@ -1,6 +1,6 @@
 # Shiotsuchi-Search Phase 3: Kilo Skill Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Build the `shiotsuchi-skill` binary (`skill/` crate) implementing the Kilo skill protocol, exposing `search-vault`, `read-note`, `vault-status` commands over JSON-RPC stdio.
 
@@ -59,7 +59,7 @@ skill/
 - Create: `skill/src/main.rs`
 - Create: `skill/skill.yaml`
 
-- [ ] **Step 1: Investigate Kilo skill protocol**
+- [x] **Step 1: Investigate Kilo skill protocol**
 
 Before writing code, inspect:
 ```bash
@@ -69,7 +69,7 @@ cat ~/.config/killo/agents/skills/*.yaml  # (or .json)
 ```
 Note the exact manifest format, JSON-RPC version, and method naming convention.
 
-- [ ] **Step 2: Write skill/Cargo.toml**
+- [x] **Step 2: Write skill/Cargo.toml**
 
 ```toml
 [package]
@@ -92,7 +92,7 @@ log = "0.4"
 env_logger = "0.11"
 ```
 
-- [ ] **Step 3: Write skill/skill.yaml**
+- [x] **Step 3: Write skill/skill.yaml**
 
 Adjust structure to match the actual Kilo protocol discovered in Step 1.
 
@@ -118,7 +118,7 @@ commands:
     description: Get vault indexing statistics.
 ```
 
-- [ ] **Step 4: Write skill/src/main.rs skeleton**
+- [x] **Step 4: Write skill/src/main.rs skeleton**
 
 ```rust
 mod handler;
@@ -130,12 +130,12 @@ fn main() {
 }
 ```
 
-- [ ] **Step 5: Verify workspace compiles**
+- [x] **Step 5: Verify workspace compiles**
 
 Run: `cargo check --workspace`
 Expected: Compiles
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add skill/Cargo.toml skill/src/main.rs skill/skill.yaml Cargo.toml
@@ -149,7 +149,7 @@ git commit -m "chore(skill): initialize skill crate skeleton"
 **Files:**
 - Create: `skill/src/protocol.rs`
 
-- [ ] **(RED) Step 1: Write failing tests for protocol types**
+- [x] **(RED) Step 1: Write failing tests for protocol types**
 
 Create `skill/src/protocol.rs` with test module only:
 
@@ -185,12 +185,12 @@ mod tests {
 }
 ```
 
-- [ ] **(RED VERIFY) Step 2: Run tests, confirm they fail**
+- [x] **(RED VERIFY) Step 2: Run tests, confirm they fail**
 
 Run: `cargo test -p shiotsuchi-skill protocol`
 Expected: Compilation error — `JsonRpcRequest`, `JsonRpcResponse` not found
 
-- [ ] **(GREEN) Step 3: Implement protocol.rs**
+- [x] **(GREEN) Step 3: Implement protocol.rs**
 
 ```rust
 use serde::{Deserialize, Serialize};
@@ -236,12 +236,12 @@ impl JsonRpcResponse {
 }
 ```
 
-- [ ] **(GREEN VERIFY) Step 4: Run protocol tests, confirm they pass**
+- [x] **(GREEN VERIFY) Step 4: Run protocol tests, confirm they pass**
 
 Run: `cargo test -p shiotsuchi-skill protocol`
 Expected: 3 tests pass
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add skill/src/protocol.rs
@@ -255,7 +255,7 @@ git commit -m "feat(skill): add JSON-RPC protocol types"
 **Files:**
 - Create: `skill/src/handler.rs`
 
-- [ ] **(RED) Step 1: Write failing tests for handlers**
+- [x] **(RED) Step 1: Write failing tests for handlers**
 
 Create `skill/src/handler.rs` with test module only:
 
@@ -307,12 +307,12 @@ mod tests {
 }
 ```
 
-- [ ] **(RED VERIFY) Step 2: Run tests, confirm they fail**
+- [x] **(RED VERIFY) Step 2: Run tests, confirm they fail**
 
 Run: `cargo test -p shiotsuchi-skill handler`
 Expected: Compilation error — handlers not found
 
-- [ ] **(GREEN) Step 3: Implement handler.rs**
+- [x] **(GREEN) Step 3: Implement handler.rs**
 
 ```rust
 use obsidian_shiotsuchi_vault_core::{
@@ -363,12 +363,12 @@ pub fn handle_read_note(
 }
 ```
 
-- [ ] **(GREEN VERIFY) Step 4: Run handler tests, confirm they pass**
+- [x] **(GREEN VERIFY) Step 4: Run handler tests, confirm they pass**
 
 Run: `cargo test -p shiotsuchi-skill handler`
 Expected: 3 tests pass
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add skill/src/handler.rs
@@ -382,7 +382,7 @@ git commit -m "feat(skill): add search, read, and status handlers"
 **Files:**
 - Modify: `skill/src/main.rs`
 
-- [ ] **(RED) Step 1: Write failing test for dispatch**
+- [x] **(RED) Step 1: Write failing test for dispatch**
 
 Add test module to `main.rs`:
 
@@ -407,12 +407,12 @@ mod tests {
 }
 ```
 
-- [ ] **(RED VERIFY) Step 2: Run test, confirm it fails**
+- [x] **(RED VERIFY) Step 2: Run test, confirm it fails**
 
 Run: `cargo test -p shiotsuchi-skill`
 Expected: Compilation error — `dispatch` not found
 
-- [ ] **(GREEN) Step 3: Implement dispatch and stdio loop in main.rs**
+- [x] **(GREEN) Step 3: Implement dispatch and stdio loop in main.rs**
 
 ```rust
 mod handler;
@@ -484,12 +484,12 @@ fn main() {
 }
 ```
 
-- [ ] **(GREEN VERIFY) Step 4: Run all skill tests, confirm they pass**
+- [x] **(GREEN VERIFY) Step 4: Run all skill tests, confirm they pass**
 
 Run: `cargo test -p shiotsuchi-skill`
 Expected: All tests pass
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add skill/src/main.rs
@@ -502,13 +502,13 @@ git commit -m "feat(skill): add stdio JSON-RPC dispatch loop"
 
 **TDD exception:** Registration and manual smoke test cannot be automated without a live Kilo environment.
 
-- [ ] **Step 1: Build release binary**
+- [x] **Step 1: Build release binary**
 
 ```bash
 cargo build -p shiotsuchi-skill --release
 ```
 
-- [ ] **Step 2: Install and register skill**
+- [x] **Step 2: Install and register skill**
 
 ```bash
 cp target/release/shiotsuchi-skill /usr/local/bin/
@@ -517,7 +517,7 @@ cp skill/skill.yaml ~/.config/killo/agents/skills/shiotsuchi-search.yaml
 
 Adjust paths to match local Kilo installation.
 
-- [ ] **Step 3: Manual smoke test**
+- [x] **Step 3: Manual smoke test**
 
 ```bash
 kilo agent run shiotsuchi-search search-vault --query "テスト"
@@ -525,7 +525,7 @@ kilo agent run shiotsuchi-search search-vault --query "テスト"
 
 Expected: JSON array of search results
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git commit -m "feat(skill): complete Kilo skill integration"
