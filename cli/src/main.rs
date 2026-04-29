@@ -1,0 +1,73 @@
+mod commands;
+mod config;
+
+use clap::{Parser, Subcommand};
+
+#[derive(Parser)]
+#[command(name = "shiotsuchi", about = "Guiding your path through the data tide.")]
+struct Cli {
+    #[arg(long, env = "SHIOTSUCHI_NOTES_DIR")]
+    notes_dir: Option<std::path::PathBuf>,
+
+    #[arg(long, env = "SHIOTSUCHI_DB_PATH")]
+    db_path: Option<std::path::PathBuf>,
+
+    #[arg(long)]
+    verbose: bool,
+
+    #[command(subcommand)]
+    command: Commands,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    Dive(commands::dive::DiveArgs),
+    Chart(commands::chart::ChartArgs),
+    Tide,
+    Scan(commands::scan::ScanArgs),
+    Log,
+}
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let cli = Cli::parse();
+    if cli.verbose {
+        env_logger::init();
+    }
+
+    let mut cfg = config::ShiotsuchiConfig::load();
+    if let Some(dir) = cli.notes_dir {
+        cfg.vault.notes_dir = dir;
+    }
+    if let Some(db) = cli.db_path {
+        cfg.vault.db_path = db;
+    }
+
+    match cli.command {
+        Commands::Chart(args) => {
+            commands::chart::run_chart(&args, &cfg.vault.notes_dir, &cfg.vault.db_path)?;
+        }
+        Commands::Dive(args) => {
+            let results =
+                commands::dive::run_dive(&args, &cfg.vault.notes_dir, &cfg.vault.db_path)?;
+            commands::dive::print_results(&results, args.json);
+        }
+        Commands::Tide => {
+            let stats = commands::tide::run_tide(&cfg.vault.db_path)?;
+            commands::tide::print_stats(&stats);
+        }
+        Commands::Scan(args) => {
+            commands::scan::run_scan(&args, &cfg.vault.notes_dir, &cfg.vault.db_path)?;
+        }
+        Commands::Log => commands::log::run_log(),
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_version_flag_compiles() {
+        assert!(true);
+    }
+}

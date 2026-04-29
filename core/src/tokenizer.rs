@@ -98,8 +98,10 @@ impl JapaneseTokenizer {
             if let Ok(mut sentence) = Sentence::from_raw(line) {
                 self.predictor.predict(&mut sentence);
                 for token in sentence.iter_tokens() {
+                    let surface = token.surface();
+                    if surface.trim().is_empty() { continue; }
                     if self.should_include(&token) {
-                        tokens.push(token.surface().to_string());
+                        tokens.push(surface.to_string());
                     }
                 }
             }
