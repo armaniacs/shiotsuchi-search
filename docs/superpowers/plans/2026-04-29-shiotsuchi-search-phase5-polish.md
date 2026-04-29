@@ -1,6 +1,6 @@
 # Shiotsuchi-Search Phase 5: Polish Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Complete the `scan` watcher command, add a `--version` tagline, improve error messages, add benchmarks, and write the README.
 
@@ -43,7 +43,7 @@ The `VaultWatcher` in `core/` was implemented in Phase 1. This task wires it int
 **Files:**
 - Modify: `cli/src/commands/scan.rs`
 
-- [ ] **(RED) Step 1: Write failing test for scan watcher startup**
+- [x] **(RED) Step 1: Write failing test for scan watcher startup**
 
 ```rust
 // cli/src/commands/scan.rs (test module)
@@ -79,12 +79,12 @@ mod tests {
 }
 ```
 
-- [ ] **(RED VERIFY) Step 2: Run test, confirm it fails**
+- [x] **(RED VERIFY) Step 2: Run test, confirm it fails**
 
 Run: `cargo test -p shiotsuchi scan`
 Expected: Compilation error — `run_scan_for_test` not found
 
-- [ ] **(GREEN) Step 3: Implement complete scan.rs**
+- [x] **(GREEN) Step 3: Implement complete scan.rs**
 
 ```rust
 use clap::Args;
@@ -158,12 +158,12 @@ pub fn run_scan_for_test(
 }
 ```
 
-- [ ] **(GREEN VERIFY) Step 4: Run scan test, confirm it passes**
+- [x] **(GREEN VERIFY) Step 4: Run scan test, confirm it passes**
 
 Run: `cargo test -p shiotsuchi scan`
 Expected: 1 test passes
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add cli/src/commands/scan.rs
@@ -178,7 +178,7 @@ git commit -m "feat(cli): complete scan command with file watcher"
 - Modify: `cli/src/main.rs`
 - Modify: `cli/src/commands/chart.rs` (improved error messages)
 
-- [ ] **(RED) Step 1: Write failing test for version output**
+- [x] **(RED) Step 1: Write failing test for version output**
 
 ```rust
 // cli/tests/version_test.rs
@@ -201,12 +201,12 @@ fn test_version_contains_tagline() {
 }
 ```
 
-- [ ] **(RED VERIFY) Step 2: Run test, confirm it fails**
+- [x] **(RED VERIFY) Step 2: Run test, confirm it fails**
 
 Run: `cargo test -p shiotsuchi --test version_test`
 Expected: Fails — tagline not in `--version` output
 
-- [ ] **(GREEN) Step 3: Add tagline to version output**
+- [x] **(GREEN) Step 3: Add tagline to version output**
 
 Modify `Cli` in `main.rs`:
 ```rust
@@ -221,12 +221,12 @@ Modify `Cli` in `main.rs`:
 )]
 ```
 
-- [ ] **(GREEN VERIFY) Step 4: Run version test, confirm it passes**
+- [x] **(GREEN VERIFY) Step 4: Run version test, confirm it passes**
 
 Run: `cargo test -p shiotsuchi --test version_test`
 Expected: 1 test passes
 
-- [ ] **(RED) Step 5: Write failing test for missing DB error message**
+- [x] **(RED) Step 5: Write failing test for missing DB error message**
 
 ```rust
 #[test]
@@ -243,12 +243,12 @@ fn test_dive_missing_db_shows_helpful_error() {
 }
 ```
 
-- [ ] **(RED VERIFY) Step 6: Run test, confirm it fails**
+- [x] **(RED VERIFY) Step 6: Run test, confirm it fails**
 
 Run: `cargo test -p shiotsuchi --test version_test`
 Expected: Fails — generic error message doesn't mention `chart`
 
-- [ ] **(GREEN) Step 7: Improve error handling in main.rs**
+- [x] **(GREEN) Step 7: Improve error handling in main.rs**
 
 Wrap command errors to provide context:
 ```rust
@@ -264,12 +264,12 @@ Commands::Dive(args) => {
 }
 ```
 
-- [ ] **(GREEN VERIFY) Step 8: Run all version/error tests, confirm they pass**
+- [x] **(GREEN VERIFY) Step 8: Run all version/error tests, confirm they pass**
 
 Run: `cargo test -p shiotsuchi --test version_test`
 Expected: 2 tests pass
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add cli/src/main.rs cli/tests/version_test.rs
@@ -286,7 +286,7 @@ git commit -m "feat(cli): add version tagline and improved error messages"
 - Create: `core/benches/search_bench.rs`
 - Modify: `core/Cargo.toml`
 
-- [ ] **Step 1: Add criterion dev-dependency**
+- [x] **Step 1: Add criterion dev-dependency**
 
 Add to `core/Cargo.toml`:
 ```toml
@@ -299,7 +299,7 @@ name = "search_bench"
 harness = false
 ```
 
-- [ ] **Step 2: Write benchmarks**
+- [x] **Step 2: Write benchmarks**
 
 Create `core/benches/search_bench.rs`:
 
@@ -364,7 +364,7 @@ criterion_group!(benches, bench_indexing, bench_search);
 criterion_main!(benches);
 ```
 
-- [ ] **Step 3: Run benchmarks**
+- [x] **Step 3: Run benchmarks**
 
 ```bash
 SHIOTSUCHI_MODEL_PATH=models/bccwj-suw+unidic_pos+kana.model.zst \
@@ -377,7 +377,7 @@ Performance targets (from design spec):
 - Indexing: ≥ 100 files/sec
 - Search (1000 notes): ≤ 50ms
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add core/benches/ core/Cargo.toml
@@ -393,7 +393,7 @@ git commit -m "bench(core): add criterion benchmarks for indexing and search"
 **Files:**
 - Create: `README.md`
 
-- [ ] **Step 1: Write README.md**
+- [x] **Step 1: Write README.md**
 
 ```markdown
 # Shiotsuchi-Search
@@ -497,7 +497,7 @@ SHIOTSUCHI_EMBED_MODEL=$(pwd)/models/bccwj-suw+unidic_pos+kana.model.zst \
 MIT
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add README.md
@@ -510,7 +510,7 @@ git commit -m "docs: add README with quick start and Claude Desktop integration"
 
 Run all tests across the entire workspace to confirm nothing is broken.
 
-- [ ] **(GREEN VERIFY) Step 1: Run full workspace tests**
+- [x] **(GREEN VERIFY) Step 1: Run full workspace tests**
 
 ```bash
 SHIOTSUCHI_MODEL_PATH=models/bccwj-suw+unidic_pos+kana.model.zst \
@@ -519,7 +519,7 @@ SHIOTSUCHI_MODEL_PATH=models/bccwj-suw+unidic_pos+kana.model.zst \
 
 Expected: All tests pass with zero failures
 
-- [ ] **Step 2: Build all release binaries**
+- [x] **Step 2: Build all release binaries**
 
 ```bash
 SHIOTSUCHI_EMBED_MODEL=$(pwd)/models/bccwj-suw+unidic_pos+kana.model.zst \
@@ -528,7 +528,7 @@ SHIOTSUCHI_EMBED_MODEL=$(pwd)/models/bccwj-suw+unidic_pos+kana.model.zst \
 
 Expected: `shiotsuchi`, `shiotsuchi-skill`, `shiotsuchi-mcp` all built in `target/release/`
 
-- [ ] **Step 3: Final commit**
+- [x] **Step 3: Final commit**
 
 ```bash
 git add -A
