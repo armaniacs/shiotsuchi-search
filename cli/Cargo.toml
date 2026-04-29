@@ -17,6 +17,7 @@ serde_json = "1"
 config = { version = "0.14", features = ["toml"] }
 dirs = "5"
 thiserror = "1"
+notify = "6"
 log = "0.4"
 env_logger = "0.11"
 

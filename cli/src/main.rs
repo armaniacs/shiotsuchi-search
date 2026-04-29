@@ -4,7 +4,12 @@ mod config;
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
-#[command(name = "shiotsuchi", about = "Guiding your path through the data tide.")]
+#[command(
+    name = "shiotsuchi",
+    version,
+    long_version = concat!(env!("CARGO_PKG_VERSION"), "\nGuiding your path through the data tide."),
+    about = "Guiding your path through the data tide."
+)]
 struct Cli {
     #[arg(long, env = "SHIOTSUCHI_NOTES_DIR")]
     notes_dir: Option<std::path::PathBuf>,
@@ -47,9 +52,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             commands::chart::run_chart(&args, &cfg.vault.notes_dir, &cfg.vault.db_path)?;
         }
         Commands::Dive(args) => {
-            let results =
-                commands::dive::run_dive(&args, &cfg.vault.notes_dir, &cfg.vault.db_path)?;
-            commands::dive::print_results(&results, args.json);
+            match commands::dive::run_dive(&args, &cfg.vault.notes_dir, &cfg.vault.db_path) {
+                Ok(results) => commands::dive::print_results(&results, args.json),
+                Err(e) if e.to_string().contains("unable to open") => {
+                    eprintln!("Error: database not found. Run `shiotsuchi chart` to index your vault first.");
+                    std::process::exit(1);
+                }
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                    std::process::exit(1);
+                }
+            }
         }
         Commands::Tide => {
             let stats = commands::tide::run_tide(&cfg.vault.db_path)?;
