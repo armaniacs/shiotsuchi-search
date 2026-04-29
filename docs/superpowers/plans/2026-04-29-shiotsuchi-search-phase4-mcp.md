@@ -12,6 +12,42 @@
 
 ---
 
+## 実装状況サマリー（2026-04-30 時点）
+
+### ✅ 実装済み（Tasks 1–4 + リリースビルド）
+
+- `mcp/` クレートの全ソースファイル（`Cargo.toml`, `protocol.rs`, `tools.rs`, `handler.rs`, `main.rs`）
+- 13 テスト全パス（TDD サイクル RED→VERIFY→GREEN→VERIFY を全タスクで遵守）
+- リリースバイナリのビルド確認済み（`cargo build -p shiotsuchi-mcp --release`）
+- `initialize` / `tools/list` / `tools/call` / `ping` のスモークテスト済み
+
+### ⚠️ 計画との差分（実装時に変更した点）
+
+| 箇所 | 計画 | 実装 |
+|------|------|------|
+| `Cargo.toml` | `dirs` 依存なし | `dirs = "5"` を追加（`main()` のデフォルト db パス解決に必要） |
+| `test_call_vault_status` | `temp.path()` を `notes_dir` として渡す | `/tmp` を渡す（vault_status は notes_dir を使わないため） |
+| Task 4 テスト | `test_dispatch_tools_list`, `test_dispatch_unknown_method` の 2 件 | `test_dispatch_initialize`, `test_dispatch_ping` を追加（合計 4 件） |
+
+### ❌ 未実施（手動作業が必要）
+
+- `cp target/release/shiotsuchi-mcp /usr/local/bin/` — バイナリのシステムインストール
+- `claude_desktop_config.json` への設定追記と Claude Desktop の再起動
+- 実 vault を使った `search_vault` の動作確認（本物の Notes ディレクトリとインデックス済み DB が必要）
+
+### 🔜 次にやること
+
+**Phase 4 の残作業（手動）:**
+1. vault をインデックス済みの DB で `shiotsuchi-mcp` を Claude Desktop に接続する
+2. 実際のノートに対して `search_vault` を呼び出し、結果を目視確認する
+
+**Phase 5（次フェーズ）:**
+- `shiotsuchi chart` コマンドの完成（watcher / `scan` サブコマンド）
+- ベンチマーク・エラー UX の改善
+- README 整備
+
+---
+
 ## TDD (Test-Driven Development) Approach
 
 All implementation in this plan follows strict TDD cycles:
