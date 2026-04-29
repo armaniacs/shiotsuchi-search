@@ -1,0 +1,27 @@
+name: shiotsuchi-search
+version: "0.1.0"
+description: "Search your Markdown vault for relevant context"
+binary: shiotsuchi-skill
+protocol: jsonrpc2-stdio
+commands:
+  - name: search-vault
+    description: Search notes matching a query. Returns paths, snippets, and scores.
+    params:
+      - name: query
+        type: string
+        required: true
+      - name: limit
+        type: integer
+        required: false
+        default: 20
+  - name: read-note
+    description: Read the full content of a specific note.
+    params:
+      - name: path
+        type: string
+        required: true
+  - name: vault-status
+    description: Get vault indexing statistics.
+env:
+  SHIOTSUCHI_NOTES_DIR: "~/.shiotsuchi/notes"
+  SHIOTSUCHI_DB_PATH: "~/.shiotsuchi/db.sqlite3"
