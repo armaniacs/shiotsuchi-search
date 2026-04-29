@@ -1,4 +1,4 @@
-# Shiotsuchi-Search Core Library Implementation Plan
+# Shiotsuchi-Search Phase 1: Core Library Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -7,6 +7,30 @@
 **Architecture:** A Rust library crate (`core/`) containing modules for database schema management (`db.rs`), file indexing with Vaporetto tokenization (`indexer.rs`), BM25 search with snippet extraction (`search.rs`), filesystem watching (`watcher.rs`), and shared data models (`models.rs`). Uses `rusqlite` with bundled SQLite FTS5, `vaporetto` for Japanese tokenization, `pulldown-cmark` for Markdown parsing, and `notify` for filesystem events.
 
 **Tech Stack:** Rust, rusqlite (bundled, fts5), vaporetto, pulldown-cmark, notify, serde, sha2, hex, thiserror, walkdir
+
+---
+
+## TDD (Test-Driven Development) Approach
+
+All implementation in this plan follows strict TDD cycles:
+
+1. **RED** - Write a failing test for the desired behavior.
+2. **RED VERIFY** - Run the test, confirm it fails (feature not yet implemented).
+3. **GREEN** - Write minimal code to make the test pass.
+4. **GREEN VERIFY** - Run the test, confirm it passes.
+5. **REFACTOR** - Clean up code while keeping tests green.
+6. Repeat for next behavior.
+
+**Mandatory Rules:**
+- Never write production code without a failing test first.
+- If code was written before tests, delete it and start over.
+- Verify RED before writing GREEN code — if the test passes immediately, the test is wrong.
+- Verify GREEN before moving to next cycle.
+- RED VERIFY is never skippable: watching the test fail is proof that it tests the right thing.
+
+Each task below is structured as TDD cycles. Steps marked with (RED), (GREEN), (REFACTOR) indicate the phase.
+
+**Exception — Task 1 (Skeleton):** Configuration files and empty module stubs have no testable behavior; TDD does not apply. All other tasks follow strict TDD.
 
 ---
 
@@ -137,13 +161,116 @@ git commit -m "chore: initialize workspace and core crate skeleton"
 
 ---
 
-## Task 2: Define Shared Models
+## Task 2: Define Shared Models (TDD)
 
 **Files:**
 - Create: `core/src/models.rs`
 - Test: `core/src/models.rs` (doc tests / unit tests inline)
 
-- [ ] **Step 1: Write models.rs**
+- [ ] **(RED) Step 1: Write failing test for NoteMetadata**
+
+Create `core/src/models.rs` with test only (NoteMetadata not defined yet):
+
+```rust
+use serde::{Deserialize, Serialize};
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn note_metadata_serde_roundtrip() {
+        // This test will FAIL - NoteMetadata not defined yet
+        let meta = NoteMetadata {
+            path: "projects/meeting.md".to_string(),
+            hash: "abc123".to_string(),
+            mtime: 1714320000,
+            indexed_at: 1714320000,
+            title: "Meeting Notes".to_string(),
+        };
+        let json = serde_json::to_string(&meta).unwrap();
+        let decoded: NoteMetadata = serde_json::from_str(&json).unwrap();
+        assert_eq!(meta, decoded);
+    }
+}
+```
+
+- [ ] **(RED VERIFY) Step 2: Run test, confirm it fails**
+
+Run: `cargo test -p obsidian-shiotsuchi-vault-core --lib`
+Expected: Compilation error (NoteMetadata not found)
+
+- [ ] **(GREEN) Step 3: Write minimal NoteMetadata struct**
+
+Add NoteMetadata with derive attributes and fields to make test compile:
+
+```rust
+use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
+
+/// Metadata for a single note stored in the database.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NoteMetadata {
+    /// Relative path within the notes directory (forward slashes).
+    pub path: String,
+    /// SHA-256 hash of the original file content (hex string).
+    pub hash: String,
+    /// Last modified time (Unix timestamp, seconds).
+    pub mtime: i64,
+    /// When this record was last indexed (Unix timestamp, seconds).
+    pub indexed_at: i64,
+    /// Title extracted from frontmatter or filename.
+    pub title: String,
+}
+```
+
+- [ ] **(GREEN VERIFY) Step 4: Run test, confirm it passes**
+
+Run: `cargo test -p obsidian-shiotsuchi-vault-core --lib`
+Expected: test passes
+
+- [ ] **(REFACTOR) Step 5: Add remaining types (IndexResult, SearchResult, VaultStats, IndexConfig)**
+
+Add the rest of the types from the full spec below. Keep tests green.
+
+Run: `cargo test -p obsidian-shiotsuchi-vault-core --lib`
+Expected: 1 test still passes (no regressions)
+
+- [ ] **(RED) Step 6: Write failing test for IndexConfig default**
+
+Add test `default_index_config` to `models.rs` — `IndexConfig` not defined yet, so compilation fails:
+
+```rust
+#[test]
+fn default_index_config() {
+    let config = IndexConfig::default();
+    assert_eq!(config.include_extensions, vec!["md", "markdown"]);
+    assert!(config.exclude_patterns.contains(&".git".to_string()));
+}
+```
+
+- [ ] **(RED VERIFY) Step 7: Run test, confirm it fails**
+
+Run: `cargo test -p obsidian-shiotsuchi-vault-core --lib`
+Expected: Compilation error — `IndexConfig` not found
+
+- [ ] **(GREEN) Step 8: Implement IndexConfig with Default**
+
+Add IndexConfig struct and Default impl.
+
+- [ ] **(GREEN VERIFY) Step 9: Run all model tests**
+
+Run: `cargo test -p obsidian-shiotsuchi-vault-core --lib`
+Expected: 2 tests pass
+
+- [ ] **Step 10: Commit**
+
+```bash
+git add core/src/models.rs
+git commit -m "feat(core): add shared data models with serde support"
+```
+
+### Full models.rs reference (implement in GREEN/REFACTOR phases):
 
 ```rust
 use serde::{Deserialize, Serialize};
@@ -251,27 +378,76 @@ mod tests {
 }
 ```
 
-- [ ] **Step 2: Run model tests**
-
-Run: `cargo test -p obsidian-shiotsuchi-vault-core --lib`
-Expected: 2 tests pass
-
-- [ ] **Step 3: Commit**
-
-```bash
-git add core/src/models.rs
-git commit -m "feat(core): add shared data models with serde support"
-```
-
 ---
 
 ## Task 3: Database Schema and Operations
+
+**TDD**: For each behavior: (RED) Write failing test → (RED VERIFY) → (GREEN) Minimal code → (GREEN VERIFY) → (REFACTOR)
 
 **Files:**
 - Create: `core/src/db.rs`
 - Test: `core/src/db.rs` (inline tests)
 
-- [ ] **Step 1: Write db.rs**
+- [ ] **(RED) Step 1: Write failing tests only in db.rs**
+
+Create `core/src/db.rs` with the test module only — no implementation yet:
+
+```rust
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_init_schema() {
+        // FAIL: NoteDatabase not defined yet
+        let db = NoteDatabase::open_in_memory().unwrap();
+        let stats = db.stats().unwrap();
+        assert_eq!(stats.total_notes, 0);
+    }
+
+    #[test]
+    fn test_upsert_and_get() {
+        let db = NoteDatabase::open_in_memory().unwrap();
+        let changed = db
+            .upsert_note("test.md", "Test", "tokenized body", "hash123", 1000)
+            .unwrap();
+        assert!(changed);
+
+        let meta = db.get_metadata("test.md").unwrap();
+        assert_eq!(meta.title, "Test");
+        assert_eq!(meta.hash, "hash123");
+    }
+
+    #[test]
+    fn test_upsert_skip_unchanged() {
+        let db = NoteDatabase::open_in_memory().unwrap();
+        db.upsert_note("test.md", "Test", "body", "hash123", 1000)
+            .unwrap();
+        let changed = db
+            .upsert_note("test.md", "Test", "body", "hash123", 1000)
+            .unwrap();
+        assert!(!changed);
+    }
+
+    #[test]
+    fn test_delete() {
+        let db = NoteDatabase::open_in_memory().unwrap();
+        db.upsert_note("test.md", "Test", "body", "hash123", 1000)
+            .unwrap();
+        db.delete_note("test.md").unwrap();
+        assert!(db.get_metadata("test.md").is_err());
+    }
+}
+```
+
+- [ ] **(RED VERIFY) Step 2: Run tests, confirm they fail**
+
+Run: `cargo test -p obsidian-shiotsuchi-vault-core db::`
+Expected: Compilation error — `NoteDatabase` not found
+
+- [ ] **(GREEN) Step 3: Write minimal db.rs implementation**
+
+Add the implementation above the test module to make all 4 tests pass:
 
 ```rust
 use crate::models::{NoteMetadata, VaultStats};
@@ -310,7 +486,6 @@ impl NoteDatabase {
     }
 
     fn init_schema(&self) -> SqliteResult<()> {
-        // Main FTS5 table for tokenized body search
         self.conn.execute(
             "CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
                 path UNINDEXED,
@@ -321,7 +496,6 @@ impl NoteDatabase {
             [],
         )?;
 
-        // Metadata table for hash/mtime tracking
         self.conn.execute(
             "CREATE TABLE IF NOT EXISTS notes_meta (
                 path TEXT PRIMARY KEY,
@@ -333,7 +507,6 @@ impl NoteDatabase {
             [],
         )?;
 
-        // Index for fast hash lookups
         self.conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_notes_meta_hash ON notes_meta(hash)",
             [],
@@ -356,7 +529,6 @@ impl NoteDatabase {
             .unwrap()
             .as_secs() as i64;
 
-        // Check existing hash
         let existing: Option<String> = self
             .conn
             .query_row(
@@ -368,21 +540,17 @@ impl NoteDatabase {
 
         if let Some(old_hash) = existing {
             if old_hash == hash {
-                // Unchanged
                 return Ok(false);
             }
-            // Update: delete old FTS row first
             self.conn
                 .execute("DELETE FROM notes_fts WHERE path = ?1", [path])?;
         }
 
-        // Insert into FTS
         self.conn.execute(
             "INSERT INTO notes_fts (path, title, body) VALUES (?1, ?2, ?3)",
             params![path, title, tokenized_body],
         )?;
 
-        // Upsert metadata
         self.conn.execute(
             "INSERT INTO notes_meta (path, hash, mtime, indexed_at, title)
              VALUES (?1, ?2, ?3, ?4, ?5)
@@ -469,59 +637,14 @@ impl NoteDatabase {
         })
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_init_schema() {
-        let db = NoteDatabase::open_in_memory().unwrap();
-        let stats = db.stats().unwrap();
-        assert_eq!(stats.total_notes, 0);
-    }
-
-    #[test]
-    fn test_upsert_and_get() {
-        let db = NoteDatabase::open_in_memory().unwrap();
-        let changed = db
-            .upsert_note("test.md", "Test", "tokenized body", "hash123", 1000)
-            .unwrap();
-        assert!(changed);
-
-        let meta = db.get_metadata("test.md").unwrap();
-        assert_eq!(meta.title, "Test");
-        assert_eq!(meta.hash, "hash123");
-    }
-
-    #[test]
-    fn test_upsert_skip_unchanged() {
-        let db = NoteDatabase::open_in_memory().unwrap();
-        db.upsert_note("test.md", "Test", "body", "hash123", 1000)
-            .unwrap();
-        let changed = db
-            .upsert_note("test.md", "Test", "body", "hash123", 1000)
-            .unwrap();
-        assert!(!changed);
-    }
-
-    #[test]
-    fn test_delete() {
-        let db = NoteDatabase::open_in_memory().unwrap();
-        db.upsert_note("test.md", "Test", "body", "hash123", 1000)
-            .unwrap();
-        db.delete_note("test.md").unwrap();
-        assert!(db.get_metadata("test.md").is_err());
-    }
-}
 ```
 
-- [ ] **Step 2: Run DB tests**
+- [ ] **(GREEN VERIFY) Step 4: Run DB tests, confirm all pass**
 
 Run: `cargo test -p obsidian-shiotsuchi-vault-core db::`
 Expected: 4 tests pass
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add core/src/db.rs
@@ -532,88 +655,19 @@ git commit -m "feat(core): add SQLite FTS5 schema and CRUD operations"
 
 ## Task 4: Markdown Parsing and Frontmatter Extraction
 
+**TDD**: Follow RED → RED VERIFY → GREEN → GREEN VERIFY → REFACTOR for each behavior.
+
 **Files:**
 - Create: `core/src/indexer.rs` (partial - parsing utilities)
 - Create: `tests/fixtures/vault/simple.md`
 - Create: `tests/fixtures/vault/frontmatter.md`
 - Create: `tests/fixtures/vault/empty.md`
 
-- [ ] **Step 1: Add parsing utilities to indexer.rs**
+- [ ] **(RED) Step 1: Write failing tests only in indexer.rs**
+
+Create `core/src/indexer.rs` with the test module only — no implementation yet:
 
 ```rust
-use std::path::Path;
-
-/// Extract YAML frontmatter from markdown content.
-/// Returns (title, body_without_frontmatter).
-/// If no frontmatter, returns (None, original_content).
-pub fn extract_frontmatter(content: &str) -> (Option<String>, String) {
-    if !content.starts_with("---\n") && !content.starts_with("---\r\n") {
-        return (None, content.to_string());
-    }
-
-    let end_marker = "\n---\n";
-    let end_marker_crlf = "\r\n---\r\n";
-
-    if let Some(end_pos) = content.find(end_marker) {
-        let frontmatter = &content[4..end_pos];
-        let body = &content[end_pos + end_marker.len()..];
-        let title = parse_yaml_title(frontmatter);
-        return (title, body.to_string());
-    }
-
-    if let Some(end_pos) = content.find(end_marker_crlf) {
-        let frontmatter = &content[4..end_pos];
-        let body = &content[end_pos + end_marker_crlf.len()..];
-        let title = parse_yaml_title(frontmatter);
-        return (title, body.to_string());
-    }
-
-    (None, content.to_string())
-}
-
-fn parse_yaml_title(frontmatter: &str) -> Option<String> {
-    for line in frontmatter.lines() {
-        let trimmed = line.trim();
-        if let Some(stripped) = trimmed.strip_prefix("title:") {
-            let value = stripped.trim().trim_matches('"').trim_matches('\'');
-            if !value.is_empty() {
-                return Some(value.to_string());
-            }
-        }
-    }
-    None
-}
-
-/// Parse markdown to plain text.
-pub fn markdown_to_text(markdown: &str) -> String {
-    use pulldown_cmark::{Event, Parser};
-
-    let parser = Parser::new(markdown);
-    let mut text = String::new();
-    for event in parser {
-        match event {
-            Event::Text(t) => text.push_str(&t),
-            Event::Code(c) => text.push_str(&c),
-            Event::HardBreak | Event::SoftBreak => text.push('\n'),
-            _ => {}
-        }
-    }
-    // Collapse multiple newlines
-    text.lines()
-        .map(|l| l.trim())
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
-/// Generate title from filename stem.
-pub fn title_from_path(path: &Path) -> String {
-    path.file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("Untitled")
-        .replace('-', " ")
-        .replace('_', " ")
-}
-
 #[cfg(test)]
 mod parsing_tests {
     use super::*;
@@ -621,6 +675,7 @@ mod parsing_tests {
 
     #[test]
     fn test_no_frontmatter() {
+        // FAIL: extract_frontmatter not defined yet
         let content = "# Hello\n\nWorld";
         let (title, body) = extract_frontmatter(content);
         assert!(title.is_none());
@@ -654,7 +709,87 @@ mod parsing_tests {
 }
 ```
 
-- [ ] **Step 2: Create fixture files**
+- [ ] **(RED VERIFY) Step 2: Run tests, confirm they fail**
+
+Run: `cargo test -p obsidian-shiotsuchi-vault-core parsing_tests`
+Expected: Compilation error — `extract_frontmatter`, `markdown_to_text`, `title_from_path` not found
+
+- [ ] **(GREEN) Step 3: Write minimal parsing implementation**
+
+Add the implementation above the test module:
+
+```rust
+use std::path::Path;
+
+/// Extract YAML frontmatter. Returns (title, body_without_frontmatter).
+pub fn extract_frontmatter(content: &str) -> (Option<String>, String) {
+    if !content.starts_with("---\n") && !content.starts_with("---\r\n") {
+        return (None, content.to_string());
+    }
+
+    let end_marker = "\n---\n";
+    let end_marker_crlf = "\r\n---\r\n";
+
+    if let Some(end_pos) = content.find(end_marker) {
+        let frontmatter = &content[4..end_pos];
+        let body = &content[end_pos + end_marker.len()..];
+        return (parse_yaml_title(frontmatter), body.to_string());
+    }
+
+    if let Some(end_pos) = content.find(end_marker_crlf) {
+        let frontmatter = &content[4..end_pos];
+        let body = &content[end_pos + end_marker_crlf.len()..];
+        return (parse_yaml_title(frontmatter), body.to_string());
+    }
+
+    (None, content.to_string())
+}
+
+fn parse_yaml_title(frontmatter: &str) -> Option<String> {
+    for line in frontmatter.lines() {
+        if let Some(stripped) = line.trim().strip_prefix("title:") {
+            let value = stripped.trim().trim_matches('"').trim_matches('\'');
+            if !value.is_empty() {
+                return Some(value.to_string());
+            }
+        }
+    }
+    None
+}
+
+/// Parse markdown to plain text (strips all markup).
+pub fn markdown_to_text(markdown: &str) -> String {
+    use pulldown_cmark::{Event, Parser};
+
+    let parser = Parser::new(markdown);
+    let mut text = String::new();
+    for event in parser {
+        match event {
+            Event::Text(t) => text.push_str(&t),
+            Event::Code(c) => text.push_str(&c),
+            Event::HardBreak | Event::SoftBreak => text.push('\n'),
+            _ => {}
+        }
+    }
+    text.lines().map(|l| l.trim()).collect::<Vec<_>>().join("\n")
+}
+
+/// Derive title from filename stem (hyphens/underscores → spaces).
+pub fn title_from_path(path: &Path) -> String {
+    path.file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("Untitled")
+        .replace('-', " ")
+        .replace('_', " ")
+}
+```
+
+- [ ] **(GREEN VERIFY) Step 4: Run parsing tests, confirm all pass**
+
+Run: `cargo test -p obsidian-shiotsuchi-vault-core parsing_tests`
+Expected: 4 tests pass
+
+- [ ] **Step 5: Create fixture files**
 
 File: `tests/fixtures/vault/simple.md`
 ```markdown
@@ -683,12 +818,7 @@ title: Empty Body
 ---
 ```
 
-- [ ] **Step 3: Run parsing tests**
-
-Run: `cargo test -p obsidian-shiotsuchi-vault-core parsing_tests`
-Expected: 4 tests pass
-
-- [ ] **Step 4: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add core/src/indexer.rs tests/fixtures/vault/
@@ -697,7 +827,11 @@ git commit -m "feat(core): add markdown parsing and frontmatter extraction"
 
 ---
 
-## Task 5: Vaporetto Tokenization
+## Task 5: Vaporetto Tokenization (TDD)
+
+**TDD**: Follow RED → RED VERIFY → GREEN → GREEN VERIFY → REFACTOR for each behavior.
+
+**Files:**
 
 **Files:**
 - Create: `core/build.rs`
@@ -741,10 +875,39 @@ fn main() {
 }
 ```
 
-- [ ] **Step 2: Write `core/src/tokenizer.rs`**
+- [ ] **(RED) Step 2: Write failing tests only in tokenizer.rs**
 
-sqlite-vaporetto の Rust コアと等価な実装。
-`split()` = `vaporetto_split(text, ' ')`、`and_query()` = `vaporetto_and_query()`。
+Create `core/src/tokenizer.rs` with the test module only — no implementation yet:
+
+```rust
+include!(concat!(env!("OUT_DIR"), "/embedded_model.rs"));
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_simple_tokenize() {
+        // FAIL: simple_tokenize not defined yet
+        assert_eq!(simple_tokenize("Hello world  test"), "Hello world test");
+    }
+
+    #[test]
+    fn test_simple_and_query() {
+        let q = simple_and_query("東京 検索");
+        assert_eq!(q, "\"東京\" AND \"検索\"");
+    }
+}
+```
+
+- [ ] **(RED VERIFY) Step 3: Run tests, confirm they fail**
+
+Run: `cargo test -p obsidian-shiotsuchi-vault-core tokenizer`
+Expected: Compilation error — `simple_tokenize`, `simple_and_query` not found
+
+- [ ] **(GREEN) Step 4: Write minimal tokenizer implementation**
+
+Add the implementation above the test module. Start with just `simple_tokenize` and `simple_and_query` to pass the tests, then add `JapaneseTokenizer`:
 
 ```rust
 include!(concat!(env!("OUT_DIR"), "/embedded_model.rs"));
@@ -764,11 +927,7 @@ pub enum TokenizerError {
 /// sqlite-vaporetto の TokenizerConfig に対応。
 #[derive(Debug, Clone)]
 pub struct TokenizerConfig {
-    /// Some(vec!["名詞"]) のように指定すると品詞フィルタを適用。
-    /// sqlite-vaporetto の `tags 名詞` オプションと等価。
     pub pos_filter: Option<Vec<String>>,
-    /// タグなしトークン（ASCII 単語等）を含めるか。
-    /// sqlite-vaporetto の `keep_untagged` オプションと等価。
     pub keep_untagged: bool,
 }
 
@@ -784,10 +943,6 @@ pub struct JapaneseTokenizer {
 }
 
 impl JapaneseTokenizer {
-    /// モデルロード優先順位（sqlite-vaporetto のモデル設定階層と同じ）:
-    /// 1. EMBEDDED_MODEL_BYTES（build.rs で include_bytes! 埋め込み）
-    /// 2. SHIOTSUCHI_MODEL_PATH 環境変数
-    /// 3. どちらもなければ TokenizerError::NoModel
     pub fn new(config: TokenizerConfig) -> Result<Self, TokenizerError> {
         let bytes_owned: Vec<u8>;
         let model_bytes: &[u8] = if let Some(embedded) = EMBEDDED_MODEL_BYTES {
@@ -811,17 +966,12 @@ impl JapaneseTokenizer {
         Ok(Self { predictor, config })
     }
 
-    /// `vaporetto_split(text, ' ')` と等価。
-    /// テキストをトークナイズして空白区切り文字列を返す。
-    /// この文字列を FTS5 の body カラムに格納する。
+    /// `vaporetto_split(text, ' ')` と等価。FTS5 body カラムに格納する値を返す。
     pub fn split(&self, text: &str) -> String {
         self.collect_tokens(text).join(" ")
     }
 
-    /// `vaporetto_and_query(text)` と等価。
-    /// 出力例: `"東京" AND "検索" AND "エンジン"`
-    /// 各トークンを "" で囲むことで特殊文字をエスケープし AND 結合する。
-    /// FTS5 の MATCH 引数にそのまま渡せる。
+    /// `vaporetto_and_query(text)` と等価。FTS5 MATCH 引数にそのまま渡せる。
     pub fn and_query(&self, text: &str) -> String {
         self.collect_tokens(text)
             .into_iter()
@@ -830,7 +980,6 @@ impl JapaneseTokenizer {
             .join(" AND ")
     }
 
-    /// `vaporetto_or_query(text)` と等価（将来の OR 検索用）。
     pub fn or_query(&self, text: &str) -> String {
         self.collect_tokens(text)
             .into_iter()
@@ -871,7 +1020,6 @@ impl JapaneseTokenizer {
     }
 }
 
-/// .model.zst のマジックバイト検出（sqlite-vaporetto と同じ判定）。
 fn decompress_if_needed(bytes: &[u8]) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     if bytes.starts_with(&[0x28, 0xb5, 0x2f, 0xfd]) {
         let mut decoder = ruzstd::StreamingDecoder::new(bytes)?;
@@ -895,26 +1043,14 @@ pub fn simple_and_query(text: &str) -> String {
         .collect::<Vec<_>>()
         .join(" AND ")
 }
-
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_simple_tokenize() {
-        assert_eq!(simple_tokenize("Hello world  test"), "Hello world test");
-    }
-
-    #[test]
-    fn test_simple_and_query() {
-        let q = simple_and_query("東京 検索");
-        assert_eq!(q, "\"東京\" AND \"検索\"");
-    }
-}
 ```
 
-- [ ] **Step 3: Write `scripts/download-model.sh`**
+- [ ] **(GREEN VERIFY) Step 5: Run tokenizer tests, confirm they pass**
+
+Run: `cargo test -p obsidian-shiotsuchi-vault-core tokenizer`
+Expected: 2 tests pass（モデル未埋め込みでも `simple_tokenize` / `simple_and_query` テストは通る）
+
+- [ ] **Step 6: Write `scripts/download-model.sh`**
 
 sqlite-vaporetto のリリース tarball から同じモデルを抽出する。
 
@@ -934,7 +1070,7 @@ if [ ! -f "$DEST" ]; then
 fi
 ```
 
-- [ ] **Step 4: Add tokenizer module to lib.rs**
+- [ ] **Step 7: Add tokenizer module to lib.rs**
 
 Modify `core/src/lib.rs`:
 ```rust
@@ -952,12 +1088,7 @@ pub use search::Searcher;
 pub use tokenizer::{JapaneseTokenizer, TokenizerConfig};
 ```
 
-- [ ] **Step 5: Run tokenizer tests**
-
-Run: `cargo test -p obsidian-shiotsuchi-vault-core tokenizer`
-Expected: 2 tests pass（モデル未埋め込みでも simple_tokenize / simple_and_query テストは通る）
-
-- [ ] **Step 6: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
 git add core/build.rs core/src/tokenizer.rs core/src/lib.rs scripts/download-model.sh .gitignore
@@ -966,15 +1097,83 @@ git commit -m "feat(core): add Vaporetto tokenizer with build.rs model embedding
 
 ---
 
-## Task 6: File Walker and Indexer
+## Task 6: File Walker and Indexer (TDD)
+
+**TDD**: Follow RED → RED VERIFY → GREEN → GREEN VERIFY → REFACTOR for each behavior.
 
 **Files:**
 - Modify: `core/src/indexer.rs` (complete implementation)
 - Test: `core/src/indexer.rs` (integration tests)
 
-- [ ] **Step 1: Complete indexer.rs**
+- [ ] **(RED) Step 1: Add failing tests for index_directory and cleanup_deleted**
 
-Task 4 のパース関数をそのまま含む完全な実装。`index_directory` は `tokenizer` を受け取り `index_file` に渡す。
+Append to the existing test module in `indexer.rs` — `index_directory` and `cleanup_deleted` are not yet defined:
+
+```rust
+// テスト戦略: SHIOTSUCHI_MODEL_PATH が設定されていない場合は panic する。
+// CI での実行: SHIOTSUCHI_MODEL_PATH=models/bccwj-suw+unidic_pos+kana.model.zst cargo test
+
+#[test]
+fn test_index_directory() {
+    // FAIL: index_directory not defined yet
+    let temp = TempDir::new().unwrap();
+    let vault = temp.path().join("vault");
+    fs::create_dir(&vault).unwrap();
+
+    let mut f1 = fs::File::create(vault.join("note1.md")).unwrap();
+    writeln!(f1, "# Hello\n\nWorld content").unwrap();
+    let mut f2 = fs::File::create(vault.join("note2.md")).unwrap();
+    writeln!(f2, "---\ntitle: Special\n---\n\nUnique text here").unwrap();
+
+    let db = NoteDatabase::open_in_memory().unwrap();
+    let tokenizer = JapaneseTokenizer::new(Default::default())
+        .unwrap_or_else(|_| panic!("SHIOTSUCHI_MODEL_PATH を設定してください"));
+    let config = IndexConfig { notes_dir: vault.clone(), ..Default::default() };
+
+    let results = index_directory(&db, &tokenizer, &config).unwrap();
+    assert_eq!(results.len(), 2);
+    assert_eq!(db.stats().unwrap().total_notes, 2);
+}
+
+#[test]
+fn test_cleanup_deleted() {
+    // FAIL: cleanup_deleted not defined yet
+    let temp = TempDir::new().unwrap();
+    let vault = temp.path().join("vault");
+    fs::create_dir(&vault).unwrap();
+
+    let mut f = fs::File::create(vault.join("old.md")).unwrap();
+    writeln!(f, "content").unwrap();
+
+    let db = NoteDatabase::open_in_memory().unwrap();
+    let tokenizer = JapaneseTokenizer::new(Default::default())
+        .unwrap_or_else(|_| panic!("SHIOTSUCHI_MODEL_PATH を設定してください"));
+    let config = IndexConfig { notes_dir: vault.clone(), ..Default::default() };
+    index_directory(&db, &tokenizer, &config).unwrap();
+    assert_eq!(db.stats().unwrap().total_notes, 1);
+
+    fs::remove_file(vault.join("old.md")).unwrap();
+    let removed = cleanup_deleted(&db, &config).unwrap();
+    assert_eq!(removed.len(), 1);
+    assert_eq!(db.stats().unwrap().total_notes, 0);
+}
+```
+
+Also add required imports to the test module:
+```rust
+use crate::{db::NoteDatabase, tokenizer::{JapaneseTokenizer, TokenizerConfig}};
+use std::io::Write;
+use tempfile::TempDir;
+```
+
+- [ ] **(RED VERIFY) Step 2: Run tests, confirm they fail**
+
+Run: `cargo test -p obsidian-shiotsuchi-vault-core indexer`
+Expected: Compilation error — `index_directory`, `cleanup_deleted` not found
+
+- [ ] **(GREEN) Step 3: Complete indexer.rs implementation**
+
+Add `index_file`, `index_directory`, `cleanup_deleted`, and `compute_hash` to `indexer.rs`:
 
 ```rust
 use crate::{
@@ -982,70 +1181,9 @@ use crate::{
     models::{IndexConfig, IndexResult},
     tokenizer::JapaneseTokenizer,
 };
-use pulldown_cmark::{Event, Parser};
 use sha2::{Digest, Sha256};
-use std::{
-    fs,
-    path::Path,
-    time::SystemTime,
-};
+use std::{fs, path::Path, time::SystemTime};
 use walkdir::WalkDir;
-
-/// Extract YAML frontmatter. Returns (title, body_without_frontmatter).
-pub fn extract_frontmatter(content: &str) -> (Option<String>, String) {
-    if !content.starts_with("---\n") && !content.starts_with("---\r\n") {
-        return (None, content.to_string());
-    }
-    let end_marker = "\n---\n";
-    let end_marker_crlf = "\r\n---\r\n";
-    if let Some(end_pos) = content.find(end_marker) {
-        let frontmatter = &content[4..end_pos];
-        let body = &content[end_pos + end_marker.len()..];
-        return (parse_yaml_title(frontmatter), body.to_string());
-    }
-    if let Some(end_pos) = content.find(end_marker_crlf) {
-        let frontmatter = &content[4..end_pos];
-        let body = &content[end_pos + end_marker_crlf.len()..];
-        return (parse_yaml_title(frontmatter), body.to_string());
-    }
-    (None, content.to_string())
-}
-
-fn parse_yaml_title(frontmatter: &str) -> Option<String> {
-    for line in frontmatter.lines() {
-        if let Some(stripped) = line.trim().strip_prefix("title:") {
-            let value = stripped.trim().trim_matches('"').trim_matches('\'');
-            if !value.is_empty() {
-                return Some(value.to_string());
-            }
-        }
-    }
-    None
-}
-
-/// Parse Markdown to plain text (strips all markup).
-pub fn markdown_to_text(markdown: &str) -> String {
-    let parser = Parser::new(markdown);
-    let mut text = String::new();
-    for event in parser {
-        match event {
-            Event::Text(t) => text.push_str(&t),
-            Event::Code(c) => text.push_str(&c),
-            Event::HardBreak | Event::SoftBreak => text.push('\n'),
-            _ => {}
-        }
-    }
-    text.lines().map(|l| l.trim()).collect::<Vec<_>>().join("\n")
-}
-
-/// Derive title from filename stem (hyphens/underscores → spaces).
-pub fn title_from_path(path: &Path) -> String {
-    path.file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("Untitled")
-        .replace('-', " ")
-        .replace('_', " ")
-}
 
 /// Index a single file into the database.
 /// `tokenizer` は呼び出し側が一度だけ初期化して渡す（モデルロードコストを1回に抑える）。
@@ -1069,8 +1207,6 @@ pub fn index_file(
     let (frontmatter_title, body) = extract_frontmatter(&content);
     let title = frontmatter_title.unwrap_or_else(|| title_from_path(file_path));
     let plain_text = markdown_to_text(&body);
-
-    // vaporetto_split(plain_text, ' ') と等価: トークン列を空白区切りで body カラムに格納
     let tokenized = tokenizer.split(&plain_text);
 
     match db.upsert_note(relative_path, &title, &tokenized, &hash, mtime) {
@@ -1087,7 +1223,6 @@ fn compute_hash(content: &str) -> String {
 }
 
 /// Walk directory and index all matching files.
-/// `tokenizer` を受け取り各ファイルの index_file に渡す。
 pub fn index_directory(
     db: &NoteDatabase,
     tokenizer: &JapaneseTokenizer,
@@ -1102,19 +1237,12 @@ pub fn index_directory(
         .filter_map(|e| e.ok())
     {
         let path = entry.path();
-        if !path.is_file() {
-            continue;
-        }
+        if !path.is_file() { continue; }
         let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-        if !config.include_extensions.iter().any(|e| e == ext) {
-            continue;
-        }
+        if !config.include_extensions.iter().any(|e| e == ext) { continue; }
         let relative = path.strip_prefix(notes_dir).unwrap_or(path);
         let rel_str = relative.to_string_lossy();
-        if config.exclude_patterns.iter().any(|pat| rel_str.contains(pat)) {
-            continue;
-        }
-        // tokenizer を渡して index_file を呼ぶ
+        if config.exclude_patterns.iter().any(|pat| rel_str.contains(pat)) { continue; }
         let result = index_file(db, tokenizer, path, &rel_str, config);
         results.push((rel_str.to_string(), result));
     }
@@ -1135,107 +1263,12 @@ pub fn cleanup_deleted(db: &NoteDatabase, config: &IndexConfig) -> Result<Vec<St
     }
     Ok(removed)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{db::NoteDatabase, tokenizer::{JapaneseTokenizer, TokenizerConfig}};
-    use std::{io::Write, path::PathBuf};
-    use tempfile::TempDir;
-
-    // テスト戦略: モデル未埋め込み環境では SHIOTSUCHI_MODEL_PATH が未設定のため
-    // JapaneseTokenizer::new() は Err になる。その場合は simple_tokenize/simple_and_query
-    // を直接呼ぶ別パスでテストする。
-    // モデルありの場合は JapaneseTokenizer::new(Default::default()).unwrap() を使う。
-    //
-    // テスト内では以下のパターンを使う:
-    //   let tok = JapaneseTokenizer::new(Default::default())
-    //       .unwrap_or_else(|_| panic!("モデルが見つかりません: SHIOTSUCHI_MODEL_PATH を設定してください"));
-    //
-    // CI での実行: SHIOTSUCHI_MODEL_PATH=models/bccwj-suw+unidic_pos+kana.model.zst cargo test
-
-    #[test]
-    fn test_no_frontmatter() {
-        let content = "# Hello\n\nWorld";
-        let (title, body) = extract_frontmatter(content);
-        assert!(title.is_none());
-        assert_eq!(body, content);
-    }
-
-    #[test]
-    fn test_with_frontmatter() {
-        let content = "---\ntitle: My Note\ntags: [a, b]\n---\n\n# Body\nText";
-        let (title, body) = extract_frontmatter(content);
-        assert_eq!(title, Some("My Note".to_string()));
-        assert!(body.contains("Body"));
-        assert!(!body.contains("---"));
-    }
-
-    #[test]
-    fn test_markdown_to_text() {
-        let md = "# Title\n\n**Bold** text and `code`.\n\n- item1\n- item2";
-        let text = markdown_to_text(md);
-        assert!(text.contains("Bold"));
-        assert!(text.contains("code"));
-        assert!(!text.contains("#"));
-        assert!(!text.contains("**"));
-    }
-
-    #[test]
-    fn test_title_from_path() {
-        assert_eq!(title_from_path(&PathBuf::from("my-note.md")), "my note");
-        assert_eq!(title_from_path(&PathBuf::from("dir/file_name.md")), "file name");
-    }
-
-    #[test]
-    fn test_index_directory() {
-        let temp = TempDir::new().unwrap();
-        let vault = temp.path().join("vault");
-        fs::create_dir(&vault).unwrap();
-
-        let mut f1 = fs::File::create(vault.join("note1.md")).unwrap();
-        writeln!(f1, "# Hello\n\nWorld content").unwrap();
-        let mut f2 = fs::File::create(vault.join("note2.md")).unwrap();
-        writeln!(f2, "---\ntitle: Special\n---\n\nUnique text here").unwrap();
-
-        let db = NoteDatabase::open_in_memory().unwrap();
-        let tokenizer = JapaneseTokenizer::new(Default::default())
-            .unwrap_or_else(|_| panic!("SHIOTSUCHI_MODEL_PATH を設定してください"));
-        let config = IndexConfig { notes_dir: vault.clone(), ..Default::default() };
-
-        let results = index_directory(&db, &tokenizer, &config).unwrap();
-        assert_eq!(results.len(), 2);
-        assert_eq!(db.stats().unwrap().total_notes, 2);
-    }
-
-    #[test]
-    fn test_cleanup_deleted() {
-        let temp = TempDir::new().unwrap();
-        let vault = temp.path().join("vault");
-        fs::create_dir(&vault).unwrap();
-
-        let mut f = fs::File::create(vault.join("old.md")).unwrap();
-        writeln!(f, "content").unwrap();
-
-        let db = NoteDatabase::open_in_memory().unwrap();
-        let tokenizer = JapaneseTokenizer::new(Default::default())
-            .unwrap_or_else(|_| panic!("SHIOTSUCHI_MODEL_PATH を設定してください"));
-        let config = IndexConfig { notes_dir: vault.clone(), ..Default::default() };
-        index_directory(&db, &tokenizer, &config).unwrap();
-        assert_eq!(db.stats().unwrap().total_notes, 1);
-
-        fs::remove_file(vault.join("old.md")).unwrap();
-        let removed = cleanup_deleted(&db, &config).unwrap();
-        assert_eq!(removed.len(), 1);
-        assert_eq!(db.stats().unwrap().total_notes, 0);
-    }
-}
 ```
 
-- [ ] **Step 2: Run indexer tests**
+- [ ] **(GREEN VERIFY) Step 4: Run indexer tests, confirm all pass**
 
 Run: `cargo test -p obsidian-shiotsuchi-vault-core indexer`
-Expected: 2 tests pass
+Expected: 6 tests pass (4 parsing + 2 new indexer tests)
 
 - [ ] **Step 3: Commit**
 
@@ -1246,55 +1279,50 @@ git commit -m "feat(core): implement file walker and indexer with hash tracking"
 
 ---
 
-## Task 7: Search and Snippet Extraction
+## Task 7: Search and Snippet Extraction (TDD)
+
+**TDD**: Follow RED → RED VERIFY → GREEN → GREEN VERIFY → REFACTOR for each behavior.
 
 **Files:**
 - Create: `core/src/search.rs`
+- Modify: `core/src/db.rs` (add `search()` method)
 - Test: `core/src/search.rs` (inline tests)
 
-- [ ] **Step 1: Add `search()` method to `NoteDatabase` in `db.rs`**
+- [ ] **(RED) Step 1: Write failing tests only in search.rs**
 
-`search.rs` は `conn` フィールドに直接アクセスできないため、`NoteDatabase` にメソッドとして追加する。
-クエリ文字列は呼び出し側が `tokenizer.and_query()` で構築済みのものを渡す。
-
-- [ ] **Step 2: Refactor - Add search method to NoteDatabase**
-
-Modify `core/src/db.rs` to add:
+Create `core/src/search.rs` with the test module only — no implementation yet:
 
 ```rust
-impl NoteDatabase {
-    // ... existing methods ...
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    /// Search notes using tokenized query. Returns results ordered by BM25 relevance.
-    /// `fts5_query` は呼び出し側で `tokenizer.and_query()` を使って構築すること。
-    /// 例: `"東京" AND "検索"` — スペース区切り（フレーズ検索）は誤りなので使わない。
-    pub fn search(&self, fts5_query: &str, limit: usize) -> Result<Vec<SearchResult>, DbError> {
-        let sql = format!(
-            "SELECT path, title, rank
-             FROM notes_fts
-             WHERE notes_fts MATCH ?1
-             ORDER BY rank
-             LIMIT {}",
-            limit
-        );
+    #[test]
+    fn test_extract_snippet_found() {
+        // FAIL: extract_snippet not defined yet
+        let text = "Line one\nLine two\nLine three\nLine four\nLine five";
+        let snippet = extract_snippet(text, "three", 1);
+        assert!(snippet.contains("three"));
+    }
 
-        let mut stmt = self.conn.prepare(&sql)?;
-        let rows = stmt.query_map(params![fts5_query], |row| {
-            Ok(SearchResult {
-                path: row.get(0)?,
-                title: row.get(1)?,
-                snippet: String::new(), // 呼び出し側が元ファイルから extract_snippet() で補完する
-                score: row.get(2)?,
-            })
-        })?;
-
-        rows.collect::<Result<Vec<_>, _>>()
-            .map_err(DbError::Sqlite)
+    #[test]
+    fn test_extract_snippet_multiline() {
+        let text = "A\nB\nC\nD\nE\nF\nG";
+        let snippet = extract_snippet(text, "E", 1);
+        assert!(snippet.contains("E"));
+        assert!(snippet.contains("D") || snippet.contains("F"));
     }
 }
 ```
 
-- [ ] **Step 3: Rewrite search.rs as utility module**
+- [ ] **(RED VERIFY) Step 2: Run tests, confirm they fail**
+
+Run: `cargo test -p obsidian-shiotsuchi-vault-core search`
+Expected: Compilation error — `extract_snippet` not found
+
+- [ ] **(GREEN) Step 3: Write minimal search.rs implementation**
+
+Add implementation above the test module:
 
 ```rust
 use crate::{
@@ -1304,10 +1332,7 @@ use crate::{
 };
 use std::{fs, path::Path};
 
-/// 検索のメインエントリポイント。
-/// 1. tokenizer.and_query() で FTS5 AND クエリを構築（vaporetto_and_query() と等価）
-/// 2. db.search() で BM25 ランキング
-/// 3. 元ファイルから extract_snippet() でスニペットを補完
+/// 検索のメインエントリポイント。tokenizer.and_query() → db.search() → extract_snippet()。
 pub fn search(
     db: &NoteDatabase,
     tokenizer: &JapaneseTokenizer,
@@ -1315,21 +1340,12 @@ pub fn search(
     query: &str,
     limit: usize,
 ) -> Result<Vec<SearchResult>, DbError> {
-    // vaporetto_and_query() と等価: "東京" AND "検索" AND "エンジン"
     let fts5_query = tokenizer.and_query(query);
-    // Vaporetto でトークンが得られない場合（ASCII のみ等）はフォールバック
-    let fts5_query = if fts5_query.is_empty() {
-        simple_and_query(query)
-    } else {
-        fts5_query
-    };
-    if fts5_query.is_empty() {
-        return Ok(vec![]);
-    }
+    let fts5_query = if fts5_query.is_empty() { simple_and_query(query) } else { fts5_query };
+    if fts5_query.is_empty() { return Ok(vec![]); }
 
     let mut results = db.search(&fts5_query, limit)?;
 
-    // スニペットは元ファイルから抽出（FTS5 の highlight() は使えないため）
     for result in &mut results {
         let file_path = notes_dir.join(&result.path);
         if let Ok(content) = fs::read_to_string(&file_path) {
@@ -1374,9 +1390,7 @@ pub fn extract_snippet(text: &str, query: &str, max_lines: usize) -> String {
                     break;
                 }
             }
-            if i == 0 {
-                idx = 0;
-            }
+            if i == 0 { idx = 0; }
         }
         idx
     };
@@ -1385,43 +1399,74 @@ pub fn extract_snippet(text: &str, query: &str, max_lines: usize) -> String {
     let lines: Vec<&str> = snippet_text.lines().take(max_lines * 2 + 1).collect();
     let result = lines.join("\n");
 
-    if result.len() > 500 {
-        result.chars().take(500).collect::<String>() + "…"
-    } else {
-        result
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_extract_snippet_found() {
-        let text = "Line one\nLine two\nLine three\nLine four\nLine five";
-        let query = "three";
-        let snippet = extract_snippet(text, query, 1);
-        assert!(snippet.contains("three"));
-    }
-
-    #[test]
-    fn test_extract_snippet_multiline() {
-        let text = "A\nB\nC\nD\nE\nF\nG";
-        let query = "E";
-        let snippet = extract_snippet(text, query, 1);
-        assert!(snippet.contains("E"));
-        // Should include context lines
-        assert!(snippet.contains("D") || snippet.contains("F"));
-    }
+    if result.len() > 500 { result.chars().take(500).collect::<String>() + "…" } else { result }
 }
 ```
 
-- [ ] **Step 4: Run search tests**
+- [ ] **(GREEN VERIFY) Step 4: Run search tests, confirm they pass**
 
 Run: `cargo test -p obsidian-shiotsuchi-vault-core search`
 Expected: 2 tests pass
 
-- [ ] **Step 5: Commit**
+- [ ] **(RED) Step 5: Write failing test for NoteDatabase::search() in db.rs**
+
+Add to `db.rs` test module — `NoteDatabase::search()` not yet defined:
+
+```rust
+#[test]
+fn test_search_returns_results() {
+    // FAIL: NoteDatabase::search not defined yet
+    let db = NoteDatabase::open_in_memory().unwrap();
+    db.upsert_note("note.md", "My Note", "hello world content", "hash1", 1000).unwrap();
+    let results = db.search("\"hello\"", 10).unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].path, "note.md");
+}
+```
+
+- [ ] **(RED VERIFY) Step 6: Run test, confirm it fails**
+
+Run: `cargo test -p obsidian-shiotsuchi-vault-core db::tests::test_search`
+Expected: Compilation error — `NoteDatabase::search` not found
+
+- [ ] **(GREEN) Step 7: Add search() method to NoteDatabase in db.rs**
+
+Modify `core/src/db.rs` to add:
+
+```rust
+/// Search notes using tokenized query. Returns results ordered by BM25 relevance.
+/// `fts5_query` は呼び出し側で `tokenizer.and_query()` を使って構築すること。
+pub fn search(&self, fts5_query: &str, limit: usize) -> Result<Vec<SearchResult>, DbError> {
+    let sql = format!(
+        "SELECT path, title, rank
+         FROM notes_fts
+         WHERE notes_fts MATCH ?1
+         ORDER BY rank
+         LIMIT {}",
+        limit
+    );
+
+    let mut stmt = self.conn.prepare(&sql)?;
+    let rows = stmt.query_map(params![fts5_query], |row| {
+        Ok(SearchResult {
+            path: row.get(0)?,
+            title: row.get(1)?,
+            snippet: String::new(),
+            score: row.get(2)?,
+        })
+    })?;
+
+    rows.collect::<Result<Vec<_>, _>>()
+        .map_err(DbError::Sqlite)
+}
+```
+
+- [ ] **(GREEN VERIFY) Step 8: Run all db and search tests**
+
+Run: `cargo test -p obsidian-shiotsuchi-vault-core`
+Expected: All tests pass (db: 5 tests, search: 2 tests)
+
+- [ ] **Step 9: Commit**
 
 ```bash
 git add core/src/db.rs core/src/search.rs
@@ -1430,16 +1475,55 @@ git commit -m "feat(core): add BM25 search and snippet extraction"
 
 ---
 
-## Task 8: File System Watcher
+## Task 8: File System Watcher (TDD)
+
+**TDD**: Follow RED → RED VERIFY → GREEN → GREEN VERIFY → REFACTOR for each behavior.
 
 **Files:**
 - Create: `core/src/watcher.rs`
 - Test: `core/src/watcher.rs` (inline tests)
 
-- [ ] **Step 1: Write watcher.rs**
+Note: `VaultWatcher::new()` does not fail (watcher is created inside `watch()`), so the test simply verifies that construction succeeds — a minimal but meaningful assertion about the API contract.
 
-ウォッチャーは `new()` では生成せず、`watch()` 内で一度だけ生成する。
-`index_file` に `tokenizer` を渡すため `VaultWatcher` に `tokenizer` フィールドを持つ。
+- [ ] **(RED) Step 1: Write failing test only in watcher.rs**
+
+Create `core/src/watcher.rs` with the test module only — no implementation yet:
+
+```rust
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{db::NoteDatabase, tokenizer::{JapaneseTokenizer, TokenizerConfig}};
+    use tempfile::TempDir;
+
+    #[test]
+    fn test_watcher_setup() {
+        // FAIL: VaultWatcher not defined yet
+        let temp = TempDir::new().unwrap();
+        let db = Arc::new(Mutex::new(NoteDatabase::open_in_memory().unwrap()));
+        let tokenizer = Arc::new(
+            JapaneseTokenizer::new(TokenizerConfig::default())
+                .unwrap_or_else(|_| panic!("SHIOTSUCHI_MODEL_PATH を設定してください"))
+        );
+        let config = IndexConfig {
+            notes_dir: temp.path().to_path_buf(),
+            ..Default::default()
+        };
+
+        // VaultWatcher は new() で失敗しない（ウォッチャー生成は watch() 内）
+        let _watcher = VaultWatcher::new(db, tokenizer, config);
+    }
+}
+```
+
+- [ ] **(RED VERIFY) Step 2: Run test, confirm it fails**
+
+Run: `cargo test -p obsidian-shiotsuchi-vault-core watcher`
+Expected: Compilation error — `VaultWatcher` not found
+
+- [ ] **(GREEN) Step 3: Write minimal watcher.rs implementation**
+
+Add implementation above the test module:
 
 ```rust
 use crate::{
@@ -1467,8 +1551,7 @@ impl VaultWatcher {
         Self { db, tokenizer, config }
     }
 
-    /// ファイル監視ループを開始する（Ctrl+C まで継続）。
-    /// ウォッチャーはここで一度だけ生成する。
+    /// ファイル監視ループを開始する（Ctrl+C まで継続）。ウォッチャーはここで一度だけ生成する。
     pub fn watch(&self) -> Result<(), Box<dyn std::error::Error>> {
         let (tx, rx) = channel();
 
@@ -1503,7 +1586,6 @@ impl VaultWatcher {
                     if let Ok(rel) = path.strip_prefix(&self.config.notes_dir) {
                         let rel_str = rel.to_string_lossy();
                         let db = self.db.lock().unwrap();
-                        // tokenizer を渡して再インデックス
                         let _ = index_file(&db, &self.tokenizer, path, &rel_str, &self.config);
                     }
                 }
@@ -1536,38 +1618,14 @@ impl VaultWatcher {
         Ok(())
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{db::NoteDatabase, tokenizer::{JapaneseTokenizer, TokenizerConfig}};
-    use tempfile::TempDir;
-
-    #[test]
-    fn test_watcher_setup() {
-        let temp = TempDir::new().unwrap();
-        let db = Arc::new(Mutex::new(NoteDatabase::open_in_memory().unwrap()));
-        let tokenizer = Arc::new(
-            JapaneseTokenizer::new(TokenizerConfig::default())
-                .unwrap_or_else(|_| panic!("SHIOTSUCHI_MODEL_PATH を設定してください"))
-        );
-        let config = IndexConfig {
-            notes_dir: temp.path().to_path_buf(),
-            ..Default::default()
-        };
-
-        // VaultWatcher は new() で失敗しない（ウォッチャー生成は watch() 内）
-        let _watcher = VaultWatcher::new(db, tokenizer, config);
-    }
-}
 ```
 
-- [ ] **Step 2: Run watcher tests**
+- [ ] **(GREEN VERIFY) Step 4: Run watcher test, confirm it passes**
 
 Run: `cargo test -p obsidian-shiotsuchi-vault-core watcher`
 Expected: 1 test passes
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add core/src/watcher.rs
@@ -1576,15 +1634,17 @@ git commit -m "feat(core): add filesystem watcher with incremental re-indexing"
 
 ---
 
-## Task 9: Integration Test - End-to-End Index and Search
+## Task 9: Integration Test - End-to-End Index and Search (TDD)
+
+**TDD**: Follow RED → RED VERIFY → GREEN → GREEN VERIFY → REFACTOR for each behavior.
 
 **Files:**
 - Create: `tests/integration_test.rs`
 
-- [ ] **Step 1: Write integration test**
-
 テスト実行前提: `SHIOTSUCHI_MODEL_PATH=models/bccwj-suw+unidic_pos+kana.model.zst`
 （または `make release-embedded` でモデル埋め込みビルド後）
+
+- [ ] **(RED) Step 1: Write integration test**
 
 ```rust
 use obsidian_shiotsuchi_vault_core::{
@@ -1660,12 +1720,21 @@ fn test_snippet_extraction() {
 }
 ```
 
-- [ ] **Step 2: Run integration tests**
+- [ ] **(RED VERIFY) Step 2: Run tests, confirm they fail**
+
+Run: `cargo test --test integration_test`
+Expected: Compilation error — some symbols not yet exported from `lib.rs`, or test fails due to missing behavior
+
+- [ ] **(GREEN) Step 3: Fix any compilation errors**
+
+If the integration test fails to compile, fix the exports in `core/src/lib.rs`. Do NOT change the test assertions — fix the production code only.
+
+- [ ] **(GREEN VERIFY) Step 4: Run integration tests, confirm all pass**
 
 Run: `cargo test --test integration_test`
 Expected: 2 tests pass
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add tests/integration_test.rs
@@ -1694,7 +1763,19 @@ git commit -m "test: add end-to-end integration tests"
 | Error handling (thiserror) | Task 3 |
 | Unit + integration tests | All tasks |
 
-### 2. Placeholder Scan
+### 2. TDD Cycle Compliance
+
+- ✅ Task 1: TDD不適用（設定ファイル・空モジュールスタブ）と明示
+- ✅ Task 2: RED → RED VERIFY → GREEN → GREEN VERIFY → REFACTOR → 次のRED → RED VERIFY → GREEN → GREEN VERIFY
+- ✅ Task 3: テストのみのStep（RED）→ VERIFY → 実装のStep（GREEN）→ VERIFY に分解
+- ✅ Task 4: 同様にREDフェーズとGREENフェーズを明確分離
+- ✅ Task 5: テストのみStep → RED VERIFY → 実装Step → GREEN VERIFY
+- ✅ Task 6: 新機能（index_directory / cleanup_deleted）のみをREDに追加 → VERIFY → GREEN → VERIFY
+- ✅ Task 7: extract_snippet と NoteDatabase::search を別サイクルに分離
+- ✅ Task 8: VaultWatcher のテストのみStep → RED VERIFY → 実装Step → GREEN VERIFY
+- ✅ Task 9: RED → RED VERIFY → GREEN（コンパイルエラー修正）→ GREEN VERIFY
+
+### 3. Placeholder Scan
 
 - ✅ `// ... (same as Task 4)` プレースホルダは Task 6 に完全実装を展開済み
 - ✅ `todo!()` は削除済み
@@ -1702,7 +1783,7 @@ git commit -m "test: add end-to-end integration tests"
 - ✅ `index_directory` / `index_file` / `handle_event` すべてに `tokenizer` 引数あり
 - ✅ 統合テストが `tokenizer.and_query()` を経由して `db.search()` を呼ぶ
 
-### 3. Type Consistency
+### 4. Type Consistency
 
 - ✅ `NoteMetadata` fields match between `models.rs` and `db.rs`
 - ✅ `IndexResult` used consistently in `indexer.rs`
@@ -1710,7 +1791,7 @@ git commit -m "test: add end-to-end integration tests"
 - ✅ `IndexConfig` used in `indexer.rs` and `watcher.rs`
 - ✅ `VaultWatcher::new()` のシグネチャに `tokenizer: Arc<JapaneseTokenizer>` あり
 
-### 4. テスト実行前提
+### 5. テスト実行前提
 
 ```bash
 # モデルをダウンロードしてからテスト

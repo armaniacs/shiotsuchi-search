@@ -524,7 +524,7 @@ CLI flags override config file values.
 
 | Component | Crate | Why |
 |-----------|-------|-----|
-| Japanese Tokenizer | `vaporetto` | MeCab-compatible, fast, pure Rust。モデルは `bccwj-suw+unidic_pos+kana.model.zst` を `include_bytes!` で埋め込み（リリースビルドのみ）。ランタイムフォールバック: `SHIOTSUCHI_MODEL_PATH` 環境変数 |
+| Japanese Tokenizer | `vaporetto` | MeCab-compatible, fast, pre-trained model |
 | SQLite | `rusqlite` (bundled) | Zero-config, FTS5 built-in |
 | Markdown Parsing | `pulldown-cmark` | Fast, lossless, zero-copy where possible |
 | CLI Parser | `clap` | De facto standard, derive macros |
