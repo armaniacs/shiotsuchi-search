@@ -7,3 +7,4 @@ db.sqlite3
 /models/
 *.model.zst
 *.model
+integration/node_modules/
