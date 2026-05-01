@@ -1,5 +1,7 @@
 # Shiotsuchi-Search
 
+[Japanese](README.ja.md)
+
 > *Guiding your path through the data tide.*
 
 High-performance Japanese-aware search engine for Markdown note vaults (Obsidian, etc.).
@@ -27,10 +29,12 @@ SHIOTSUCHI_MODEL_PATH=models/bccwj-suw+unidic_pos+kana.model.zst \
   shiotsuchi chart --notes-dir ~/Notes
 ```
 
+DB is stored at `~/.cache/shiotsuchi/db.sqlite3` by default (`$XDG_CACHE_HOME/shiotsuchi/db.sqlite3` if set).
+
 ### 3. Search
 
 ```bash
-shiotsuchi dive "プロジェクト計画"
+shiotsuchi dive "project plan"
 ```
 
 ## Commands
@@ -54,7 +58,7 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
       "command": "/usr/local/bin/shiotsuchi-mcp",
       "env": {
         "SHIOTSUCHI_NOTES_DIR": "/Users/name/Notes",
-        "SHIOTSUCHI_DB_PATH": "/Users/name/.shiotsuchi/db.sqlite3"
+        "SHIOTSUCHI_DB_PATH": "/home/name/.cache/shiotsuchi/db.sqlite3"
       }
     }
   }
@@ -65,19 +69,19 @@ Then index your vault first:
 
 ```bash
 SHIOTSUCHI_MODEL_PATH=models/bccwj-suw+unidic_pos+kana.model.zst \
-  shiotsuchi chart --notes-dir ~/Notes --db-path ~/.shiotsuchi/db.sqlite3
+  shiotsuchi chart --notes-dir ~/Notes
 ```
 
-Restart Claude Desktop and ask: "Search my notes for プロジェクト"
+Restart Claude Desktop and ask: "Search my notes for project"
 
 ## Configuration
 
-`~/.shiotsuchi/config.toml`:
+`~/.config/shiotsuchi/config.toml` (`$XDG_CONFIG_HOME/shiotsuchi/config.toml` if set):
 
 ```toml
 [vault]
-notes_dir = "/Users/name/Notes"
-db_path = "/Users/name/.shiotsuchi/db.sqlite3"
+notes_dir = "/home/name/Notes"
+db_path = "/home/name/.cache/shiotsuchi/db.sqlite3"
 
 [indexing]
 snippet_lines = 3
@@ -90,22 +94,37 @@ exclude_patterns = [".obsidian", ".git", "node_modules"]
 ```bash
 git clone https://github.com/your-org/shiotsuchi-search
 cd shiotsuchi-search
-./scripts/download-model.sh
-SHIOTSUCHI_EMBED_MODEL=$(pwd)/models/bccwj-suw+unidic_pos+kana.model.zst \
-  cargo build --release
+make build
 ```
+
+`make build` downloads the tokenizer model automatically if needed, then builds release binaries with the model embedded.
 
 Binaries are placed in `target/release/`:
 - `shiotsuchi` — CLI
-- `shiotsuchi-skill` — Kilo Skill server
 - `shiotsuchi-mcp` — Claude Desktop MCP server
+
+### Install
+
+```bash
+make install                        # installs to /usr/local/bin
+make install PREFIX=~/.local        # installs to ~/.local/bin
+```
+
+### Common make targets
+
+| Target | Description |
+|--------|-------------|
+| `make build` | Build release binaries (embeds tokenizer model) |
+| `make test` | Run all workspace tests |
+| `make bench` | Run criterion benchmarks |
+| `make install` | Install binaries to `$(PREFIX)/bin` |
+| `make uninstall` | Remove installed binaries |
+| `make clean` | Remove build artifacts |
 
 ## Running Tests
 
 ```bash
-./scripts/download-model.sh
-SHIOTSUCHI_MODEL_PATH=models/bccwj-suw+unidic_pos+kana.model.zst \
-  cargo test --workspace
+make test
 ```
 
 ## Performance
@@ -125,4 +144,7 @@ SHIOTSUCHI_MODEL_PATH=models/bccwj-suw+unidic_pos+kana.model.zst \
 
 ## License
 
-MIT
+Apache License 2.0
+
+The release binaries embed the Vaporetto model `bccwj-suw+unidic_pos+kana.model.zst`,
+which is licensed under BSD-3-Clause. See [MODEL_LICENSES.md](MODEL_LICENSES.md) for details.

@@ -46,9 +46,12 @@ fn main() {
     let db_path = std::env::var("SHIOTSUCHI_DB_PATH")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|_| {
-            dirs::home_dir()
-                .unwrap_or_default()
-                .join(".shiotsuchi")
+            std::env::var_os("XDG_CACHE_HOME")
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|| {
+                    dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("/tmp")).join(".cache")
+                })
+                .join("shiotsuchi")
                 .join("db.sqlite3")
         });
 

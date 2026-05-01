@@ -3,7 +3,7 @@ use obsidian_shiotsuchi_vault_core::{
     db::NoteDatabase,
     indexer::index_directory,
     models::{IndexConfig, IndexResult},
-    tokenizer::{JapaneseTokenizer, TokenizerConfig},
+    tokenizer::get_tokenizer,
 };
 use std::path::Path;
 
@@ -26,8 +26,11 @@ pub fn run_chart(
     notes_dir: &Path,
     db_path: &Path,
 ) -> Result<ChartSummary, Box<dyn std::error::Error>> {
+    if let Some(parent) = db_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
     let db = NoteDatabase::open(db_path)?;
-    let tokenizer = JapaneseTokenizer::new(TokenizerConfig::default())?;
+    let tokenizer = get_tokenizer()?;
     let config = IndexConfig {
         notes_dir: notes_dir.to_path_buf(),
         ..Default::default()

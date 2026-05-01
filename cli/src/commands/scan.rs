@@ -2,7 +2,7 @@ use clap::Args;
 use obsidian_shiotsuchi_vault_core::{
     db::NoteDatabase,
     models::IndexConfig,
-    tokenizer::{JapaneseTokenizer, TokenizerConfig},
+    tokenizer::get_tokenizer,
     watcher::VaultWatcher,
 };
 use std::{path::Path, sync::{Arc, Mutex}};
@@ -18,8 +18,11 @@ pub fn run_scan(
     notes_dir: &Path,
     db_path: &Path,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    if let Some(parent) = db_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
     let db = Arc::new(Mutex::new(NoteDatabase::open(db_path)?));
-    let tokenizer = Arc::new(JapaneseTokenizer::new(TokenizerConfig::default())?);
+    let tokenizer = get_tokenizer()?;
     let config = IndexConfig {
         notes_dir: notes_dir.to_path_buf(),
         ..Default::default()
@@ -43,7 +46,7 @@ pub fn run_scan_for_test(
     use obsidian_shiotsuchi_vault_core::indexer::index_file;
     use std::sync::mpsc::channel;
 
-    let tokenizer = Arc::new(JapaneseTokenizer::new(TokenizerConfig::default())?);
+    let tokenizer = get_tokenizer()?;
     let config = IndexConfig { notes_dir: notes_dir.to_path_buf(), ..Default::default() };
     let (tx, rx) = channel();
     let poll_config = NotifyConfig::default()

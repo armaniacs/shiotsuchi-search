@@ -13,6 +13,7 @@
 - `cli/` 全ソースファイル（`Cargo.toml`, `config.rs`, `commands/chart.rs`, `commands/dive.rs`, `commands/tide.rs`, `commands/scan.rs`, `commands/log.rs`, `commands/mod.rs`, `main.rs`）
 - 全テスト通過（TDD サイクル遵守）
 - CLI 統合テスト（`chart → dive`）通過
+- E2E テスト（`cli/tests/e2e_test.rs`）追加 — HUMAN-VERIFICATION.md §1–7 を自動検証
 
 ### ⚠️ 計画との差分（実装時に変更した点）
 
@@ -20,28 +21,32 @@
 |------|------|------|
 | `cli/Cargo.toml` | `dirs` 依存なし | `dirs = "5"` を追加（`VaultConfig::default()` でホームディレクトリを解決するため） |
 | `WatcherConfig` | `#[derive(Default)]` と `impl Default` が二重定義 | `#[derive(Default)]` を削除し `impl Default` のみ残した（コンパイルエラー回避） |
-| `cli/src/commands/log.rs` | 独立ファイル `log.rs` | `scan.rs` に統合（`pub fn run_log()` を `scan.rs` 末尾に追加）。`log.rs` ファイルは存在しない |
-| `scan` コマンド | 引数 `--debounce`（`ScanArgs` に含む） | 計画通り実装済み（ただし `run_scan` の本体はスタブ） |
+| `cli/src/commands/log.rs` | 計画では `scan.rs` 内に仮統合 | 独立ファイル `commands/log.rs` として分離済み |
+| `scan` コマンド | スタブ予定 | `VaultWatcher` ベースの完全実装済み（`create_dir_all` 対応） |
+| `log` コマンド | スタブ予定 | `NoteDatabase::list_all_metadata()` を呼び出す完全実装済み（ISO8601 タイムスタンプ表示） |
+| グローバルフラグ | サブコマンド前のみ有効 | `--notes-dir` / `--db-path` / `--verbose` に `global = true` を設定（サブコマンド後でも受け付ける） |
+| DB ディレクトリ | 手動作成が必要 | `chart.rs` / `scan.rs` で `create_dir_all(parent)` を呼び出し、自動作成 |
+| デフォルトパス | `~/.shiotsuchi/db.sqlite3` | XDG 準拠: `$XDG_CACHE_HOME/shiotsuchi/db.sqlite3`（デフォルト `~/.cache/shiotsuchi/db.sqlite3`） |
+| 設定ファイルパス | `~/.shiotsuchi/config.toml` | XDG 準拠: `$XDG_CONFIG_HOME/shiotsuchi/config.toml`（デフォルト `~/.config/shiotsuchi/config.toml`） |
+| `tide` タイムスタンプ | 生の Unix 秒を表示 | `format_timestamp()` で `YYYY-MM-DD HH:MM:SSZ` フォーマットに変換 |
 
-### ❌ 未実施
+### ✅ 追加実装（Phase 5 Polish で完了）
 
-- `scan` コマンドの本体実装 — 現在は `eprintln!("scan: not yet implemented")` を出力するスタブ
-- `log` コマンドの本体実装 — 現在は `println!("log: not yet implemented")` を出力するスタブ
+- `scan` コマンド — `VaultWatcher` を使ったファイル監視ループ（完全実装）
+- `log` コマンド — DB からインデックス済みノートの一覧を表示（完全実装）
+- `format_timestamp()` / `epoch_to_datetime()` — 外部クレートなしの Gregorian カレンダー計算
+- `NoteDatabase::list_all_metadata()` — `indexed_at DESC` 順で全メタデータを返す
+- E2E テスト `cli/tests/e2e_test.rs` — MCP, XDG, scan, log, tide などを自動検証
 
-### 🔜 次にやること
+### 🔜 次にやること（手動作業のみ残）
 
-**Phase 2 の残作業（Phase 5 で実施予定）:**
-1. `scan` コマンド — `VaultWatcher` を使ったファイル監視ループの実装
-2. `log` コマンド — インデックス履歴や検索ログの表示機能の実装
+1. Kilo エージェント登録（Phase 3）— `skill.yaml` 形式を実際の Kilo フォーマットに合わせる
+2. Claude Desktop 統合テスト（Phase 4/5）— 実際の Vault に接続して動作確認
+3. ベンチマーク実行（Phase 5）— `make bench` でスコア計測
 
-**Phase 5（将来）:**
-- `scan` / `log` の完全実装
-- ベンチマーク・エラー UX の改善
-- README 整備
+**Architecture:** A Rust binary crate (`cli/`) using `clap` for argument parsing. Each subcommand wraps the corresponding core library function. Config is loaded from `$XDG_CONFIG_HOME/shiotsuchi/config.toml` (overridable by CLI flags and env vars).
 
-**Architecture:** A Rust binary crate (`cli/`) using `clap` for argument parsing. Each subcommand wraps the corresponding core library function. Config is loaded from `~/.shiotsuchi/config.toml` (overridable by CLI flags and env vars).
-
-**Tech Stack:** Rust, clap (derive), config, serde, serde_json, obsidian-shiotsuchi-vault-core
+**Tech Stack:** Rust, clap (derive), config, serde, serde_json, obsidian-shiotsuchi-vault-core, notify (filesystem watcher)
 
 **Prerequisite:** Phase 1 complete — `obsidian-shiotsuchi-vault-core` builds and all tests pass.
 

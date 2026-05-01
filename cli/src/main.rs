@@ -11,13 +11,13 @@ use clap::{Parser, Subcommand};
     about = "Guiding your path through the data tide."
 )]
 struct Cli {
-    #[arg(long, env = "SHIOTSUCHI_NOTES_DIR")]
+    #[arg(long, env = "SHIOTSUCHI_NOTES_DIR", global = true)]
     notes_dir: Option<std::path::PathBuf>,
 
-    #[arg(long, env = "SHIOTSUCHI_DB_PATH")]
+    #[arg(long, env = "SHIOTSUCHI_DB_PATH", global = true)]
     db_path: Option<std::path::PathBuf>,
 
-    #[arg(long)]
+    #[arg(long, global = true)]
     verbose: bool,
 
     #[command(subcommand)]
@@ -71,7 +71,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Commands::Scan(args) => {
             commands::scan::run_scan(&args, &cfg.vault.notes_dir, &cfg.vault.db_path)?;
         }
-        Commands::Log => commands::log::run_log(),
+        Commands::Log => commands::log::run_log(&cfg.vault.db_path)?,
     }
 
     Ok(())

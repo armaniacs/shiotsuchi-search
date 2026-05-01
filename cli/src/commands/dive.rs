@@ -3,7 +3,7 @@ use obsidian_shiotsuchi_vault_core::{
     db::NoteDatabase,
     models::SearchResult,
     search::search,
-    tokenizer::{JapaneseTokenizer, TokenizerConfig},
+    tokenizer::get_tokenizer,
 };
 use std::path::Path;
 
@@ -26,8 +26,9 @@ pub fn run_dive(
     }
 
     let db = NoteDatabase::open(db_path)?;
-    let tokenizer = JapaneseTokenizer::new(TokenizerConfig::default())?;
+    let tokenizer = get_tokenizer()?;
     let results = search(&db, &tokenizer, notes_dir, &args.query, args.limit)?;
+    
     Ok(results)
 }
 

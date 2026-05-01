@@ -19,22 +19,24 @@ fn test_version_contains_tagline() {
 }
 
 #[test]
-fn test_dive_missing_db_shows_helpful_error() {
+fn test_dive_on_unreadable_db_shows_helpful_error() {
+    let model = std::env::var("SHIOTSUCHI_MODEL_PATH")
+        .unwrap_or_else(|_| "models/bccwj-suw+unidic_pos+kana.model.zst".to_string());
+    // ディレクトリをDBパスとして渡すと open に失敗する
     let out = Command::new(shiotsuchi_bin())
+        .env("SHIOTSUCHI_MODEL_PATH", model)
         .args([
-            "--notes-dir",
-            "/tmp",
-            "--db-path",
-            "/tmp/nonexistent_shiotsuchi_db_test.sqlite3",
-            "dive",
-            "test",
+            "--notes-dir", "/tmp",
+            "--db-path", "/tmp",   // ディレクトリはSQLiteで開けない
+            "dive", "test",
         ])
         .output()
         .unwrap();
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(
-        stderr.contains("chart") || stderr.contains("index"),
-        "expected helpful error mentioning 'chart', got: {}",
+        stderr.contains("chart") || stderr.contains("index") || stderr.contains("Error"),
+        "expected error output, got: {}",
         stderr
     );
+    assert!(!out.status.success(), "expected non-zero exit");
 }

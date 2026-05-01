@@ -43,4 +43,11 @@ name = "search_bench"
 harness = false
 
 [build-dependencies]
-# build.rs は std のみ使用。追加依存なし。
+vaporetto = { version = "0.6", default-features = false, features = [
+    "std",
+    "tag-prediction",
+    "cache-type-score",
+    "fix-weight-length",
+    "charwise-pma",
+] }
+ruzstd = "0.8"

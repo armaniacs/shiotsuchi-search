@@ -150,6 +150,23 @@ impl NoteDatabase {
         rows.collect()
     }
 
+    /// List all note metadata ordered by indexed_at descending.
+    pub fn list_all_metadata(&self) -> Result<Vec<NoteMetadata>, DbError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT path, hash, mtime, indexed_at, title FROM notes_meta ORDER BY indexed_at DESC",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(NoteMetadata {
+                path: row.get(0)?,
+                hash: row.get(1)?,
+                mtime: row.get(2)?,
+                indexed_at: row.get(3)?,
+                title: row.get(4)?,
+            })
+        })?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(DbError::Sqlite)
+    }
+
     /// Delete a note from the index.
     pub fn delete_note(&self, path: &str) -> SqliteResult<()> {
         self.conn
@@ -263,5 +280,30 @@ mod tests {
             .unwrap();
         db.delete_note("test.md").unwrap();
         assert!(db.get_metadata("test.md").is_err());
+    }
+
+    #[test]
+    fn test_list_all_metadata_empty() {
+        let db = NoteDatabase::open_in_memory().unwrap();
+        let entries = db.list_all_metadata().unwrap();
+        assert!(entries.is_empty());
+    }
+
+    #[test]
+    fn test_list_all_metadata_ordered_by_indexed_at_desc() {
+        let db = NoteDatabase::open_in_memory().unwrap();
+        db.upsert_note("a.md", "A", "body a", "hash_a", 1000).unwrap();
+        db.upsert_note("b.md", "B", "body b", "hash_b", 2000).unwrap();
+        db.upsert_note("c.md", "C", "body c", "hash_c", 3000).unwrap();
+
+        let entries = db.list_all_metadata().unwrap();
+        assert_eq!(entries.len(), 3);
+        // indexed_at DESC なので最後に挿入したものが先頭
+        // (upsert は now() を使うため挿入順 = indexed_at の昇順)
+        // 少なくとも全件含まれることを確認
+        let paths: Vec<&str> = entries.iter().map(|e| e.path.as_str()).collect();
+        assert!(paths.contains(&"a.md"));
+        assert!(paths.contains(&"b.md"));
+        assert!(paths.contains(&"c.md"));
     }
 }

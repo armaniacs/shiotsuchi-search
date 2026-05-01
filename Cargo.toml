@@ -1,9 +1,9 @@
 [workspace]
-members = ["core", "cli", "skill", "mcp"]
+members = ["core", "cli", "mcp"]
 resolver = "2"
 
 [workspace.package]
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 authors = ["Shiotsuchi Contributors"]
-license = "MIT"
+license = "Apache-2.0"

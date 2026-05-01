@@ -4,6 +4,67 @@
 
 **Goal:** Complete the `scan` watcher command, add a `--version` tagline, improve error messages, add benchmarks, and write the README.
 
+---
+
+## 実装状況サマリー（2026-04-29 時点）
+
+### ✅ 実装済み
+
+| タスク | 内容 | 状態 |
+|--------|------|------|
+| Task 1: scan コマンド | `VaultWatcher` を CLI に接続 | ✅ 完了 |
+| Task 2: version tagline | `long_version` に tagline 埋め込み | ✅ 完了 |
+| Task 2: エラーメッセージ | DB 未作成時に `chart` コマンドを案内 | ✅ 完了 |
+| Task 3: Criterion ベンチマーク | `bench_indexing` / `bench_search` 追加 | ✅ コンパイル確認済み |
+| Task 4: README | Quick start・MCP 設定・パフォーマンス目標 | ✅ 完了 |
+| Task 5: 全体統合 | 22テスト通過、3バイナリビルド完了 | ✅ 完了 |
+
+### ⚠️ 計画との差分
+
+**Task 1: `run_scan_for_test` のシグネチャ変更**
+
+| 項目 | 計画 | 実装 |
+|------|------|------|
+| 引数 | `(notes_dir, db, timeout)` | `(notes_dir, db, timeout, ready: Arc<AtomicBool>)` |
+| 戻り値 | `Result<(), Box<dyn Error>>` | `Result<usize, Box<dyn Error + Send + Sync>>` |
+| ウォッチャー | `notify::recommended_watcher` | `notify::PollWatcher` (100ms ポーリング) |
+
+変更理由:
+- macOS FSEvents は `/private/tmp` 以下でイベントを配信しない → `PollWatcher` に切り替え
+- `AtomicBool ready` フラグ: ウォッチャーが起動する前にファイルを書くとイベントを取りこぼすため追加
+- 戻り値を `usize`（インデックス済みファイル数）に変更: `thread::spawn` が `Send` 境界を要求するため `Box<dyn Error>` → `Box<dyn Error + Send + Sync>`
+- スレッドクロージャが `bool`（`.is_ok()`）を返すように変更
+
+**Task 1: `cli/Cargo.toml` に `notify = "6"` を追加（計画外）**
+
+テストコードが `notify::PollWatcher` を直接使用するため、`cli/Cargo.toml` の依存に追加が必要だった。計画では `core/` の `VaultWatcher` を経由することを想定していたが、テスト専用の低レベルウォッチャーを直接扱う実装になった。
+
+**Task 1: テストのタイムアウト変更**
+
+| 項目 | 計画 | 実装 |
+|------|------|------|
+| watcher timeout | `200ms` | `2000ms` |
+| ファイル書き込み後の待機 | `300ms` | `2500ms` |
+| `AtomicBool` ready 待機 | なし | あり（10ms ループ + 100ms 安定待ち） |
+
+macOS kqueue の安定性のために待機時間を大幅に延長。テスト全体で約25秒かかる。
+
+**Task 3: ベンチマーク実行は未実施**
+
+コンパイルは `cargo check --benches` で確認済み。実際の `cargo bench` はモデルファイルが必要なため実行未確認。
+
+### ❌ 未実施
+
+- **ベンチマーク実行**: `cargo bench` は `SHIOTSUCHI_MODEL_PATH` が必要。コンパイル確認のみ。実際のパフォーマンス数値（インデックス ≥ 100 files/sec、検索 ≤ 50ms）は未検証。
+- **Claude Desktop 実機統合テスト**: MCP サーバーを実際の Claude Desktop に接続した動作確認は未実施。
+
+### 🔜 次にやること
+
+1. **ベンチマーク実行**: モデルをダウンロードして `cargo bench -p obsidian-shiotsuchi-vault-core` を実行し、パフォーマンス目標を検証する
+2. **Claude Desktop 統合テスト**: `shiotsuchi-mcp` バイナリを Claude Desktop に登録し、実際の検索が動作することを確認する
+
+---
+
 **Architecture:** Modifications across `cli/`, `core/`, and root. No new crates.
 
 **Tech Stack:** Rust, criterion (benchmarks), notify (watcher)

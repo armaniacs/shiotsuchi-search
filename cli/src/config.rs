@@ -10,12 +10,31 @@ pub struct VaultConfig {
 
 impl Default for VaultConfig {
     fn default() -> Self {
-        let home = dirs::home_dir().unwrap_or_default();
         Self {
             notes_dir: PathBuf::from("."),
-            db_path: home.join(".shiotsuchi").join("db.sqlite3"),
+            db_path: default_db_path(),
         }
     }
+}
+
+fn xdg_cache_home() -> PathBuf {
+    std::env::var_os("XDG_CACHE_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home_dir().join(".cache"))
+}
+
+fn xdg_config_home() -> PathBuf {
+    std::env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home_dir().join(".config"))
+}
+
+fn home_dir() -> PathBuf {
+    dirs::home_dir().unwrap_or_else(|| PathBuf::from("/tmp"))
+}
+
+pub fn default_db_path() -> PathBuf {
+    xdg_cache_home().join("shiotsuchi").join("db.sqlite3")
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -73,10 +92,7 @@ impl ShiotsuchiConfig {
     }
 
     pub fn load() -> Self {
-        let default_path = dirs::home_dir()
-            .unwrap_or_default()
-            .join(".shiotsuchi")
-            .join("config.toml");
+        let default_path = xdg_config_home().join("shiotsuchi").join("config.toml");
         if default_path.exists() {
             Self::load_from(&default_path).unwrap_or_default()
         } else {
