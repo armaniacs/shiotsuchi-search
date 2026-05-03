@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `CLAUDE.md` — AI assistant quick reference guide with architecture, commands, and key files
+- `ref/` reference documentation suite:
+  - `ref/architecture.md` — workspace structure, data flow, and design decisions
+  - `ref/core.md` — core library API: DB, tokenizer, indexer, search, watcher
+  - `ref/cli.md` — CLI commands, configuration, and entry points
+  - `ref/mcp.md` — MCP server protocol, tools, and Claude Desktop setup
+  - `ref/models.md` — data models, FTS5 query format, and file hash tracking
+- `docs/superpowers/specs/2026-05-01-shiotsuchi-search-phase7-mcp-inspector.md` — Phase 7 MCP Inspector specification
+
 ## [0.1.1] - 2026-05-02
 
 ### Changed
