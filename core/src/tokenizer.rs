@@ -4,6 +4,7 @@ use std::io::Read;
 use std::sync::{Arc, OnceLock};
 use thiserror::Error;
 use vaporetto::{Model, Predictor, Sentence};
+use sha2::{Sha256, Digest};
 
 #[derive(Debug, Error)]
 pub enum TokenizerError {
@@ -59,13 +60,16 @@ impl JapaneseTokenizer {
     /// 3. どちらもなければ TokenizerError::NoModel
     pub fn new(config: TokenizerConfig) -> Result<Self, TokenizerError> {
         let predictor = if let Some(bytes) = EMBEDDED_PREDICTOR_BYTES {
-            // SAFETY: build.rs が serialize_to_vec() で生成したバイト列のみが埋め込まれる。
-            // ランタイム整合性: 長さが0でないことを検証し、破損の最低限の検出を行う。
-            if bytes.is_empty() {
+            // Verify integrity via SHA-256 hash to detect corruption or tampering
+            let mut hasher = Sha256::new();
+            hasher.update(bytes);
+            let computed = format!("{:x}", hasher.finalize());
+            if computed != EMBEDDED_PREDICTOR_HASH {
                 return Err(TokenizerError::ModelLoad(
-                    "embedded predictor bytes are empty (possible corruption)".into(),
+                    "embedded predictor bytes failed integrity check (possible corruption)".into(),
                 ));
             }
+            // SAFETY: bytes passed hash check and come from build.rs (serialized via predictor.serialize_to_vec())
             let (p, _) = unsafe {
                 Predictor::deserialize_from_slice_unchecked(bytes)
                     .map_err(|e| TokenizerError::ModelLoad(e.to_string()))?

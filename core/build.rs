@@ -1,4 +1,5 @@
 use std::{env, fs, io::Read, path::PathBuf};
+use sha2::{Sha256, Digest};
 
 fn main() {
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
@@ -13,14 +14,20 @@ fn main() {
             let predictor_bytes = build_predictor(&model_path)
                 .unwrap_or_else(|e| panic!("Failed to build predictor from {}: {}", model_path, e));
 
+            let mut hasher = Sha256::new();
+            hasher.update(&predictor_bytes);
+            let hash = hasher.finalize();
+            let hash_hex = format!("{:x}", hash);
+
             let predictor_path = out_dir.join("predictor.bin");
             fs::write(&predictor_path, &predictor_bytes).unwrap();
 
             fs::write(
                 &dest,
                 format!(
-                    "static EMBEDDED_PREDICTOR_BYTES: Option<&'static [u8]> = Some(include_bytes!({:?}));",
-                    predictor_path
+                    "static EMBEDDED_PREDICTOR_BYTES: Option<&'static [u8]> = Some(include_bytes!({:?}));
+static EMBEDDED_PREDICTOR_HASH: &str = \"{}\";",
+                    predictor_path, hash_hex
                 ),
             )
             .unwrap();
@@ -30,7 +37,7 @@ fn main() {
 
     fs::write(
         &dest,
-        "static EMBEDDED_PREDICTOR_BYTES: Option<&'static [u8]> = None;",
+        "static EMBEDDED_PREDICTOR_BYTES: Option<&'static [u8]> = None;\nstatic EMBEDDED_PREDICTOR_HASH: &str = \"\";",
     )
     .unwrap();
 }

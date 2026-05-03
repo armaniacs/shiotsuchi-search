@@ -51,3 +51,4 @@ vaporetto = { version = "0.6", default-features = false, features = [
     "charwise-pma",
 ] }
 ruzstd = "0.8"
+sha2 = "0.10"
