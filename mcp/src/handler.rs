@@ -1,7 +1,7 @@
 use obsidian_shiotsuchi_vault_core::{
     db::NoteDatabase,
     search::search,
-    tokenizer::{JapaneseTokenizer, TokenizerConfig},
+    tokenizer::get_tokenizer,
 };
 use serde_json::Value;
 use std::{fs, path::Path};
@@ -20,7 +20,7 @@ pub fn call_tool(
         "search_vault" => {
             let query = args["query"].as_str().unwrap_or("");
             let db = NoteDatabase::open(db_path)?;
-            let tokenizer = JapaneseTokenizer::new(TokenizerConfig::default())?;
+            let tokenizer = get_tokenizer()?;
             let results = search(&db, &tokenizer, notes_dir, query, 20)?;
             let text = serde_json::to_string_pretty(&results)?;
             Ok(text_content(text))

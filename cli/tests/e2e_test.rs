@@ -217,12 +217,21 @@ fn e2e_scan_indexes_new_file() {
     let vault = temp.path().to_path_buf();
     let ready_clone = Arc::clone(&ready);
 
+    let timeout_ms: u64 = std::env::var("SHIOTSUCHI_SCAN_TIMEOUT_MS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(2500);
+    let poll_interval_ms: u64 = std::env::var("SHIOTSUCHI_SCAN_POLL_MS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(100);
+
     let handle = thread::spawn(move || -> usize {
         let tokenizer = Arc::new(JapaneseTokenizer::new(TokenizerConfig::default()).unwrap());
         let config = IndexConfig { notes_dir: vault.clone(), ..Default::default() };
         let (tx, rx) = std::sync::mpsc::channel();
         let poll_config = NotifyConfig::default()
-            .with_poll_interval(Duration::from_millis(100));
+            .with_poll_interval(Duration::from_millis(poll_interval_ms));
         let mut watcher = PollWatcher::new(
             move |res: Result<Event, _>| { if let Ok(e) = res { let _ = tx.send(e); } },
             poll_config,
@@ -231,7 +240,7 @@ fn e2e_scan_indexes_new_file() {
         ready_clone.store(true, Ordering::SeqCst);
 
         let mut indexed = 0usize;
-        let deadline = std::time::Instant::now() + Duration::from_millis(2500);
+        let deadline = std::time::Instant::now() + Duration::from_millis(timeout_ms);
         while std::time::Instant::now() < deadline {
             if let Ok(event) = rx.recv_timeout(Duration::from_millis(50)) {
                 use notify::event::{EventKind, ModifyKind};
@@ -252,9 +261,9 @@ fn e2e_scan_indexes_new_file() {
     while !ready.load(Ordering::SeqCst) {
         thread::sleep(Duration::from_millis(10));
     }
-    thread::sleep(Duration::from_millis(100));
+    thread::sleep(Duration::from_millis(poll_interval_ms));
     fs::write(temp.path().join("new.md"), "# New note\n\nauto-index test\n").unwrap();
-    thread::sleep(Duration::from_millis(2500));
+    thread::sleep(Duration::from_millis(timeout_ms));
 
     let _ = handle.join();
     let count = db.lock().unwrap().stats().unwrap().total_notes;

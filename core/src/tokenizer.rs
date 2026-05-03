@@ -60,6 +60,12 @@ impl JapaneseTokenizer {
     pub fn new(config: TokenizerConfig) -> Result<Self, TokenizerError> {
         let predictor = if let Some(bytes) = EMBEDDED_PREDICTOR_BYTES {
             // SAFETY: build.rs が serialize_to_vec() で生成したバイト列のみが埋め込まれる。
+            // ランタイム整合性: 長さが0でないことを検証し、破損の最低限の検出を行う。
+            if bytes.is_empty() {
+                return Err(TokenizerError::ModelLoad(
+                    "embedded predictor bytes are empty (possible corruption)".into(),
+                ));
+            }
             let (p, _) = unsafe {
                 Predictor::deserialize_from_slice_unchecked(bytes)
                     .map_err(|e| TokenizerError::ModelLoad(e.to_string()))?

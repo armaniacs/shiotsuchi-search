@@ -33,6 +33,21 @@ pub fn search(
     // スニペットは元ファイルから抽出（FTS5 の highlight() は使えないため）
     for result in &mut results {
         let file_path = notes_dir.join(&result.path);
+
+        // vault 内制限: notes_dir 外のファイルを読み出さない
+        let notes_canonical = match notes_dir.canonicalize() {
+            Ok(p) => p,
+            Err(_) => notes_dir.to_path_buf(),
+        };
+        let file_canonical = match file_path.canonicalize() {
+            Ok(p) => p,
+            Err(_) => file_path.clone(),
+        };
+        if !file_canonical.starts_with(&notes_canonical) {
+            result.snippet = String::from("[path outside vault]");
+            continue;
+        }
+
         if let Ok(content) = fs::read_to_string(&file_path) {
             result.snippet = extract_snippet(&content, query, 3);
         }
@@ -113,5 +128,24 @@ mod tests {
         assert!(snippet.contains("E"));
         // Should include context lines
         assert!(snippet.contains("D") || snippet.contains("F"));
+    }
+
+    #[test]
+    fn test_search_path_traversal_protection() {
+        use crate::db::NoteDatabase;
+        use crate::tokenizer::{JapaneseTokenizer, TokenizerConfig};
+
+        let temp = tempfile::TempDir::new().unwrap();
+        let db_path = temp.path().join("test.db");
+        let db = NoteDatabase::open(&db_path).unwrap();
+        let tokenizer = match JapaneseTokenizer::new(TokenizerConfig::default()) {
+            Ok(t) => t,
+            Err(_) => return, // skip when model unavailable
+        };
+        db.upsert_note("../secret.txt", "Secret", "secret body", "h1", 1)
+            .unwrap();
+        let results = search(&db, &tokenizer, temp.path(), "secret", 10).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].snippet, "[path outside vault]");
     }
 }

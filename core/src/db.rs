@@ -20,6 +20,7 @@ impl NoteDatabase {
     /// Open or create a database at the given path.
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, DbError> {
         let conn = Connection::open(path)?;
+        conn.pragma_update(None, "journal_mode", "WAL")?;
         let db = Self { conn };
         db.init_schema()?;
         Ok(db)
@@ -80,46 +81,61 @@ impl NoteDatabase {
             .unwrap()
             .as_secs() as i64;
 
-        // Check existing hash
-        let existing: Option<String> = self
-            .conn
-            .query_row(
-                "SELECT hash FROM notes_meta WHERE path = ?1",
-                [path],
-                |row| row.get(0),
-            )
-            .ok();
+        self.conn.execute("BEGIN", []).map_err(DbError::Sqlite)?;
 
-        if let Some(old_hash) = existing {
-            if old_hash == hash {
-                // Unchanged
-                return Ok(false);
+        let tx_result = (|| {
+            // Check existing hash
+            let existing: Option<String> = self
+                .conn
+                .query_row(
+                    "SELECT hash FROM notes_meta WHERE path = ?1",
+                    [path],
+                    |row| row.get(0),
+                )
+                .ok();
+
+            if let Some(old_hash) = existing {
+                if old_hash == hash {
+                    // Unchanged
+                    return Ok(false);
+                }
+                // Update: delete old FTS row first
+                self.conn
+                    .execute("DELETE FROM notes_fts WHERE path = ?1", [path])?;
             }
-            // Update: delete old FTS row first
-            self.conn
-                .execute("DELETE FROM notes_fts WHERE path = ?1", [path])?;
+
+            // Insert into FTS
+            self.conn.execute(
+                "INSERT INTO notes_fts (path, title, body) VALUES (?1, ?2, ?3)",
+                params![path, title, tokenized_body],
+            )?;
+
+            // Upsert metadata
+            self.conn.execute(
+                "INSERT INTO notes_meta (path, hash, mtime, indexed_at, title)
+                 VALUES (?1, ?2, ?3, ?4, ?5)
+                 ON CONFLICT(path) DO UPDATE SET
+                    hash=excluded.hash,
+                    mtime=excluded.mtime,
+                    indexed_at=excluded.indexed_at,
+                    title=excluded.title",
+                params![path, hash, mtime, now, title],
+            )?;
+
+            Ok(true)
+        })();
+
+        match tx_result {
+            Ok(v) => {
+                self.conn.execute("COMMIT", []).map_err(DbError::Sqlite)?;
+                Ok(v)
+            }
+            Err(e) => {
+                let _ = self.conn.execute("ROLLBACK", []);
+                Err(e)
+            }
         }
-
-        // Insert into FTS
-        self.conn.execute(
-            "INSERT INTO notes_fts (path, title, body) VALUES (?1, ?2, ?3)",
-            params![path, title, tokenized_body],
-        )?;
-
-        // Upsert metadata
-        self.conn.execute(
-            "INSERT INTO notes_meta (path, hash, mtime, indexed_at, title)
-             VALUES (?1, ?2, ?3, ?4, ?5)
-             ON CONFLICT(path) DO UPDATE SET
-                hash=excluded.hash,
-                mtime=excluded.mtime,
-                indexed_at=excluded.indexed_at,
-                title=excluded.title",
-            params![path, hash, mtime, now, title],
-        )?;
-
-        Ok(true)
-    }
+}
 
     /// Get metadata for a specific note.
     pub fn get_metadata(&self, path: &str) -> Result<NoteMetadata, DbError> {
@@ -169,12 +185,25 @@ impl NoteDatabase {
 
     /// Delete a note from the index.
     pub fn delete_note(&self, path: &str) -> SqliteResult<()> {
-        self.conn
-            .execute("DELETE FROM notes_fts WHERE path = ?1", [path])?;
-        self.conn
-            .execute("DELETE FROM notes_meta WHERE path = ?1", [path])?;
-        Ok(())
-    }
+        self.conn.execute("BEGIN", [])?;
+        let tx_result: SqliteResult<()> = (|| {
+            self.conn
+                .execute("DELETE FROM notes_fts WHERE path = ?1", [path])?;
+            self.conn
+                .execute("DELETE FROM notes_meta WHERE path = ?1", [path])?;
+            Ok(())
+        })();
+        match tx_result {
+            Ok(v) => {
+                self.conn.execute("COMMIT", [])?;
+                Ok(v)
+            }
+            Err(e) => {
+                let _ = self.conn.execute("ROLLBACK", []);
+                Err(e)
+            }
+        }
+}
 
     /// Get vault statistics.
     pub fn stats(&self) -> Result<VaultStats, DbError> {
@@ -214,17 +243,14 @@ impl NoteDatabase {
     /// `fts5_query` は呼び出し側で `tokenizer.and_query()` を使って構築すること。
     /// 例: `"東京" AND "検索"` — スペース区切り（フレーズ検索）は誤りなので使わない。
     pub fn search(&self, fts5_query: &str, limit: usize) -> Result<Vec<SearchResult>, DbError> {
-        let sql = format!(
-            "SELECT path, title, rank
+        let sql = "SELECT path, title, rank
              FROM notes_fts
              WHERE notes_fts MATCH ?1
              ORDER BY rank
-             LIMIT {}",
-            limit
-        );
+             LIMIT ?2";
 
-        let mut stmt = self.conn.prepare(&sql)?;
-        let rows = stmt.query_map(params![fts5_query], |row| {
+        let mut stmt = self.conn.prepare(sql)?;
+        let rows = stmt.query_map(params![fts5_query, limit as i64], |row| {
             Ok(SearchResult {
                 path: row.get(0)?,
                 title: row.get(1)?,
@@ -280,6 +306,17 @@ mod tests {
             .unwrap();
         db.delete_note("test.md").unwrap();
         assert!(db.get_metadata("test.md").is_err());
+    }
+
+    #[test]
+    fn test_wal_mode_enabled() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let db = NoteDatabase::open(temp.path().join("test.db")).unwrap();
+        let journal_mode: String = db
+            .conn
+            .query_row("PRAGMA journal_mode;", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(journal_mode.to_lowercase(), "wal");
     }
 
     #[test]

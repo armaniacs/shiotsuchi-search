@@ -30,7 +30,9 @@ fn xdg_config_home() -> PathBuf {
 }
 
 fn home_dir() -> PathBuf {
-    dirs::home_dir().unwrap_or_else(|| PathBuf::from("/tmp"))
+    dirs::home_dir().unwrap_or_else(|| {
+        std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+    })
 }
 
 pub fn default_db_path() -> PathBuf {
@@ -94,7 +96,14 @@ impl ShiotsuchiConfig {
     pub fn load() -> Self {
         let default_path = xdg_config_home().join("shiotsuchi").join("config.toml");
         if default_path.exists() {
-            Self::load_from(&default_path).unwrap_or_default()
+            Self::load_from(&default_path).unwrap_or_else(|e| {
+                eprintln!(
+                    "Warning: failed to load config from {}: {}. Using defaults.",
+                    default_path.display(),
+                    e
+                );
+                Self::default()
+            })
         } else {
             Self::default()
         }

@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//Users/yaar/.config/claude/skills/**)",
+      "Read(//Users/yaar/.agents/skills/checking-team/**)",
+      "Bash(mkdir -p /tmp/checking-team)",
+      "Bash(git diff *)",
+      "Read(//private/tmp/checking-team/**)"
+    ],
+    "additionalDirectories": [
+      "/Users/yaar/.agents/skills/checking-team",
+      "/private/tmp/checking-team"
+    ]
+  }
+}

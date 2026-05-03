@@ -52,12 +52,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             commands::chart::run_chart(&args, &cfg.vault.notes_dir, &cfg.vault.db_path)?;
         }
         Commands::Dive(args) => {
+            if !cfg.vault.db_path.exists() {
+                eprintln!("Error: database not found. Run `shiotsuchi chart` to index your vault first.");
+                std::process::exit(1);
+            }
             match commands::dive::run_dive(&args, &cfg.vault.notes_dir, &cfg.vault.db_path) {
                 Ok(results) => commands::dive::print_results(&results, args.json),
-                Err(e) if e.to_string().contains("unable to open") => {
-                    eprintln!("Error: database not found. Run `shiotsuchi chart` to index your vault first.");
-                    std::process::exit(1);
-                }
                 Err(e) => {
                     eprintln!("Error: {}", e);
                     std::process::exit(1);

@@ -29,7 +29,7 @@ pub fn dispatch(req: McpRequest, notes_dir: &Path, db_path: &Path) -> McpRespons
             let args = &params["arguments"];
             match handler::call_tool(name, args, notes_dir, db_path) {
                 Ok(result) => McpResponse::success(req.id, result),
-                Err(e) => McpResponse::error(req.id, -32000, &e.to_string()),
+                Err(_) => McpResponse::error(req.id, -32000, "Internal tool execution error"),
             }
         }
         "ping" => McpResponse::success(req.id, serde_json::json!({})),
@@ -49,11 +49,19 @@ fn main() {
             std::env::var_os("XDG_CACHE_HOME")
                 .map(std::path::PathBuf::from)
                 .unwrap_or_else(|| {
-                    dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("/tmp")).join(".cache")
+                    dirs::home_dir()
+                        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")))
+                        .join(".cache")
                 })
                 .join("shiotsuchi")
                 .join("db.sqlite3")
         });
+
+    if let Some(parent) = db_path.parent() {
+        if !parent.exists() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+    }
 
     let stdin = io::stdin();
     let stdout = io::stdout();

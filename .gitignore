@@ -1,6 +1,6 @@
 /target
 **/*.rs.bk
-Cargo.lock
+# Cargo.lock
 db.sqlite3
 *.db
 .DS_Store
@@ -8,3 +8,17 @@ db.sqlite3
 *.model.zst
 *.model
 integration/node_modules/
+
+*.db-wal
+*.db-shm
+*.sqlite3-wal
+*.sqlite3-shm
+
+.env
+.env.local
+
+.idea/
+.vscode/
+*.swp
+Thumbs.db
+*.profraw
