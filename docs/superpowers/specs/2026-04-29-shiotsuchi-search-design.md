@@ -26,10 +26,10 @@ Vaporetto (Japanese tokenizer) × SQLite FTS5 = sub-second search across 10,000+
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                        User Interface Layer                 │
-├───────────────┬───────────────┬─────────────────────────────┤
-│    Standalone │  Kilo Skill   │     MCP Server              │
-│      CLI      │  (local)      │  (AI integration)           │
-└───────┬───────┴───────┬───────┴───────────────┬─────────────┘
+├───────────────────────────┬─────────────────────────────────┤
+│    Standalone CLI         │     MCP Server                  │
+│                           │  (AI integration)               │
+└───────────┬───────────────┴──────────────────┬──────────────┘
         │               │                       │
         └───────────────┼───────────────────────┘
                         │
@@ -51,15 +51,16 @@ Vaporetto (Japanese tokenizer) × SQLite FTS5 = sub-second search across 10,000+
 
 ### 2.2 Multi-Interface Strategy
 
-**Approach**: 3 independent frontends sharing a single core library
+**Approach**: 2 independent frontends sharing a single core library
 
 | Frontend | Purpose | Invocation |
 |----------|---------|------------|
 | **CLI** (`shiotsuchi`) | Direct terminal use, scripting | `shiotsuchi dive "query"` |
-| **Killo Skill** | Integrated into Kilo workflow | `kilo search-vault` |
 | **MCP Server** | Claude Desktop / Codex integration | stdio transport |
 
 **Rationale**: Maximum flexibility; each interface optimized for its use case while code stays DRY.
+
+> **Note:** A Kilo Skill crate (`shiotsuchi-skill`) was initially created but removed in v0.1.1 because a standards-compatible skill protocol was not finalized. Equivalent functionality is already provided by the MCP server.
 
 ---
 
@@ -150,9 +151,8 @@ Input: query_string (Japanese or mixed)
 **Snippet Extraction**:
 - Locate first occurrence of any query token in original text
 - Walk backward to previous newline (snippet start)
-- Walk forward capturing up to ~3 logical lines (split by `\n\n` or heading markers)
-- Truncate to ~500 chars max, append "…" if truncated
-- Highlight matched tokens with `**` Markdown bold (optional flag)
+- Walk forward capturing up to `max_lines` lines (default 3)
+- If no match found, return first 200 characters of text
 
 ---
 
@@ -166,17 +166,16 @@ Input: query_string (Japanese or mixed)
 shiotsuchi [GLOBAL_OPTS] <COMMAND> [ARGS]
 
 Commands:
-  dive <query>          Search notes (航海:潜る="dive") [alias: search]
+  dive <query>          Search notes (spec化:潜る="dive")
   chart                 Build/rebuild index (海図作成)
   scan                  Watch for changes (見張り)
-  tide                  Show vault status (潮況) [alias: status]
-  log                   Show statistics (航海日誌)
-
-# NOTE: drift コマンドは廃止。MCP サーバは shiotsuchi-mcp として独立バイナリ。
+  tide                  Show vault status (潮況)
+  log                   Show indexed note history (航海日誌)
+  delete <path>         Remove a note from the index (does not delete the file)
 
 Global Options:
-  --notes-dir <PATH>    Root directory (required, default: $PWD)
-  --db-path <PATH>      SQLite DB location (default: ~/.shiotsuchi/db.sqlite3)
+  --notes-dir <PATH>    Vault root directory (default: current dir, override via $SHIOTSUCHI_NOTES_DIR)
+  --db-path <PATH>      SQLite DB location (default: XDG cache path)
   --verbose             Debug output
   --version             Show version and tagline
 ```
@@ -227,36 +226,9 @@ Global Options:
 
 ---
 
-### 4.2 Kilo Skill (`shiotsuchi-skill`)
+### 4.2 Kilo Skill (`shiotsuchi-skill`) — REMOVED
 
-**Skill Registration**:  
-User adds to `~/.config/killo/agents/skills/shiotsuchi-search.md` or via `killo agent enable shiotsuchi-search`.
-
-**Commands exposed**:
-
-```yaml
-commands:
-  - name: search-vault
-    description: Search your Markdown notes for relevant context
-    params:
-      - name: query
-        type: string
-        required: true
-    handler: shiotsuchi-skill::search
-  - name: read-note
-    description: Read full content of a specific note
-    params:
-      - name: path
-        type: string
-        required: true
-    handler: shiotsuchi-skill::read
-  - name: vault-status
-    description: Show vault indexing status
-    handler: shiotsuchi-skill::status
-```
-
-**Integration**:  
-Skill binary (`shiotsuchi-skill`) is a thin wrapper around core library, communicating via Kilo's JSON-RPC stdio protocol.
+The Skill crate was removed in v0.1.1. See §2.2 note for rationale. MCP server (`shiotsuchi-mcp`) provides the equivalent functionality for AI integration.
 
 ---
 
@@ -324,7 +296,7 @@ Skill binary (`shiotsuchi-skill`) is a thin wrapper around core library, communi
 
 **Message Flow**:
 ```
-Claude → MCP request → shiotsuchi drift → core.search() → JSON response → Claude
+Claude → MCP request → shiotsuchi-mcp → core.search() → JSON response → Claude
 ```
 
 ---
@@ -333,26 +305,21 @@ Claude → MCP request → shiotsuchi drift → core.search() → JSON response 
 
 ### 5.1 Configuration File
 
-**Path**: `~/.shiotsuchi/config.toml` (or XDG compliant)
+**Path**: `$XDG_CONFIG_HOME/shiotsuchi/config.toml` (fallback `~/.config/shiotsuchi/config.toml`)
 
 ```toml
 [vault]
 notes_dir = "/Users/name/Documents/Notes"  # default vault root
-db_path = "/Users/name/.local/share/shiotsuchi/db.sqlite3"
+db_path = "/Users/name/.cache/shiotsuchi/db.sqlite3"  # default: XDG cache path
 
 [indexing]
-tokenizer = "vaporetto"          # or "simple" for testing
 snippet_lines = 3                # configurable snippet length
 include_extensions = ["md", "markdown"]
-exclude_patterns = [".obsidian/", "node_modules/", ".git/"]
+exclude_patterns = [".obsidian", "node_modules", ".git"]
 
 [watcher]
 debounce_ms = 500
 enabled = true
-
-[mcp]
-enabled = true
-transport = "stdio"
 ```
 
 CLI flags override config file values.
@@ -361,8 +328,7 @@ CLI flags override config file values.
 
 - `SHIOTSUCHI_NOTES_DIR`: Override vault root
 - `SHIOTSUCHI_DB_PATH`: Override database path
-- `SHIOTSUCHI_CONFIG`: Custom config file location
-- `SHIOTSUCHI_VERBOSE`: Set to `1` for debug logging
+- `RUST_LOG`: Set log level (e.g. `RUST_LOG=debug`). CLI `--verbose` flag sets equivalent.
 
 ---
 
@@ -407,10 +373,7 @@ CLI flags override config file values.
 **cli**:
 - Argument parsing (clap tests)
 - Command dispatch (each subcommand)
-
-**skill**:
-- Skill command registration
-- JSON-RPC message handling
+- E2E tests (separate `shiotsuchi-e2e` crate)
 
 ### 7.2 Integration Tests
 
@@ -459,15 +422,19 @@ CLI flags override config file values.
   - `--json` フラグ: compact JSON 出力
   - デフォルト: pretty-printed JSON
 - [ ] Implement `tide` command (stats)
-- [ ] config.toml 読み込み対応（`~/.shiotsuchi/config.toml`）
+- [x] config.toml 読み込み対応（`$XDG_CONFIG_HOME/shiotsuchi/config.toml`）
 - [ ] Manual testing on sample vault
 
-### Phase 3: Kilo Skill
-- [ ] Skill manifest (`skill.yaml` or `skill.json`)
-- [ ] Skill binary (`main.rs`) that loads config and runs commands
-- [ ] JSON-RPC handler (KPeer protocol)
-- [ ] Register as Kilo skill
-- [ ] Test via `killo agent run shiotsuchi-search`
+### Phase 3: Kilo Skill — SKIPPED / REMOVED
+
+**Status:** The `shiotsuchi-skill` crate was removed in v0.1.1. See §2.2 note for rationale. MCP server provides equivalent functionality. The skill idea may be revisited when a standards-compatible protocol is available.
+
+```diff
+- Skill manifest
+- Skill binary
+- JSON-RPC handler
+- Register as Kilo skill
+```
 
 ### Phase 4: MCP Server
 - [ ] MCP protocol layer (stdio read/write, JSON-RPC 2.0)
@@ -502,8 +469,8 @@ CLI flags override config file values.
 - ✅ Index 10,000 notes in ≤ 2 minutes
 - ✅ Search 3-character Japanese query returns in ≤ 100ms
 - ✅ `shiotsuchi dive` outputs valid JSON
-- ✅ Kilo skill loads and responds to `search-vault`
 - ✅ Claude Desktop can call `search_vault` via MCP and get useful snippets
+- ✅ `shiotsuchi-mcp` exposes MCP tools (`search_vault`, `read_full_note`, `vault_status`)
 - ✅ Cross-platform: macOS, Linux, Windows
 
 ---
@@ -535,5 +502,6 @@ CLI flags override config file values.
 
 ---
 
-**Document Version**: 1.0-draft  
-**Next Review**: After Phase 1 core implementation
+**Document Version**: 1.1  
+**Last Updated**: 2026-05-05  
+**Changes in v1.1**: Removed Kilo Skill sections (§2.2, §4.2, §7.1, §9); added `delete` command; updated config paths to XDG; removed obsolete env vars and config fields; corrected MCP flow diagram; updated snippet extraction description.
