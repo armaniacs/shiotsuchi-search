@@ -14,6 +14,8 @@ Powered by [Vaporetto](https://github.com/daac-tools/vaporetto) × SQLite FTS5.
 - **Multiple interfaces**: CLI, Kilo Skill, Claude Desktop (MCP)
 - **Incremental indexing**: only re-indexes changed files (SHA-256 hash tracking)
 
+> **Note:** All command output and error messages are currently in English only. Japanese localization may be added in a future release.
+
 ## Quick Start
 
 ### 1. Download tokenizer model
@@ -46,6 +48,7 @@ shiotsuchi dive "project plan"
 | `tide` | Show vault statistics |
 | `scan` | Watch for file changes and auto-re-index |
 | `log` | Show indexing history |
+| `delete <path>` | Remove a note from the index (does not delete the file) |
 
 ## Claude Desktop Integration (MCP)
 
@@ -73,6 +76,11 @@ SHIOTSUCHI_MODEL_PATH=models/bccwj-suw+unidic_pos+kana.model.zst \
 ```
 
 Restart Claude Desktop and ask: "Search my notes for project"
+
+## Security & Privacy
+
+- The database (`db.sqlite3`) stores **plaintext** of your note bodies (tokenized for search). If your vault contains sensitive data, ensure appropriate file permissions (e.g., `chmod 600`) on the database file.
+- The MCP server exposes read-only access to your vault. Only connect to trusted MCP clients.
 
 ## Configuration
 
