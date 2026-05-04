@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+use obsidian_shiotsuchi_vault_core::paths::default_db_path as core_default_db_path;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -12,32 +13,26 @@ impl Default for VaultConfig {
     fn default() -> Self {
         Self {
             notes_dir: PathBuf::from("."),
-            db_path: default_db_path(),
+            db_path: core_default_db_path(),
         }
     }
 }
 
-fn xdg_cache_home() -> PathBuf {
-    std::env::var_os("XDG_CACHE_HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| home_dir().join(".cache"))
-}
+
 
 fn xdg_config_home() -> PathBuf {
     std::env::var_os("XDG_CONFIG_HOME")
         .map(PathBuf::from)
-        .unwrap_or_else(|| home_dir().join(".config"))
+        .unwrap_or_else(|| {
+            dirs::home_dir()
+                .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
+                .join(".config")
+        })
 }
 
-fn home_dir() -> PathBuf {
-    dirs::home_dir().unwrap_or_else(|| {
-        std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
-    })
-}
 
-pub fn default_db_path() -> PathBuf {
-    xdg_cache_home().join("shiotsuchi").join("db.sqlite3")
-}
+
+
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
