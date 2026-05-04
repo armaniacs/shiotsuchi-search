@@ -7,6 +7,7 @@ use std::{
     io::{self, BufRead, Write},
     path::Path,
 };
+use obsidian_shiotsuchi_vault_core::paths::default_db_path as core_default_db_path;
 
 pub fn dispatch(req: McpRequest, notes_dir: &Path, db_path: &Path) -> McpResponse {
     let params = req.params.clone().unwrap_or(serde_json::Value::Null);
@@ -45,17 +46,7 @@ fn main() {
         .unwrap_or_else(|_| std::path::PathBuf::from("."));
     let db_path = std::env::var("SHIOTSUCHI_DB_PATH")
         .map(std::path::PathBuf::from)
-        .unwrap_or_else(|_| {
-            std::env::var_os("XDG_CACHE_HOME")
-                .map(std::path::PathBuf::from)
-                .unwrap_or_else(|| {
-                    dirs::home_dir()
-                        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")))
-                        .join(".cache")
-                })
-                .join("shiotsuchi")
-                .join("db.sqlite3")
-        });
+        .unwrap_or_else(|_| core_default_db_path());
 
     if let Some(parent) = db_path.parent() {
         if !parent.exists() {
