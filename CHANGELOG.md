@@ -9,14 +9,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- `CLAUDE.md` — AI assistant quick reference guide with architecture, commands, and key files
-- `ref/` reference documentation suite:
-  - `ref/architecture.md` — workspace structure, data flow, and design decisions
-  - `ref/core.md` — core library API: DB, tokenizer, indexer, search, watcher
-  - `ref/cli.md` — CLI commands, configuration, and entry points
-  - `ref/mcp.md` — MCP server protocol, tools, and Claude Desktop setup
-  - `ref/models.md` — data models, FTS5 query format, and file hash tracking
-- `docs/superpowers/specs/2026-05-01-shiotsuchi-search-phase7-mcp-inspector.md` — Phase 7 MCP Inspector specification
+### Changed
+
+### Fixed
+
+## [0.2.0] - 2026-05-04
+
+### Changed
+
+- **Versioning:** Bumped to 0.2.0 following SemVer due to breaking changes (removal of skill crate, DB path consolidation).
+- **Dependencies:** Updated related library versions.
+
+### Fixed
+
+- **Transaction safety:** Use RAII `rusqlite::Transaction` in `upsert_note` and `delete_note` to ensure atomic rollback on panic.
+- **Security:** Added SHA-256 integrity verification for embedded predictor deserialization; fixed path traversal in search snippets; genericized MCP error messages; corrected home directory fallback from `/tmp` to current directory.
+- **DRY:** Consolidated DB path resolution logic into `core::paths` module; CLI and MCP now share `default_db_path()`.
+- **Testing:** Moved E2E tests from CLI crate to separate `e2e` crate; removed MCP dev-dependency from CLI; fixed flaky sleep-based tests with env var control.
+- **Observability:** Default log level set to `warn` so warnings appear without `--verbose`.
+
+### Added
+
+- **Migration support:** Schema version tracking via `PRAGMA user_version`.
+- **CLI new command:** `delete <path>` to remove a note from the index.
+- **Documentation:** Security & privacy notice in README; migration manager foundation for future schema changes; shared path utilities.
 
 ## [0.1.1] - 2026-05-02
 
