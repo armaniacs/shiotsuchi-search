@@ -14,7 +14,7 @@ pub enum DbError {
 
 /// Manages the SQLite database including FTS5 and metadata tables.
 pub struct NoteDatabase {
-    conn: RefCell<Connection>,
+    pub conn: RefCell<Connection>,
 }
 
 impl NoteDatabase {
@@ -64,6 +64,15 @@ impl NoteDatabase {
             "CREATE INDEX IF NOT EXISTS idx_notes_meta_hash ON notes_meta(hash)",
             [],
         )?;
+
+        let current_version: i64 = self.conn.borrow().query_row(
+            "PRAGMA user_version",
+            [],
+            |row| row.get(0),
+        ).unwrap_or(0);
+        if current_version == 0 {
+            self.conn.borrow().execute("PRAGMA user_version = 1", [])?;
+        }
 
         Ok(())
     }
