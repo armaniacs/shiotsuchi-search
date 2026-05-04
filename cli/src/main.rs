@@ -2,6 +2,7 @@ mod commands;
 mod config;
 
 use clap::{Parser, Subcommand};
+use env_logger;
 
 #[derive(Parser)]
 #[command(
@@ -31,13 +32,15 @@ enum Commands {
     Tide,
     Scan(commands::scan::ScanArgs),
     Log,
+    Delete(commands::delete::DeleteArgs),
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
-    if cli.verbose {
-        env_logger::init();
-    }
+
+    let env = env_logger::Env::default()
+        .filter_or("RUST_LOG", if cli.verbose { "debug" } else { "warn" });
+    env_logger::Builder::from_env(env).init();
 
     let mut cfg = config::ShiotsuchiConfig::load();
     if let Some(dir) = cli.notes_dir {
@@ -72,6 +75,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             commands::scan::run_scan(&args, &cfg.vault.notes_dir, &cfg.vault.db_path)?;
         }
         Commands::Log => commands::log::run_log(&cfg.vault.db_path)?,
+        Commands::Delete(args) => {
+            commands::delete::run_delete(&args, &cfg.vault.notes_dir, &cfg.vault.db_path)?;
+        }
     }
 
     Ok(())
