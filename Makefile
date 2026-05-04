@@ -17,7 +17,11 @@ build-dev:
 	cargo build
 
 test: $(MODEL_FILE)
-	SHIOTSUCHI_MODEL_PATH=$(CURDIR)/$(MODEL_FILE) cargo test --workspace
+	SHIOTSUCHI_MODEL_PATH=$(CURDIR)/$(MODEL_FILE) cargo test --workspace --exclude shiotsuchi-e2e
+
+test-e2e: $(MODEL_FILE)
+	cargo build -p shiotsuchi -p shiotsuchi-mcp
+	SHIOTSUCHI_MODEL_PATH=$(CURDIR)/$(MODEL_FILE) cargo test -p shiotsuchi-e2e -- --nocapture
 
 bench: $(MODEL_FILE)
 	SHIOTSUCHI_MODEL_PATH=$(CURDIR)/$(MODEL_FILE) \
@@ -35,7 +39,7 @@ uninstall:
 integration-test: build
 	cd integration && npm install --silent && npm test
 
-test-all: clean test integration-test
+test-all: clean test test-e2e integration-test
 
 clean:
 	cargo clean
@@ -48,8 +52,9 @@ help:
 	@echo "  build       Build release binaries (embeds tokenizer model)"
 	@echo "  build-dev   Build dev profile (no model embedding)"
 	@echo "  test             Run all Rust workspace tests"
+	@echo "  test-e2e         Run end-to-end integration tests"
 	@echo "  integration-test Run Vitest MCP integration tests"
-	@echo "  test-all         Run all tests (Rust + Vitest)"
+	@echo "  test-all         Run all tests (Rust + E2E + Vitest)"
 	@echo "  bench            Run criterion benchmarks"
 	@echo "  install          Install binaries to \$$(PREFIX)/bin  [default: /usr/local/bin]"
 	@echo "  uninstall        Remove installed binaries"
@@ -57,4 +62,4 @@ help:
 	@echo "  clean            Remove build artifacts"
 	@echo "  help             Show this help"
 
-.PHONY: build build-dev test bench install uninstall clean help model integration-test test-all
+.PHONY: build build-dev test test-e2e bench install uninstall clean help model integration-test test-all

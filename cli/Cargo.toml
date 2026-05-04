@@ -23,11 +23,3 @@ env_logger = "0.11"
 
 [dev-dependencies]
 tempfile = "3"
-shiotsuchi-mcp = { path = "../mcp" }
-obsidian-shiotsuchi-vault-core = { path = "../core" }
-serde_json = "1"
-notify = "6"
-
-[[test]]
-name = "e2e_test"
-path = "tests/e2e_test.rs"

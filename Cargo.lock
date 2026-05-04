@@ -947,9 +947,10 @@ dependencies = [
 
 [[package]]
 name = "obsidian-shiotsuchi-vault-core"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "criterion",
+ "dirs",
  "hex",
  "log",
  "notify",
@@ -1376,7 +1377,7 @@ dependencies = [
 
 [[package]]
 name = "shiotsuchi"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "clap",
  "config",
@@ -1387,14 +1388,23 @@ dependencies = [
  "obsidian-shiotsuchi-vault-core",
  "serde",
  "serde_json",
- "shiotsuchi-mcp",
  "tempfile",
  "thiserror",
 ]
 
 [[package]]
+name = "shiotsuchi-e2e"
+version = "0.2.0"
+dependencies = [
+ "notify",
+ "obsidian-shiotsuchi-vault-core",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "shiotsuchi-mcp"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "dirs",
  "env_logger",
