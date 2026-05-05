@@ -947,7 +947,7 @@ dependencies = [
 
 [[package]]
 name = "obsidian-shiotsuchi-vault-core"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "criterion",
  "dirs",
@@ -1377,7 +1377,7 @@ dependencies = [
 
 [[package]]
 name = "shiotsuchi"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "clap",
  "config",
@@ -1394,7 +1394,7 @@ dependencies = [
 
 [[package]]
 name = "shiotsuchi-e2e"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "notify",
  "obsidian-shiotsuchi-vault-core",
@@ -1404,7 +1404,7 @@ dependencies = [
 
 [[package]]
 name = "shiotsuchi-mcp"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "dirs",
  "env_logger",

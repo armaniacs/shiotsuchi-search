@@ -468,7 +468,7 @@ Powered by [Vaporetto](https://github.com/daac-tools/vaporetto) × SQLite FTS5.
 
 - **Sub-second search** across 10,000+ notes
 - **Japanese-aware tokenization** via Vaporetto
-- **Multiple interfaces**: CLI, Kilo Skill, Claude Desktop (MCP)
+- **Multiple interfaces**: CLI, MCP (Claude Desktop)
 - **Incremental indexing**: only re-indexes changed files (SHA-256 hash tracking)
 
 ## Quick Start
@@ -635,6 +635,6 @@ SHIOTSUCHI_MODEL_PATH=models/bccwj-suw+unidic_pos+kana.model.zst \
 All 5 phases implemented:
 1. **Phase 1** — Core library (indexing, search, watcher)
 2. **Phase 2** — CLI (`shiotsuchi` binary)
-3. **Phase 3** — Kilo Skill (`shiotsuchi-skill`)
+3. **Phase 3** — ~~Kilo Skill (`shiotsuchi-skill`)~~ (削除 - MCPで代替)
 4. **Phase 4** — MCP Server (`shiotsuchi-mcp`)
 5. **Phase 5** — Polish (watcher, version, benchmarks, README)

@@ -11,7 +11,7 @@ Powered by [Vaporetto](https://github.com/daac-tools/vaporetto) × SQLite FTS5.
 
 - **Sub-second search** across 10,000+ notes
 - **Japanese-aware tokenization** via Vaporetto
-- **Multiple interfaces**: CLI, Kilo Skill, Claude Desktop (MCP)
+- **Multiple interfaces**: CLI, MCP (Claude Desktop)
 - **Incremental indexing**: only re-indexes changed files (SHA-256 hash tracking)
 
 > **Note:** All command output and error messages are currently in English only. Japanese localization may be added in a future release.
