@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.2] - 2026-05-06
+
+### Changed
+
+- Bumped version to 0.2.2.
+
+### Fixed
+
+- **Documentation:** Removed remaining Kilo Skill references from README.md, README.ja.md, and phase5 polish plan. Kilo Skill was removed in v0.1.1; documentation now accurately reflects only CLI and MCP interfaces.
+
 ## [0.2.1] - 2026-05-05
 
 ### Changed
@@ -96,10 +106,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Helpful error message when database is not found (guides user to run `chart`)
 - XDG-compliant default paths: `$XDG_CACHE_HOME/shiotsuchi/db.sqlite3`, `$XDG_CONFIG_HOME/shiotsuchi/config.toml`
 - `~/.config/shiotsuchi/config.toml` support via `config` crate
-
-#### Kilo Skill (`shiotsuchi-skill`)
-- JSON-RPC stdio server exposing `search-vault`, `read-note`, `vault-status`
-- `skill.yaml` manifest
 
 #### MCP Server (`shiotsuchi-mcp`)
 - JSON-RPC 2.0 over stdio (Model Context Protocol)
