@@ -155,4 +155,4 @@ SHIOTSUCHI_MODEL_PATH=models/bccwj-suw+unidic_pos+kana.model.zst \
 Apache License 2.0
 
 The release binaries embed the Vaporetto model `bccwj-suw+unidic_pos+kana.model.zst`,
-which is licensed under BSD-3-Clause. See [MODEL_LICENSES.md](MODEL_LICENSES.md) for details.
+which is licensed under BSD-3-Clause. See [docs/MODEL_LICENSES.md](docs/MODEL_LICENSES.md) for details.

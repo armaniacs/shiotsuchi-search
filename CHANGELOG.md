@@ -106,7 +106,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- `CHANGELOG.md`, `LICENSE`, `MODEL_LICENSES.md`, `Makefile`, `README.ja.md`
+- `CHANGELOG.md`, `LICENSE`, `docs/MODEL_LICENSES.md`, `Makefile`, `README.ja.md`
 - `docs/HUMAN-VERIFICATION.md` with automated E2E test coverage
 - `cli/tests/e2e_test.rs` for end-to-end verification of MCP, XDG, scan, log, and tide behavior
 - `integration/` test directory
@@ -146,7 +146,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 #### Tooling
 - `Makefile` with `build`, `build-dev`, `test`, `bench`, `install`, `uninstall`, `model`, `clean`, `help`
 - `scripts/download-model.sh` for fetching the Vaporetto model
-- `MODEL_LICENSES.md` with BSD-3-Clause notice for the bundled tokenizer model
+- `docs/MODEL_LICENSES.md` with BSD-3-Clause notice for the bundled tokenizer model
 - `README.md` (English) and `README.ja.md` (Japanese)
 
 [Unreleased]: https://github.com/your-org/shiotsuchi-search/compare/v0.1.1...HEAD
