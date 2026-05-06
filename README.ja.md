@@ -16,29 +16,6 @@ Markdownノートvault（Obsidianなど）向けの高性能日本語対応全�
 
 > **注意:** 現在、コマンド出力とエラーメッセージは英語のみ対応しています。日本語ローカライズは将来的に追加される可能性があります。
 
-## クイックスタート
-
-### 1. トークナイザモデルのダウンロード
-
-```bash
-./scripts/download-model.sh
-```
-
-### 2. vaultのインデックス作成
-
-```bash
-SHIOTSUCHI_MODEL_PATH=models/bccwj-suw+unidic_pos+kana.model.zst \
-  shiotsuchi chart --notes-dir ~/Notes
-```
-
-DBのデフォルト保存先: `~/.cache/shiotsuchi/db.sqlite3`（`$XDG_CACHE_HOME` が設定されている場合は `$XDG_CACHE_HOME/shiotsuchi/db.sqlite3`）
-
-### 3. 検索
-
-```bash
-shiotsuchi dive "プロジェクト計画"
-```
-
 ## コマンド
 
 | コマンド | 説明 |
@@ -95,44 +72,6 @@ db_path = "/home/name/.cache/shiotsuchi/db.sqlite3"
 snippet_lines = 3
 include_extensions = ["md", "markdown"]
 exclude_patterns = [".obsidian", ".git", "node_modules"]
-```
-
-## ソースからビルド
-
-```bash
-git clone https://github.com/your-org/shiotsuchi-search
-cd shiotsuchi-search
-make build
-```
-
-`make build` はトークナイザモデルが未ダウンロードの場合は自動取得し、モデルを埋め込んだリリースバイナリをビルドする。
-
-ビルド成果物（`target/release/`）:
-- `shiotsuchi` — CLI
-- `shiotsuchi-mcp` — Claude Desktop MCP サーバー
-
-### インストール
-
-```bash
-make install                    # /usr/local/bin にインストール
-make install PREFIX=~/.local    # ~/.local/bin にインストール
-```
-
-### make ターゲット一覧
-
-| ターゲット | 内容 |
-|-----------|------|
-| `make build` | リリースバイナリをビルド（モデル埋め込み） |
-| `make test` | 全ワークスペーステストを実行 |
-| `make bench` | Criterion ベンチマークを実行 |
-| `make install` | `$(PREFIX)/bin` にバイナリをインストール |
-| `make uninstall` | インストール済みバイナリを削除 |
-| `make clean` | ビルド成果物を削除 |
-
-## テストの実行
-
-```bash
-make test
 ```
 
 ## パフォーマンス

@@ -16,29 +16,6 @@ Powered by [Vaporetto](https://github.com/daac-tools/vaporetto) × SQLite FTS5.
 
 > **Note:** All command output and error messages are currently in English only. Japanese localization may be added in a future release.
 
-## Quick Start
-
-### 1. Download tokenizer model
-
-```bash
-./scripts/download-model.sh
-```
-
-### 2. Index your vault
-
-```bash
-SHIOTSUCHI_MODEL_PATH=models/bccwj-suw+unidic_pos+kana.model.zst \
-  shiotsuchi chart --notes-dir ~/Notes
-```
-
-DB is stored at `~/.cache/shiotsuchi/db.sqlite3` by default (`$XDG_CACHE_HOME/shiotsuchi/db.sqlite3` if set).
-
-### 3. Search
-
-```bash
-shiotsuchi dive "project plan"
-```
-
 ## Commands
 
 | Command | Description |
@@ -95,44 +72,6 @@ db_path = "/home/name/.cache/shiotsuchi/db.sqlite3"
 snippet_lines = 3
 include_extensions = ["md", "markdown"]
 exclude_patterns = [".obsidian", ".git", "node_modules"]
-```
-
-## Building from Source
-
-```bash
-git clone https://github.com/your-org/shiotsuchi-search
-cd shiotsuchi-search
-make build
-```
-
-`make build` downloads the tokenizer model automatically if needed, then builds release binaries with the model embedded.
-
-Binaries are placed in `target/release/`:
-- `shiotsuchi` — CLI
-- `shiotsuchi-mcp` — Claude Desktop MCP server
-
-### Install
-
-```bash
-make install                        # installs to /usr/local/bin
-make install PREFIX=~/.local        # installs to ~/.local/bin
-```
-
-### Common make targets
-
-| Target | Description |
-|--------|-------------|
-| `make build` | Build release binaries (embeds tokenizer model) |
-| `make test` | Run all workspace tests |
-| `make bench` | Run criterion benchmarks |
-| `make install` | Install binaries to `$(PREFIX)/bin` |
-| `make uninstall` | Remove installed binaries |
-| `make clean` | Remove build artifacts |
-
-## Running Tests
-
-```bash
-make test
 ```
 
 ## Performance
