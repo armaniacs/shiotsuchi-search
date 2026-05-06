@@ -3,18 +3,14 @@ use obsidian_shiotsuchi_vault_core::{
     indexer::{index_directory, cleanup_deleted},
     models::IndexConfig,
     search::extract_snippet,
-    tokenizer::{JapaneseTokenizer, TokenizerConfig},
+    tokenizer::TokenizerConfig,
 };
 use std::fs;
 use tempfile::TempDir;
 
 #[test]
 fn test_end_to_end_index_and_search() {
-    // Skip if tokenizer cannot be created
-    let tokenizer = match JapaneseTokenizer::new(TokenizerConfig::default()) {
-        Ok(tok) => tok,
-        Err(_) => return, // Skip test if model not available
-    };
+    let tokenizer = obsidian_shiotsuchi_vault_core::require_tokenizer!(TokenizerConfig::default());
 
     let temp = TempDir::new().unwrap();
     let vault = temp.path().join("vault");

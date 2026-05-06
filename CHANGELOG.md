@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.3] - 2026-05-06
+
+### Changed
+
+- Bumped version to 0.2.3.
+
+### Security
+
+- **Symlink traversal prevention:** Added `is_path_within_vault()` to file watcher (`handle_event`), using `canonicalize()` + `starts_with()` to block symlink-based vault escape attacks.
+- **Model download integrity:** `download-model.sh` now verifies the downloaded model file against a pinned SHA-256 checksum.
+- **Search graceful degradation:** Hoisted `notes_dir.canonicalize()` outside per-result loop; per-file canonicalize failures now degrade gracefully (snippet set to `[path outside vault]`) instead of aborting the entire search.
+- **Config file security:** Added security notice to `ShiotsuchiConfig::load()` documenting file permission expectations.
+
+### Fixed
+
+- **Test flakiness:** Replaced `test_scan_indexes_new_file` (PollWatcher + real sleep, 60s+ timeout) with `test_scan_watcher_setup` — a synchronous watcher construction test that runs in <10ms.
+- **Delete stale entries:** `run_delete` now handles files already deleted from disk — attempts canonicalize validation when the file exists, otherwise proceeds with DB cleanup directly.
+- **CI cargo audit:** Fixed audit step to use `dtolnay/install@cargo-audit` and fail on true warnings (`--deny warnings` without suppression).
+- **Delete path validation:** Changed `path.contains("..")` to `path.split('/').any(|c| c == "..")` to avoid rejecting legitimate filenames like `some..thing.md`.
+
+### Performance
+
+- **Parallel indexing:** `index_directory()` now uses `rayon` to parallelize file reading, hashing, frontmatter extraction, and Vaporetto tokenization across available CPU cores. DB writes remain serial (`RefCell<Connection>` is `!Sync`).
+
+### Maintainability
+
+- **Magic numbers → constants:** Extracted `MAX_SNIPPET_CHARS` (500), `FALLBACK_SNIPPET_CHARS` (200), and `DEFAULT_SNIPPET_LINES` (3) into `core/src/constants.rs`. All call sites updated to use named constants.
+- **decompress_if_needed dedup:** Extracted shared zstd decompression logic into `core/src/_decompress.rs`, included via `include!()` in both `build.rs` and `tokenizer.rs`.
+- **require_tokenizer! macro:** Added `#[macro_export]` test helper that prints a visible `[SKIPPED]` message via stderr (instead of silent `return`) when the Vaporetto model is unavailable. All 8 model-dependent test sites updated.
+- **SAFETY documentation:** The `unsafe { Predictor::deserialize_from_slice_unchecked }` block now includes a detailed safety comment explaining the three preconditions that make it sound.
+
 ## [0.2.2] - 2026-05-06
 
 ### Changed

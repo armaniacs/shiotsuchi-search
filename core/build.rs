@@ -1,6 +1,9 @@
 use std::{env, fs, io::Read, path::PathBuf};
 use sha2::{Sha256, Digest};
 
+// Shared decompress logic — see src/_decompress.rs
+include!("src/_decompress.rs");
+
 fn main() {
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
     let dest = out_dir.join("embedded_model.rs");
@@ -52,13 +55,4 @@ fn build_predictor(model_path: &str) -> Result<Vec<u8>, Box<dyn std::error::Erro
     Ok(predictor.serialize_to_vec()?)
 }
 
-fn decompress_if_needed(bytes: &[u8]) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
-    if bytes.starts_with(&[0x28, 0xb5, 0x2f, 0xfd]) {
-        let mut decoder = ruzstd::decoding::StreamingDecoder::new(bytes)?;
-        let mut out = Vec::new();
-        decoder.read_to_end(&mut out)?;
-        Ok(out)
-    } else {
-        Ok(bytes.to_vec())
-    }
-}
+

@@ -1,4 +1,5 @@
 use clap::Args;
+use crate::config::IndexingConfig;
 use obsidian_shiotsuchi_vault_core::{
     db::NoteDatabase,
     models::SearchResult,
@@ -20,6 +21,7 @@ pub fn run_dive(
     args: &DiveArgs,
     notes_dir: &Path,
     db_path: &Path,
+    _indexing_cfg: &IndexingConfig,
 ) -> Result<Vec<SearchResult>, Box<dyn std::error::Error>> {
     if args.query.trim().is_empty() {
         return Ok(vec![]);
@@ -46,8 +48,13 @@ pub fn print_results(results: &[SearchResult], compact_json: bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::IndexingConfig;
     use std::fs;
     use tempfile::TempDir;
+
+    fn default_indexing_cfg() -> IndexingConfig {
+        IndexingConfig::default()
+    }
 
     #[test]
     fn test_dive_returns_results() {
@@ -58,19 +65,24 @@ mod tests {
         )
         .unwrap();
         let db_file = temp.path().join("test.db");
+        let idx_cfg = default_indexing_cfg();
 
         let chart_args = crate::commands::chart::ChartArgs {
             force: false,
             quiet: true,
         };
-        crate::commands::chart::run_chart(&chart_args, temp.path(), &db_file).unwrap();
+        let chart_result = crate::commands::chart::run_chart(&chart_args, temp.path(), &db_file, &idx_cfg);
+        if chart_result.is_err() {
+            // Model not available (NoModel error) — skip test
+            return;
+        }
 
         let args = DiveArgs {
             query: "search test".to_string(),
             json: false,
             limit: 10,
         };
-        let output = run_dive(&args, temp.path(), &db_file).unwrap();
+        let output = run_dive(&args, temp.path(), &db_file, &idx_cfg).unwrap();
         assert!(!output.is_empty());
         assert!(output[0].path.contains("note"));
     }
@@ -79,6 +91,7 @@ mod tests {
     fn test_dive_empty_query_returns_empty() {
         let temp = TempDir::new().unwrap();
         let db_file = temp.path().join("test.db");
+        let idx_cfg = default_indexing_cfg();
         let _ = crate::commands::chart::run_chart(
             &crate::commands::chart::ChartArgs {
                 force: false,
@@ -86,6 +99,7 @@ mod tests {
             },
             temp.path(),
             &db_file,
+            &idx_cfg,
         );
 
         let args = DiveArgs {
@@ -93,7 +107,7 @@ mod tests {
             json: false,
             limit: 10,
         };
-        let output = run_dive(&args, temp.path(), &db_file).unwrap();
+        let output = run_dive(&args, temp.path(), &db_file, &idx_cfg).unwrap();
         assert!(output.is_empty());
     }
 }

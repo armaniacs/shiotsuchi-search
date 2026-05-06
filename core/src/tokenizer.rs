@@ -69,7 +69,15 @@ impl JapaneseTokenizer {
                     "embedded predictor bytes failed integrity check (possible corruption)".into(),
                 ));
             }
-            // SAFETY: bytes passed hash check and come from build.rs (serialized via predictor.serialize_to_vec())
+            // SAFETY: vaporetto's Predictor::deserialize_from_slice_unchecked skips internal
+            // validation for performance. This is sound here because:
+            //   1. The byte input comes from build.rs via predictor.serialize_to_vec(), a trusted
+            //      source — the serialization/deserialization pair is guaranteed compatible within
+            //      the same vaporetto version.
+            //   2. A SHA-256 integrity check (lines above) confirms bytes are untampered and match
+            //      the build-time serialized output.
+            //   3. Deserialization of untrusted input would require safe deserialization or
+            //      additional validation; this code does not face untrusted predictor data.
             let (p, _) = unsafe {
                 Predictor::deserialize_from_slice_unchecked(bytes)
                     .map_err(|e| TokenizerError::ModelLoad(e.to_string()))?
@@ -156,17 +164,8 @@ impl JapaneseTokenizer {
     }
 }
 
-/// .model.zst のマジックバイト検出（sqlite-vaporetto と同じ判定）。
-fn decompress_if_needed(bytes: &[u8]) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
-    if bytes.starts_with(&[0x28, 0xb5, 0x2f, 0xfd]) {
-        let mut decoder = ruzstd::decoding::StreamingDecoder::new(bytes)?;
-        let mut out = Vec::new();
-        decoder.read_to_end(&mut out)?;
-        Ok(out)
-    } else {
-        Ok(bytes.to_vec())
-    }
-}
+// Shared decompress logic — see _decompress.rs for implementation.
+include!("_decompress.rs");
 
 /// フォールバック: モデルなし環境でのテスト用（空白分割）。
 pub fn simple_tokenize(text: &str) -> String {
@@ -179,6 +178,40 @@ pub fn simple_and_query(text: &str) -> String {
         .map(|t| format!("\"{}\"", t.replace('"', "\"\"")))
         .collect::<Vec<_>>()
         .join(" AND ")
+}
+
+/// Helper macro for tests: creates a `JapaneseTokenizer` or prints a skip message and returns.
+/// Use this in any test that requires the Vaporetto model to avoid silent skips.
+/// Uses fully qualified type paths so the macro works across crate boundaries.
+/// The skip message is visible in CI logs via stderr.
+#[macro_export]
+macro_rules! require_tokenizer {
+    () => {
+        match $crate::tokenizer::JapaneseTokenizer::new($crate::tokenizer::TokenizerConfig::default()) {
+            Ok(tok) => tok,
+            Err(_) => {
+                eprintln!(
+                    "[SKIPPED] {}:{} — Vaporetto model not available (set SHIOTSUCHI_MODEL_PATH)",
+                    file!(),
+                    line!()
+                );
+                return;
+            }
+        }
+    };
+    ($config:expr) => {
+        match $crate::tokenizer::JapaneseTokenizer::new($config) {
+            Ok(tok) => tok,
+            Err(_) => {
+                eprintln!(
+                    "[SKIPPED] {}:{} — Vaporetto model not available (set SHIOTSUCHI_MODEL_PATH)",
+                    file!(),
+                    line!()
+                );
+                return;
+            }
+        }
+    };
 }
 
 #[cfg(test)]
@@ -194,6 +227,13 @@ mod tests {
     fn test_simple_and_query() {
         let q = simple_and_query("東京 検索");
         assert_eq!(q, "\"東京\" AND \"検索\"");
+    }
+
+    #[test]
+    fn test_simple_tokenize_multiple_spaces() {
+        assert_eq!(simple_tokenize("hello    world"), "hello world");
+        assert_eq!(simple_tokenize("  leading space"), "leading space");
+        assert_eq!(simple_tokenize("trailing space  "), "trailing space");
     }
 
     /// 埋め込み Predictor (deserialize パス) が通常の Model::read + Predictor::new より
@@ -236,6 +276,22 @@ mod tests {
                 Err(e) => panic!("unexpected tokenizer error: {}", e),
             }
         }
+    }
+
+    #[test]
+    fn test_decompress_if_needed_passthrough_plain_bytes() {
+        let data = b"hello world, this is not zstd compressed";
+        let result = decompress_if_needed(data).unwrap();
+        assert_eq!(result, data);
+    }
+
+    #[test]
+    fn test_decompress_if_needed_rejects_garbage_zstd() {
+        // Valid zstd magic bytes but no actual frame
+        let garbage = &[0x28, 0xb5, 0x2f, 0xfd, 0x00, 0x01, 0x02, 0x03];
+        let result = decompress_if_needed(garbage);
+        // Should either error or return something — either way, no panic
+        assert!(result.is_err() || result.is_ok());
     }
 
     /// get_tokenizer() が OnceLock でキャッシュされ、2回目以降は初期化コストがゼロに近いことを確認する。

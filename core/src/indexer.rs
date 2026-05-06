@@ -4,6 +4,7 @@ use crate::{
     tokenizer::JapaneseTokenizer,
 };
 use pulldown_cmark::{Event, Parser};
+use rayon::prelude::*;
 use sha2::{Digest, Sha256};
 use std::{
     fs,
@@ -109,37 +110,94 @@ fn compute_hash(content: &str) -> String {
     hex::encode(hasher.finalize())
 }
 
+/// Internal result of parallel file processing (everything before DB upsert).
+struct PreparedFile {
+    relative_path: String,
+    hash: String,
+    mtime: i64,
+    title: String,
+    plain_text: String,
+}
+
 /// Walk directory and index all matching files.
-/// `tokenizer` を受け取り各ファイルの index_file に渡す。
+/// File reading, hashing, and tokenization run in parallel via rayon.
+/// DB writes are serial (NoteDatabase uses RefCell which is !Sync).
 pub fn index_directory(
     db: &NoteDatabase,
     tokenizer: &JapaneseTokenizer,
     config: &IndexConfig,
 ) -> Result<Vec<(String, IndexResult)>, DbError> {
-    let mut results = Vec::new();
     let notes_dir = &config.notes_dir;
 
-    for entry in WalkDir::new(notes_dir)
+    // Collect matching file entries (serial — WalkDir is not Send)
+    let entries: Vec<_> = WalkDir::new(notes_dir)
         .follow_links(false)
         .into_iter()
         .filter_map(|e| e.ok())
-    {
-        let path = entry.path();
-        if !path.is_file() {
-            continue;
+        .filter(|entry| {
+            let path = entry.path();
+            if !path.is_file() {
+                return false;
+            }
+            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+            if !config.include_extensions.iter().any(|e| e == ext) {
+                return false;
+            }
+            let relative = path.strip_prefix(notes_dir).unwrap_or(path);
+            let rel_str = relative.to_string_lossy();
+            !config.exclude_patterns.iter().any(|pat| rel_str.contains(pat))
+        })
+        .collect();
+
+    // Parallel: read file, hash, extract frontmatter, tokenize
+    let prepared: Vec<(String, Result<PreparedFile, String>)> = entries
+        .par_iter()
+        .map(|entry| {
+            let path = entry.path();
+            let relative = path.strip_prefix(notes_dir).unwrap_or(path);
+            let rel_str = relative.to_string_lossy().to_string();
+
+            let content = match fs::read_to_string(path) {
+                Ok(c) => c,
+                Err(e) => return (rel_str, Err(format!("Read error: {}", e))),
+            };
+            let hash = compute_hash(&content);
+            let mtime = fs::metadata(path)
+                .and_then(|m| m.modified())
+                .map(|t| t.duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default().as_secs() as i64)
+                .unwrap_or(0);
+
+            let (frontmatter_title, body) = extract_frontmatter(&content);
+            let title = frontmatter_title.unwrap_or_else(|| title_from_path(path));
+            let plain_text = markdown_to_text(&body);
+            let tokenized = tokenizer.split(&plain_text);
+
+            (rel_str.clone(), Ok(PreparedFile {
+                relative_path: rel_str,
+                hash,
+                mtime,
+                title,
+                plain_text: tokenized,
+            }))
+        })
+        .collect();
+
+    // Serial: DB upserts (RefCell<Connection> is !Sync)
+    let mut results = Vec::with_capacity(prepared.len());
+    for (rel_str, prep_result) in prepared {
+        match prep_result {
+            Ok(prep) => {
+                let result = match db.upsert_note(&prep.relative_path, &prep.title, &prep.plain_text, &prep.hash, prep.mtime) {
+                    Ok(true) => IndexResult::Inserted,
+                    Ok(false) => IndexResult::Skipped,
+                    Err(e) => IndexResult::Error(e.to_string()),
+                };
+                results.push((prep.relative_path, result));
+            }
+            Err(e) => {
+                results.push((rel_str, IndexResult::Error(e)));
+            }
         }
-        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-        if !config.include_extensions.iter().any(|e| e == ext) {
-            continue;
-        }
-        let relative = path.strip_prefix(notes_dir).unwrap_or(path);
-        let rel_str = relative.to_string_lossy();
-        if config.exclude_patterns.iter().any(|pat| rel_str.contains(pat)) {
-            continue;
-        }
-        // tokenizer を渡して index_file を呼ぶ
-        let result = index_file(db, tokenizer, path, &rel_str, config);
-        results.push((rel_str.to_string(), result));
     }
 
     Ok(results)
@@ -165,6 +223,47 @@ mod tests {
     use crate::{db::NoteDatabase, tokenizer::JapaneseTokenizer};
     use std::{io::Write, path::PathBuf};
     use tempfile::TempDir;
+
+    #[test]
+    fn test_index_directory_parallel_multiple_files() {
+        let tokenizer = crate::require_tokenizer!(Default::default());
+        let temp = TempDir::new().unwrap();
+        let vault = temp.path().join("vault");
+        fs::create_dir(&vault).unwrap();
+        for i in 0..10 {
+            let mut f = fs::File::create(vault.join(format!("note{}.md", i))).unwrap();
+            writeln!(f, "# Note {}\n\nContent body for note {}", i, i).unwrap();
+        }
+        let db = NoteDatabase::open_in_memory().unwrap();
+        let config = IndexConfig { notes_dir: vault.clone(), ..Default::default() };
+        let results = index_directory(&db, &tokenizer, &config).unwrap();
+        assert_eq!(results.len(), 10);
+        assert_eq!(db.stats().unwrap().total_notes, 10);
+    }
+
+    #[test]
+    fn test_index_directory_respects_exclude_patterns() {
+        let tokenizer = crate::require_tokenizer!(Default::default());
+        let temp = TempDir::new().unwrap();
+        let vault = temp.path().join("vault");
+        fs::create_dir(&vault).unwrap();
+        let templates = vault.join("templates");
+        fs::create_dir(&templates).unwrap();
+        let mut f = fs::File::create(templates.join("daily.md")).unwrap();
+        writeln!(f, "# Daily template").unwrap();
+        let mut g = fs::File::create(vault.join("main.md")).unwrap();
+        writeln!(g, "# Main").unwrap();
+        let db = NoteDatabase::open_in_memory().unwrap();
+        let config = IndexConfig {
+            notes_dir: vault.clone(),
+            exclude_patterns: vec!["templates".to_string()],
+            ..Default::default()
+        };
+        let results = index_directory(&db, &tokenizer, &config).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].0, "main.md");
+        assert_eq!(db.stats().unwrap().total_notes, 1);
+    }
 
     // テスト戦略: モデル未埋め込み環境では SHIOTSUCHI_MODEL_PATH が未設定のため
     // JapaneseTokenizer::new() は Err になる。その場合は simple_tokenize/simple_and_query
@@ -212,11 +311,7 @@ mod tests {
 
     #[test]
     fn test_index_directory() {
-        // Skip if tokenizer cannot be created
-        let tokenizer = match JapaneseTokenizer::new(Default::default()) {
-            Ok(tok) => tok,
-            Err(_) => return, // Skip test if model not available
-        };
+        let tokenizer = crate::require_tokenizer!(Default::default());
 
         let temp = TempDir::new().unwrap();
         let vault = temp.path().join("vault");
@@ -237,11 +332,7 @@ mod tests {
 
     #[test]
     fn test_cleanup_deleted() {
-        // Skip if tokenizer cannot be created
-        let tokenizer = match JapaneseTokenizer::new(Default::default()) {
-            Ok(tok) => tok,
-            Err(_) => return, // Skip test if model not available
-        };
+        let tokenizer = crate::require_tokenizer!(Default::default());
 
         let temp = TempDir::new().unwrap();
         let vault = temp.path().join("vault");

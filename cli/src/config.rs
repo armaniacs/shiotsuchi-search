@@ -88,6 +88,12 @@ impl ShiotsuchiConfig {
             .try_deserialize()
     }
 
+    /// Load configuration from the XDG config directory.
+    ///
+    /// # Security
+    /// The config file (`config.toml`) is created with default OS file permissions (typically
+    /// 0644 on Unix). Avoid storing secrets (API tokens, passwords) in this file. If sensitive
+    /// values are needed, prefer environment variables or OS-level secret management.
     pub fn load() -> Self {
         let default_path = xdg_config_home().join("shiotsuchi").join("config.toml");
         if default_path.exists() {

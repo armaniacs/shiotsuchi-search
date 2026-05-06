@@ -10,6 +10,8 @@ pub enum DbError {
     Sqlite(#[from] rusqlite::Error),
     #[error("Note not found: {0}")]
     NotFound(String),
+    #[error("IO error: {0}")]
+    Io(#[from] std::io::Error),
 }
 
 /// Manages the SQLite database including FTS5 and metadata tables.
@@ -321,12 +323,16 @@ mod tests {
 
         let entries = db.list_all_metadata().unwrap();
         assert_eq!(entries.len(), 3);
-        // indexed_at DESC なので最後に挿入したものが先頭
-        // (upsert は now() を使うため挿入順 = indexed_at の昇順)
-        // 少なくとも全件含まれることを確認
         let paths: Vec<&str> = entries.iter().map(|e| e.path.as_str()).collect();
         assert!(paths.contains(&"a.md"));
         assert!(paths.contains(&"b.md"));
         assert!(paths.contains(&"c.md"));
+    }
+
+    #[test]
+    fn test_delete_nonexistent_returns_ok() {
+        // Deleting a note that doesn't exist should not error
+        let db = NoteDatabase::open_in_memory().unwrap();
+        db.delete_note("nonexistent.md").unwrap();
     }
 }
