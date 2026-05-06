@@ -946,29 +946,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "obsidian-shiotsuchi-vault-core"
-version = "0.2.3"
-dependencies = [
- "criterion",
- "dirs",
- "hex",
- "log",
- "notify",
- "pulldown-cmark",
- "rayon",
- "rusqlite",
- "ruzstd",
- "serde",
- "serde_json",
- "sha2",
- "tempfile",
- "thiserror",
- "vaporetto",
- "vaporetto_rules",
- "walkdir",
-]
-
-[[package]]
 name = "once_cell"
 version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1386,11 +1363,34 @@ dependencies = [
  "env_logger",
  "log",
  "notify",
- "obsidian-shiotsuchi-vault-core",
  "serde",
  "serde_json",
+ "shiotsuchi-core",
  "tempfile",
  "thiserror",
+]
+
+[[package]]
+name = "shiotsuchi-core"
+version = "0.2.3"
+dependencies = [
+ "criterion",
+ "dirs",
+ "hex",
+ "log",
+ "notify",
+ "pulldown-cmark",
+ "rayon",
+ "rusqlite",
+ "ruzstd",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror",
+ "vaporetto",
+ "vaporetto_rules",
+ "walkdir",
 ]
 
 [[package]]
@@ -1398,8 +1398,8 @@ name = "shiotsuchi-e2e"
 version = "0.2.3"
 dependencies = [
  "notify",
- "obsidian-shiotsuchi-vault-core",
  "serde_json",
+ "shiotsuchi-core",
  "tempfile",
 ]
 
@@ -1410,9 +1410,9 @@ dependencies = [
  "dirs",
  "env_logger",
  "log",
- "obsidian-shiotsuchi-vault-core",
  "serde",
  "serde_json",
+ "shiotsuchi-core",
  "tempfile",
  "thiserror",
 ]

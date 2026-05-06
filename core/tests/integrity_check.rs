@@ -1,4 +1,4 @@
-use obsidian_shiotsuchi_vault_core::tokenizer::get_tokenizer;
+use shiotsuchi_core::tokenizer::get_tokenizer;
 
 #[test]
 fn test_embedded_predictor_loads_without_corruption() {

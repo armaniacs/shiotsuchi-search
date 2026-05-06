@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-obsidian-shiotsuchi-vault-core = { path = "../core" }
+shiotsuchi-core = { path = "../core" }
 tempfile = "3"
 serde_json = "1"
 notify = "6"

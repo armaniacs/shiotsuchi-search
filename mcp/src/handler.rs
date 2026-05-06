@@ -1,4 +1,4 @@
-use obsidian_shiotsuchi_vault_core::{
+use shiotsuchi_core::{
     db::NoteDatabase,
     search::search,
     tokenizer::get_tokenizer,
@@ -64,7 +64,7 @@ mod tests {
         let temp = TempDir::new().unwrap();
         fs::write(temp.path().join("note.md"), "# Hello\n\nMCP integration test.").unwrap();
         let db = temp.path().join("test.db");
-        use obsidian_shiotsuchi_vault_core::{
+        use shiotsuchi_core::{
             db::NoteDatabase,
             indexer::index_directory,
             models::IndexConfig,

@@ -1,5 +1,5 @@
 [package]
-name = "obsidian-shiotsuchi-vault-core"
+name = "shiotsuchi-core"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true

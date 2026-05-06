@@ -1,4 +1,4 @@
-use obsidian_shiotsuchi_vault_core::db::NoteDatabase;
+use shiotsuchi_core::db::NoteDatabase;
 use tempfile::TempDir;
 
 #[test]

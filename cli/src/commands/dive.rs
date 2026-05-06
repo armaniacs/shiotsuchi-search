@@ -1,6 +1,6 @@
 use clap::Args;
 use crate::config::IndexingConfig;
-use obsidian_shiotsuchi_vault_core::{
+use shiotsuchi_core::{
     db::NoteDatabase,
     models::SearchResult,
     search::search,

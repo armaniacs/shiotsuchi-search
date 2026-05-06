@@ -10,7 +10,7 @@ Powered by Vaporetto × SQLite FTS5.
 ```
 shiotsuchi-search/
 ├── Cargo.toml          # Workspace definition
-├── core/               # Core library (obsidian-shiotsuchi-vault-core)
+├── core/               # Core library (shiotsuchi-core)
 │   ├── src/
 │   │   ├── lib.rs      # Module exports
 │   │   ├── db.rs       # SQLite + FTS5 database operations

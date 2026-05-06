@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-use obsidian_shiotsuchi_vault_core::paths::default_db_path as core_default_db_path;
+use shiotsuchi_core::paths::default_db_path as core_default_db_path;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]

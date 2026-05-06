@@ -41,10 +41,10 @@ make build
 make test
 
 # Test core only
-cargo test -p obsidian-shiotsuchi-vault-core
+cargo test -p shiotsuchi-core
 
 # Benchmark
-cargo bench -p obsidian-shiotsuchi-vault-core
+cargo bench -p shiotsuchi-core
 
 # Index vault
 SHIOTSUCHI_MODEL_PATH=models/bccwj-suw+unidic_pos+kana.model.zst \

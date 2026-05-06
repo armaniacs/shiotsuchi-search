@@ -1,5 +1,5 @@
 use clap::Args;
-use obsidian_shiotsuchi_vault_core::{
+use shiotsuchi_core::{
     db::NoteDatabase,
     models::IndexConfig,
     tokenizer::get_tokenizer,
@@ -37,7 +37,7 @@ pub fn run_scan(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use obsidian_shiotsuchi_vault_core::tokenizer::{JapaneseTokenizer, TokenizerConfig};
+    use shiotsuchi_core::tokenizer::{JapaneseTokenizer, TokenizerConfig};
     use tempfile::TempDir;
 
     /// Tests that the watcher can be constructed from CLI configuration.

@@ -1,4 +1,4 @@
-use obsidian_shiotsuchi_vault_core::{
+use shiotsuchi_core::{
     db::NoteDatabase,
     indexer::{index_directory, cleanup_deleted},
     models::IndexConfig,
@@ -10,7 +10,7 @@ use tempfile::TempDir;
 
 #[test]
 fn test_end_to_end_index_and_search() {
-    let tokenizer = obsidian_shiotsuchi_vault_core::require_tokenizer!(TokenizerConfig::default());
+    let tokenizer = shiotsuchi_core::require_tokenizer!(TokenizerConfig::default());
 
     let temp = TempDir::new().unwrap();
     let vault = temp.path().join("vault");

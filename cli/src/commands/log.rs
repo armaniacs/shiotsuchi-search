@@ -1,4 +1,4 @@
-use obsidian_shiotsuchi_vault_core::db::NoteDatabase;
+use shiotsuchi_core::db::NoteDatabase;
 use std::path::Path;
 
 pub fn run_log(db_path: &Path) -> Result<(), Box<dyn std::error::Error>> {

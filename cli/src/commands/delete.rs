@@ -1,5 +1,5 @@
 use clap::Args;
-use obsidian_shiotsuchi_vault_core::db::NoteDatabase;
+use shiotsuchi_core::db::NoteDatabase;
 use std::path::{Path, PathBuf};
 
 #[derive(Args, Debug)]

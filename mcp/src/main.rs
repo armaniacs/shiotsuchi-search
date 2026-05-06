@@ -7,7 +7,7 @@ use std::{
     io::{self, BufRead, Write},
     path::Path,
 };
-use obsidian_shiotsuchi_vault_core::paths::default_db_path as core_default_db_path;
+use shiotsuchi_core::paths::default_db_path as core_default_db_path;
 
 pub fn dispatch(req: McpRequest, notes_dir: &Path, db_path: &Path) -> McpResponse {
     let params = req.params.clone().unwrap_or(serde_json::Value::Null);

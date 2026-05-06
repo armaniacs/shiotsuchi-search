@@ -215,7 +215,7 @@ mod tests {
     #[test]
     fn e2e_scan_indexes_new_file() {
         use std::{sync::atomic::{AtomicBool, Ordering}, sync::Arc, thread, time::Duration};
-        use obsidian_shiotsuchi_vault_core::{
+        use shiotsuchi_core::{
             db::NoteDatabase,
             indexer::index_file,
             models::IndexConfig,

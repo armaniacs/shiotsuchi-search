@@ -1,7 +1,7 @@
-# Core Library (obsidian-shiotsuchi-vault-core)
+# Core Library (shiotsuchi-core)
 
 Crate path: `core/`
-Published name: `obsidian-shiotsuchi-vault-core`
+Published name: `shiotsuchi-core`
 
 ## Modules
 

@@ -147,7 +147,7 @@ Run benchmarks:
 
 ```bash
 SHIOTSUCHI_MODEL_PATH=models/bccwj-suw+unidic_pos+kana.model.zst \
-  cargo bench -p obsidian-shiotsuchi-vault-core
+  cargo bench -p shiotsuchi-core
 ```
 
 ## License

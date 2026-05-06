@@ -25,7 +25,7 @@ test-e2e: $(MODEL_FILE)
 
 bench: $(MODEL_FILE)
 	SHIOTSUCHI_MODEL_PATH=$(CURDIR)/$(MODEL_FILE) \
-	  cargo bench -p obsidian-shiotsuchi-vault-core
+	  cargo bench -p shiotsuchi-core
 
 install: build
 	@INSTALL_DIR="$(BINDIR)"; \
@@ -61,6 +61,21 @@ integration-test: build
 	cd integration && npm install --silent && npm test
 
 test-all: clean test test-e2e integration-test
+
+.PHONY: doc
+doc:
+	@echo "Generating local documentation..."
+	cargo doc --open --no-deps --document-private-items
+
+.PHONY: doc-full
+doc-full:
+	@echo "Generating full documentation (including dependencies)..."
+	cargo doc --open
+
+# ドキュメントを完全に作り直す
+doc-clean:
+	rm -rf target/doc
+	cargo doc --open --no-deps
 
 clean:
 	cargo clean

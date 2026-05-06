@@ -82,7 +82,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-#### Core (`obsidian-shiotsuchi-vault-core`)
+#### Core (`shiotsuchi-core`)
 - **Build-time predictor serialization**: `build.rs` now pre-builds and embeds a serialized `Predictor` instead of raw model bytes, reducing tokenizer initialization from seconds to milliseconds.
 - Added global tokenizer cache via `OnceLock` (`get_tokenizer()`), eliminating repeated initialization cost across CLI invocations.
 - Added `NoteDatabase::list_all_metadata()` to retrieve all indexed note metadata ordered by `indexed_at DESC`.
@@ -116,7 +116,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-#### Core (`obsidian-shiotsuchi-vault-core`)
+#### Core (`shiotsuchi-core`)
 - SQLite FTS5 schema with CRUD operations for note indexing
 - Shared data models with serde support
 - Markdown parsing and frontmatter extraction via pulldown-cmark

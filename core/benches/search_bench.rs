@@ -1,5 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use obsidian_shiotsuchi_vault_core::{
+use shiotsuchi_core::{
     db::NoteDatabase,
     indexer::index_directory,
     models::IndexConfig,
