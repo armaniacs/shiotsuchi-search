@@ -36,10 +36,10 @@ jobs:
       - name: Run tests (no model required)
         run: cargo test --workspace --exclude shiotsuchi-e2e
 
-      - name: Install cargo-audit
-        uses: dtolnay/install@cargo-audit
       - name: Check security advisories
-        run: cargo audit --deny warnings
+        uses: rustsec/audit-check@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
 
   e2e:
     runs-on: ubuntu-latest
