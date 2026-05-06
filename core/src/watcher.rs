@@ -92,7 +92,9 @@ impl VaultWatcher {
                     if let Ok(rel) = path.strip_prefix(&self.config.notes_dir) {
                         let rel_str = rel.to_string_lossy();
                         let db = self.db.lock().unwrap();
-                        if let IndexResult::Error(e) = index_file(&db, &self.tokenizer, path, &rel_str, &self.config) {
+                        if let IndexResult::Error(e) =
+                            index_file(&db, &self.tokenizer, path, &rel_str, &self.config)
+                        {
                             log::warn!("watcher: failed to index {}: {}", rel_str, e);
                         }
                     }
