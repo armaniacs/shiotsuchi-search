@@ -48,8 +48,7 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 Then index your vault first:
 
 ```bash
-SHIOTSUCHI_MODEL_PATH=models/bccwj-suw+unidic_pos+kana.model.zst \
-  shiotsuchi chart --notes-dir ~/Notes
+shiotsuchi chart --notes-dir ~/Notes
 ```
 
 Restart Claude Desktop and ask: "Search my notes for project"

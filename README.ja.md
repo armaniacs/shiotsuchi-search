@@ -48,8 +48,7 @@ Markdownノートvault（Obsidianなど）向けの高性能日本語対応全�
 先にvaultをインデックスしておく:
 
 ```bash
-SHIOTSUCHI_MODEL_PATH=models/bccwj-suw+unidic_pos+kana.model.zst \
-  shiotsuchi chart --notes-dir ~/Notes
+shiotsuchi chart --notes-dir ~/Notes
 ```
 
 Claude Desktopを再起動して「プロジェクトについてノートを検索して」と聞いてみる。
