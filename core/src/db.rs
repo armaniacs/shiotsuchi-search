@@ -218,7 +218,7 @@ impl NoteDatabase {
             })
             .ok();
 
-        let db_path = conn.path().map(|p| PathBuf::from(p)).unwrap_or_default();
+        let db_path = conn.path().map(PathBuf::from).unwrap_or_default();
 
         Ok(VaultStats {
             total_notes,

@@ -66,8 +66,7 @@ pub fn title_from_path(path: &Path) -> String {
     path.file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("Untitled")
-        .replace('-', " ")
-        .replace('_', " ")
+        .replace(['-', '_'], " ")
 }
 
 /// Index a single file into the database.

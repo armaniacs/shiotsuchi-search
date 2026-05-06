@@ -2,7 +2,6 @@ mod commands;
 mod config;
 
 use clap::{Parser, Subcommand};
-use env_logger;
 
 #[derive(Parser)]
 #[command(

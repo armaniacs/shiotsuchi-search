@@ -92,11 +92,8 @@ impl VaultWatcher {
                     if let Ok(rel) = path.strip_prefix(&self.config.notes_dir) {
                         let rel_str = rel.to_string_lossy();
                         let db = self.db.lock().unwrap();
-                        match index_file(&db, &self.tokenizer, path, &rel_str, &self.config) {
-                            IndexResult::Error(e) => {
-                                log::warn!("watcher: failed to index {}: {}", rel_str, e)
-                            }
-                            _ => {}
+                        if let IndexResult::Error(e) = index_file(&db, &self.tokenizer, path, &rel_str, &self.config) {
+                            log::warn!("watcher: failed to index {}: {}", rel_str, e);
                         }
                     }
                 }
@@ -115,8 +112,8 @@ impl VaultWatcher {
                     }
                 }
             }
-            EventKind::Modify(ModifyKind::Name(RenameMode::Both)) => {
-                if event.paths.len() == 2 {
+            EventKind::Modify(ModifyKind::Name(RenameMode::Both)) if event.paths.len() == 2 => {
+                {
                     let old = &event.paths[0];
                     let new = &event.paths[1];
                     // Only delete old path if it resolved within the vault
@@ -136,19 +133,18 @@ impl VaultWatcher {
                     if self.is_path_within_vault(new) {
                         if let Ok(new_rel) = new.strip_prefix(&self.config.notes_dir) {
                             let db = self.db.lock().unwrap();
-                            match index_file(
+                            if let IndexResult::Error(e) = index_file(
                                 &db,
                                 &self.tokenizer,
                                 new,
                                 &new_rel.to_string_lossy(),
                                 &self.config,
                             ) {
-                                IndexResult::Error(e) => log::warn!(
+                                log::warn!(
                                     "watcher: failed to index new path {}: {}",
                                     new_rel.to_string_lossy(),
                                     e
-                                ),
-                                _ => {}
+                                );
                             }
                         }
                     } else {

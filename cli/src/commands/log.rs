@@ -10,7 +10,7 @@ pub fn run_log(db_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    println!("{:<40} {:<20} {}", "Path", "Indexed at", "Title");
+    println!("{:<40} {:<20} Title", "Path", "Indexed at");
     println!("{}", "-".repeat(80));
     for entry in &entries {
         let ts = format_timestamp(entry.indexed_at);

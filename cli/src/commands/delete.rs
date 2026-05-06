@@ -1,6 +1,6 @@
 use clap::Args;
 use shiotsuchi_core::db::NoteDatabase;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 #[derive(Args, Debug)]
 pub struct DeleteArgs {
@@ -10,8 +10,8 @@ pub struct DeleteArgs {
 
 pub fn run_delete(
     args: &DeleteArgs,
-    notes_dir: &PathBuf,
-    db_path: &PathBuf,
+    notes_dir: &Path,
+    db_path: &Path,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let path = &args.path;
     // Reject absolute paths or paths with directory traversal components
