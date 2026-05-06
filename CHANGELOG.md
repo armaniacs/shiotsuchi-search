@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.4] - 2026-05-06
+
+### Added
+
+- **User-aware install:** `make install` now checks `id -u` — non-root users get binaries in `~/.local/bin/` (or `~/.cargo/bin/` if it exists); root users install to `$(PREFIX)/bin` (default `/usr/local/bin`). Explicit `PREFIX=` overrides bypass auto-detection. The `uninstall` target follows the same logic.
+- **Documentation reorganization:** Install guides (`INSTALL.md`, `INSTALL.ja.md`) and model license notice (`MODEL_LICENSES.md`) moved into `docs/` directory.
+
+### Changed
+
+- **Crate renamed:** Core library renamed from `obsidian-shiotsuchi-vault-core` to `shiotsuchi-core` (Rust path: `shiotsuchi_core`). The `obsidian` prefix was a remnant from an earlier Obsidian-only focus and has been removed throughout.
+
+### Removed
+
+- **Obsolete files:** Removed stale `finops-consultant.md` and `ui-expert.md` from repository root.
+
 ## [0.2.3] - 2026-05-06
 
 ### Changed
@@ -149,6 +164,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `docs/MODEL_LICENSES.md` with BSD-3-Clause notice for the bundled tokenizer model
 - `README.md` (English) and `README.ja.md` (Japanese)
 
-[Unreleased]: https://github.com/your-org/shiotsuchi-search/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/your-org/shiotsuchi-search/compare/v0.2.4...HEAD
+[0.2.4]: https://github.com/your-org/shiotsuchi-search/compare/v0.2.3...v0.2.4
+[0.2.3]: https://github.com/your-org/shiotsuchi-search/compare/v0.2.2...v0.2.3
+[0.2.2]: https://github.com/your-org/shiotsuchi-search/compare/v0.2.1...v0.2.2
+[0.2.1]: https://github.com/your-org/shiotsuchi-search/compare/v0.2.0...v0.2.1
+[0.2.0]: https://github.com/your-org/shiotsuchi-search/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/your-org/shiotsuchi-search/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/your-org/shiotsuchi-search/releases/tag/v0.1.0
