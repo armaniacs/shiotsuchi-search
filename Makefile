@@ -28,9 +28,8 @@ bench: $(MODEL_FILE)
 	  cargo bench -p obsidian-shiotsuchi-vault-core
 
 install: build
-	@if [ "$$(id -u)" -eq 0 ]; then \
-		INSTALL_DIR="$(BINDIR)"; \
-	else \
+	@INSTALL_DIR="$(BINDIR)"; \
+	if [ "$(origin PREFIX)" = "default" ] && [ "$$(id -u)" -ne 0 ]; then \
 		if [ -d "$$HOME/.local/bin" ]; then \
 			INSTALL_DIR="$$HOME/.local/bin"; \
 		elif [ -d "$$HOME/.cargo/bin" ]; then \
@@ -45,8 +44,18 @@ install: build
 	install -m 755 target/release/shiotsuchi-mcp "$$INSTALL_DIR"/;
 
 uninstall:
-	rm -f $(BINDIR)/shiotsuchi \
-	      $(BINDIR)/shiotsuchi-mcp
+	@INSTALL_DIR="$(BINDIR)"; \
+	if [ "$(origin PREFIX)" = "default" ] && [ "$$(id -u)" -ne 0 ]; then \
+		if [ -d "$$HOME/.local/bin" ]; then \
+			INSTALL_DIR="$$HOME/.local/bin"; \
+		elif [ -d "$$HOME/.cargo/bin" ]; then \
+			INSTALL_DIR="$$HOME/.cargo/bin"; \
+		else \
+			INSTALL_DIR="$$HOME/.local/bin"; \
+		fi; \
+	fi; \
+	rm -f "$$INSTALL_DIR"/shiotsuchi \
+	      "$$INSTALL_DIR"/shiotsuchi-mcp
 
 integration-test: build
 	cd integration && npm install --silent && npm test
