@@ -35,7 +35,12 @@ pub struct McpNotification {
 
 impl McpResponse {
     pub fn success(id: impl Into<Value>, result: Value) -> Self {
-        Self { jsonrpc: "2.0".to_string(), id: id.into(), result: Some(result), error: None }
+        Self {
+            jsonrpc: "2.0".to_string(),
+            id: id.into(),
+            result: Some(result),
+            error: None,
+        }
     }
 
     pub fn error(id: impl Into<Value>, code: i64, message: &str) -> Self {
@@ -43,7 +48,10 @@ impl McpResponse {
             jsonrpc: "2.0".to_string(),
             id: id.into(),
             result: None,
-            error: Some(McpError { code, message: message.to_string() }),
+            error: Some(McpError {
+                code,
+                message: message.to_string(),
+            }),
         }
     }
 }
@@ -51,7 +59,11 @@ impl McpResponse {
 impl McpNotification {
     pub fn new(method: &str, params: Value) -> Self {
         let params = if params.is_null() { None } else { Some(params) };
-        Self { jsonrpc: "2.0".to_string(), method: method.to_string(), params }
+        Self {
+            jsonrpc: "2.0".to_string(),
+            method: method.to_string(),
+            params,
+        }
     }
 }
 

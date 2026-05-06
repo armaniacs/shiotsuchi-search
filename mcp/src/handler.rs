@@ -1,9 +1,5 @@
-use shiotsuchi_core::{
-    db::NoteDatabase,
-    search::search,
-    tokenizer::get_tokenizer,
-};
 use serde_json::Value;
+use shiotsuchi_core::{db::NoteDatabase, search::search, tokenizer::get_tokenizer};
 use std::{fs, path::Path};
 
 fn text_content(text: impl Into<String>) -> Value {
@@ -46,7 +42,10 @@ pub fn call_tool(
                 "Total notes: {}\nDB size: {} bytes\nLast indexed: {}",
                 stats.total_notes,
                 stats.total_size_bytes,
-                stats.last_indexed_at.map(|t| t.to_string()).unwrap_or_else(|| "never".to_string()),
+                stats
+                    .last_indexed_at
+                    .map(|t| t.to_string())
+                    .unwrap_or_else(|| "never".to_string()),
             );
             Ok(text_content(text))
         }
@@ -62,18 +61,23 @@ mod tests {
 
     fn indexed_vault() -> (TempDir, std::path::PathBuf) {
         let temp = TempDir::new().unwrap();
-        fs::write(temp.path().join("note.md"), "# Hello\n\nMCP integration test.").unwrap();
+        fs::write(
+            temp.path().join("note.md"),
+            "# Hello\n\nMCP integration test.",
+        )
+        .unwrap();
         let db = temp.path().join("test.db");
         use shiotsuchi_core::{
-            db::NoteDatabase,
-            indexer::index_directory,
-            models::IndexConfig,
+            db::NoteDatabase, indexer::index_directory, models::IndexConfig,
             tokenizer::get_tokenizer,
         };
         let ndb = NoteDatabase::open(&db).unwrap();
-        let tok = get_tokenizer()
-            .unwrap_or_else(|_| panic!("SHIOTSUCHI_MODEL_PATH を設定してください"));
-        let cfg = IndexConfig { notes_dir: temp.path().to_path_buf(), ..Default::default() };
+        let tok =
+            get_tokenizer().unwrap_or_else(|_| panic!("SHIOTSUCHI_MODEL_PATH を設定してください"));
+        let cfg = IndexConfig {
+            notes_dir: temp.path().to_path_buf(),
+            ..Default::default()
+        };
         index_directory(&ndb, &tok, &cfg).unwrap();
         (temp, db)
     }
@@ -91,7 +95,13 @@ mod tests {
     #[test]
     fn test_call_vault_status() {
         let (_temp, db) = indexed_vault();
-        let result = call_tool("vault_status", &serde_json::Value::Null, std::path::Path::new("/tmp"), &db).unwrap();
+        let result = call_tool(
+            "vault_status",
+            &serde_json::Value::Null,
+            std::path::Path::new("/tmp"),
+            &db,
+        )
+        .unwrap();
         assert!(result["content"][0]["text"].as_str().unwrap().contains("1"));
     }
 

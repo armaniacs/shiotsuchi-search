@@ -3,11 +3,11 @@ mod protocol;
 mod tools;
 
 use protocol::{McpNotification, McpRequest, McpResponse};
+use shiotsuchi_core::paths::default_db_path as core_default_db_path;
 use std::{
     io::{self, BufRead, Write},
     path::Path,
 };
-use shiotsuchi_core::paths::default_db_path as core_default_db_path;
 
 pub fn dispatch(req: McpRequest, notes_dir: &Path, db_path: &Path) -> McpResponse {
     let params = req.params.clone().unwrap_or(serde_json::Value::Null);
@@ -88,7 +88,11 @@ mod tests {
             method: "tools/list".to_string(),
             params: None,
         };
-        let resp = dispatch(req, std::path::Path::new("/tmp"), std::path::Path::new("/tmp/db"));
+        let resp = dispatch(
+            req,
+            std::path::Path::new("/tmp"),
+            std::path::Path::new("/tmp/db"),
+        );
         let json = serde_json::to_string(&resp).unwrap();
         assert!(json.contains("search_vault"));
     }
@@ -101,7 +105,11 @@ mod tests {
             method: "unknown".to_string(),
             params: None,
         };
-        let resp = dispatch(req, std::path::Path::new("/tmp"), std::path::Path::new("/tmp/db"));
+        let resp = dispatch(
+            req,
+            std::path::Path::new("/tmp"),
+            std::path::Path::new("/tmp/db"),
+        );
         let json = serde_json::to_string(&resp).unwrap();
         assert!(json.contains("\"error\""));
     }
@@ -114,7 +122,11 @@ mod tests {
             method: "initialize".to_string(),
             params: None,
         };
-        let resp = dispatch(req, std::path::Path::new("/tmp"), std::path::Path::new("/tmp/db"));
+        let resp = dispatch(
+            req,
+            std::path::Path::new("/tmp"),
+            std::path::Path::new("/tmp/db"),
+        );
         let json = serde_json::to_string(&resp).unwrap();
         assert!(json.contains("protocolVersion"));
         assert!(json.contains("shiotsuchi-mcp"));
@@ -128,7 +140,11 @@ mod tests {
             method: "ping".to_string(),
             params: None,
         };
-        let resp = dispatch(req, std::path::Path::new("/tmp"), std::path::Path::new("/tmp/db"));
+        let resp = dispatch(
+            req,
+            std::path::Path::new("/tmp"),
+            std::path::Path::new("/tmp/db"),
+        );
         let json = serde_json::to_string(&resp).unwrap();
         assert!(json.contains("\"result\""));
     }

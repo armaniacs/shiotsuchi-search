@@ -1,10 +1,10 @@
 include!(concat!(env!("OUT_DIR"), "/embedded_model.rs"));
 
+use sha2::{Digest, Sha256};
 use std::io::Read;
 use std::sync::{Arc, OnceLock};
 use thiserror::Error;
 use vaporetto::{Model, Predictor, Sentence};
-use sha2::{Sha256, Digest};
 
 #[derive(Debug, Error)]
 pub enum TokenizerError {
@@ -43,10 +43,12 @@ pub struct TokenizerConfig {
 
 impl Default for TokenizerConfig {
     fn default() -> Self {
-        Self { pos_filter: None, keep_untagged: true }
+        Self {
+            pos_filter: None,
+            keep_untagged: true,
+        }
     }
 }
-
 
 pub struct JapaneseTokenizer {
     predictor: Predictor,
@@ -86,12 +88,11 @@ impl JapaneseTokenizer {
         } else if let Ok(path) = std::env::var("SHIOTSUCHI_MODEL_PATH") {
             let raw = std::fs::read(&path)
                 .map_err(|e| TokenizerError::ModelLoad(format!("{}: {}", path, e)))?;
-            let model_data = decompress_if_needed(&raw)
-                .map_err(|e| TokenizerError::ModelLoad(e.to_string()))?;
+            let model_data =
+                decompress_if_needed(&raw).map_err(|e| TokenizerError::ModelLoad(e.to_string()))?;
             let model = Model::read(model_data.as_slice())
                 .map_err(|e| TokenizerError::ModelLoad(e.to_string()))?;
-            Predictor::new(model, false)
-                .map_err(|e| TokenizerError::ModelLoad(e.to_string()))?
+            Predictor::new(model, false).map_err(|e| TokenizerError::ModelLoad(e.to_string()))?
         } else {
             return Err(TokenizerError::NoModel);
         };
@@ -130,12 +131,16 @@ impl JapaneseTokenizer {
         let mut tokens = Vec::new();
         for line in text.lines() {
             let line = line.trim();
-            if line.is_empty() { continue; }
+            if line.is_empty() {
+                continue;
+            }
             if let Ok(mut sentence) = Sentence::from_raw(line) {
                 self.predictor.predict(&mut sentence);
                 for token in sentence.iter_tokens() {
                     let surface = token.surface();
-                    if surface.trim().is_empty() { continue; }
+                    if surface.trim().is_empty() {
+                        continue;
+                    }
                     if self.should_include(&token) {
                         tokens.push(surface.to_string());
                     }
@@ -149,7 +154,8 @@ impl JapaneseTokenizer {
         match &self.config.pos_filter {
             None => true,
             Some(prefixes) => {
-                let tag = token.tags()
+                let tag = token
+                    .tags()
                     .first()
                     .and_then(|opt| opt.as_ref())
                     .map(|cow| cow.to_string())
@@ -187,7 +193,9 @@ pub fn simple_and_query(text: &str) -> String {
 #[macro_export]
 macro_rules! require_tokenizer {
     () => {
-        match $crate::tokenizer::JapaneseTokenizer::new($crate::tokenizer::TokenizerConfig::default()) {
+        match $crate::tokenizer::JapaneseTokenizer::new(
+            $crate::tokenizer::TokenizerConfig::default(),
+        ) {
             Ok(tok) => tok,
             Err(_) => {
                 eprintln!(
@@ -301,9 +309,7 @@ mod tests {
         use std::time::Instant;
 
         // モデルが利用できない場合はスキップ
-        if EMBEDDED_PREDICTOR_BYTES.is_none()
-            && std::env::var("SHIOTSUCHI_MODEL_PATH").is_err()
-        {
+        if EMBEDDED_PREDICTOR_BYTES.is_none() && std::env::var("SHIOTSUCHI_MODEL_PATH").is_err() {
             return;
         }
 

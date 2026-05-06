@@ -1,10 +1,7 @@
-use clap::Args;
 use crate::config::IndexingConfig;
+use clap::Args;
 use shiotsuchi_core::{
-    db::NoteDatabase,
-    models::SearchResult,
-    search::search,
-    tokenizer::get_tokenizer,
+    db::NoteDatabase, models::SearchResult, search::search, tokenizer::get_tokenizer,
 };
 use std::path::Path;
 
@@ -30,7 +27,7 @@ pub fn run_dive(
     let db = NoteDatabase::open(db_path)?;
     let tokenizer = get_tokenizer()?;
     let results = search(&db, &tokenizer, notes_dir, &args.query, args.limit)?;
-    
+
     Ok(results)
 }
 
@@ -71,7 +68,8 @@ mod tests {
             force: false,
             quiet: true,
         };
-        let chart_result = crate::commands::chart::run_chart(&chart_args, temp.path(), &db_file, &idx_cfg);
+        let chart_result =
+            crate::commands::chart::run_chart(&chart_args, temp.path(), &db_file, &idx_cfg);
         if chart_result.is_err() {
             // Model not available (NoModel error) — skip test
             return;

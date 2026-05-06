@@ -24,7 +24,11 @@ impl VaultWatcher {
         tokenizer: Arc<JapaneseTokenizer>,
         config: IndexConfig,
     ) -> Self {
-        Self { db, tokenizer, config }
+        Self {
+            db,
+            tokenizer,
+            config,
+        }
     }
 
     /// ファイル監視ループを開始する（Ctrl+C まで継続）。
@@ -39,7 +43,10 @@ impl VaultWatcher {
         })?;
 
         watcher.watch(&self.config.notes_dir, RecursiveMode::Recursive)?;
-        eprintln!("Watching {} for changes...", self.config.notes_dir.display());
+        eprintln!(
+            "Watching {} for changes...",
+            self.config.notes_dir.display()
+        );
 
         loop {
             match rx.recv() {
@@ -76,14 +83,19 @@ impl VaultWatcher {
                 for path in &event.paths {
                     // Symlink-safe vault check: resolve path to detect symlink escapes
                     if !self.is_path_within_vault(path) {
-                        log::warn!("watcher: path outside vault (symlink?), skipping: {}", path.display());
+                        log::warn!(
+                            "watcher: path outside vault (symlink?), skipping: {}",
+                            path.display()
+                        );
                         continue;
                     }
                     if let Ok(rel) = path.strip_prefix(&self.config.notes_dir) {
                         let rel_str = rel.to_string_lossy();
                         let db = self.db.lock().unwrap();
                         match index_file(&db, &self.tokenizer, path, &rel_str, &self.config) {
-                            IndexResult::Error(e) => log::warn!("watcher: failed to index {}: {}", rel_str, e),
+                            IndexResult::Error(e) => {
+                                log::warn!("watcher: failed to index {}: {}", rel_str, e)
+                            }
                             _ => {}
                         }
                     }
@@ -94,7 +106,11 @@ impl VaultWatcher {
                     if let Ok(rel) = path.strip_prefix(&self.config.notes_dir) {
                         let db = self.db.lock().unwrap();
                         if let Err(e) = db.delete_note(&rel.to_string_lossy()) {
-                            log::warn!("watcher: failed to delete {}: {}", rel.to_string_lossy(), e);
+                            log::warn!(
+                                "watcher: failed to delete {}: {}",
+                                rel.to_string_lossy(),
+                                e
+                            );
                         }
                     }
                 }
@@ -108,7 +124,11 @@ impl VaultWatcher {
                         if let Ok(old_rel) = old.strip_prefix(&self.config.notes_dir) {
                             let db = self.db.lock().unwrap();
                             if let Err(e) = db.delete_note(&old_rel.to_string_lossy()) {
-                                log::warn!("watcher: failed to delete old path {}: {}", old_rel.to_string_lossy(), e);
+                                log::warn!(
+                                    "watcher: failed to delete old path {}: {}",
+                                    old_rel.to_string_lossy(),
+                                    e
+                                );
                             }
                         }
                     }
@@ -116,13 +136,26 @@ impl VaultWatcher {
                     if self.is_path_within_vault(new) {
                         if let Ok(new_rel) = new.strip_prefix(&self.config.notes_dir) {
                             let db = self.db.lock().unwrap();
-                            match index_file(&db, &self.tokenizer, new, &new_rel.to_string_lossy(), &self.config) {
-                                IndexResult::Error(e) => log::warn!("watcher: failed to index new path {}: {}", new_rel.to_string_lossy(), e),
+                            match index_file(
+                                &db,
+                                &self.tokenizer,
+                                new,
+                                &new_rel.to_string_lossy(),
+                                &self.config,
+                            ) {
+                                IndexResult::Error(e) => log::warn!(
+                                    "watcher: failed to index new path {}: {}",
+                                    new_rel.to_string_lossy(),
+                                    e
+                                ),
                                 _ => {}
                             }
                         }
                     } else {
-                        log::warn!("watcher: renamed path outside vault, skipping: {}", new.display());
+                        log::warn!(
+                            "watcher: renamed path outside vault, skipping: {}",
+                            new.display()
+                        );
                     }
                 }
             }
@@ -164,7 +197,10 @@ mod tests {
         let vault = temp.path().join("vault");
         std::fs::create_dir_all(&vault).unwrap();
         let db = Arc::new(Mutex::new(NoteDatabase::open_in_memory().unwrap()));
-        let config = IndexConfig { notes_dir: vault, ..Default::default() };
+        let config = IndexConfig {
+            notes_dir: vault,
+            ..Default::default()
+        };
         let watcher = VaultWatcher::new(Arc::clone(&db), Arc::clone(&tokenizer), config);
         let outside_dir = TempDir::new().unwrap();
         let outside_file = outside_dir.path().join("outside.md");
@@ -187,7 +223,10 @@ mod tests {
         let vault = temp.path().join("vault");
         std::fs::create_dir_all(&vault).unwrap();
         let db = Arc::new(Mutex::new(NoteDatabase::open_in_memory().unwrap()));
-        let config = IndexConfig { notes_dir: vault.clone(), ..Default::default() };
+        let config = IndexConfig {
+            notes_dir: vault.clone(),
+            ..Default::default()
+        };
         let watcher = VaultWatcher::new(db, Arc::clone(&tokenizer), config);
         let outside = vault.parent().unwrap().join("secret.txt");
         std::fs::write(&outside, "outside").unwrap();
@@ -210,7 +249,10 @@ mod tests {
         let vault = temp.path().join("vault");
         std::fs::create_dir_all(&vault).unwrap();
         let db = Arc::new(Mutex::new(NoteDatabase::open_in_memory().unwrap()));
-        let config = IndexConfig { notes_dir: vault.clone(), ..Default::default() };
+        let config = IndexConfig {
+            notes_dir: vault.clone(),
+            ..Default::default()
+        };
         let watcher = VaultWatcher::new(db, tokenizer, config);
         let real_file = vault.join("real.md");
         std::fs::write(&real_file, "content").unwrap();
@@ -233,7 +275,10 @@ mod tests {
         let vault = temp.path().join("vault");
         std::fs::create_dir_all(&vault).unwrap();
         let db = Arc::new(Mutex::new(NoteDatabase::open_in_memory().unwrap()));
-        let config = IndexConfig { notes_dir: vault.clone(), ..Default::default() };
+        let config = IndexConfig {
+            notes_dir: vault.clone(),
+            ..Default::default()
+        };
         let watcher = VaultWatcher::new(db, tokenizer, config);
         let nonexistent = vault.join("nonexistent.md");
         assert!(!watcher.is_path_within_vault(&nonexistent));

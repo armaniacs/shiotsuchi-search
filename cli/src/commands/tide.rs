@@ -10,7 +10,10 @@ pub fn print_stats(stats: &VaultStats) {
     println!("Total notes : {}", stats.total_notes);
     println!("DB size     : {} bytes", stats.total_size_bytes);
     if let Some(ts) = stats.last_indexed_at {
-        println!("Last indexed: {}", crate::commands::log::format_timestamp(ts));
+        println!(
+            "Last indexed: {}",
+            crate::commands::log::format_timestamp(ts)
+        );
     } else {
         println!("Last indexed: never");
     }

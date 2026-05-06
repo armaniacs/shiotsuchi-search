@@ -24,7 +24,9 @@ impl NoteDatabase {
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, DbError> {
         let conn = Connection::open(path)?;
         conn.pragma_update(None, "journal_mode", "WAL")?;
-        let db = Self { conn: RefCell::new(conn) };
+        let db = Self {
+            conn: RefCell::new(conn),
+        };
         db.init_schema()?;
         Ok(db)
     }
@@ -32,7 +34,9 @@ impl NoteDatabase {
     /// Create an in-memory database (for testing).
     pub fn open_in_memory() -> Result<Self, DbError> {
         let conn = Connection::open_in_memory()?;
-        let db = Self { conn: RefCell::new(conn) };
+        let db = Self {
+            conn: RefCell::new(conn),
+        };
         db.init_schema()?;
         Ok(db)
     }
@@ -67,11 +71,11 @@ impl NoteDatabase {
             [],
         )?;
 
-        let current_version: i64 = self.conn.borrow().query_row(
-            "PRAGMA user_version",
-            [],
-            |row| row.get(0),
-        ).unwrap_or(0);
+        let current_version: i64 = self
+            .conn
+            .borrow()
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap_or(0);
         if current_version == 0 {
             self.conn.borrow().execute("PRAGMA user_version = 1", [])?;
         }
@@ -134,7 +138,7 @@ impl NoteDatabase {
 
         tx.commit()?;
         Ok(true)
-}
+    }
 
     /// Get metadata for a specific note.
     pub fn get_metadata(&self, path: &str) -> Result<NoteMetadata, DbError> {
@@ -197,8 +201,8 @@ impl NoteDatabase {
     /// Get vault statistics.
     pub fn stats(&self) -> Result<VaultStats, DbError> {
         let conn = self.conn.borrow();
-        let total_notes: usize = conn
-            .query_row("SELECT COUNT(*) FROM notes_meta", [], |row| row.get(0))?;
+        let total_notes: usize =
+            conn.query_row("SELECT COUNT(*) FROM notes_meta", [], |row| row.get(0))?;
 
         let total_size: usize = conn
             .query_row(
@@ -209,11 +213,9 @@ impl NoteDatabase {
             .unwrap_or(0);
 
         let last_indexed: Option<i64> = conn
-            .query_row(
-                "SELECT MAX(indexed_at) FROM notes_meta",
-                [],
-                |row| row.get(0),
-            )
+            .query_row("SELECT MAX(indexed_at) FROM notes_meta", [], |row| {
+                row.get(0)
+            })
             .ok();
 
         let db_path = conn.path().map(|p| PathBuf::from(p)).unwrap_or_default();
@@ -246,8 +248,7 @@ impl NoteDatabase {
                 score: row.get(2)?,
             })
         })?;
-        rows.collect::<Result<Vec<_>, _>>()
-            .map_err(DbError::Sqlite)
+        rows.collect::<Result<Vec<_>, _>>().map_err(DbError::Sqlite)
     }
 }
 
@@ -317,9 +318,12 @@ mod tests {
     #[test]
     fn test_list_all_metadata_ordered_by_indexed_at_desc() {
         let db = NoteDatabase::open_in_memory().unwrap();
-        db.upsert_note("a.md", "A", "body a", "hash_a", 1000).unwrap();
-        db.upsert_note("b.md", "B", "body b", "hash_b", 2000).unwrap();
-        db.upsert_note("c.md", "C", "body c", "hash_c", 3000).unwrap();
+        db.upsert_note("a.md", "A", "body a", "hash_a", 1000)
+            .unwrap();
+        db.upsert_note("b.md", "B", "body b", "hash_b", 2000)
+            .unwrap();
+        db.upsert_note("c.md", "C", "body c", "hash_c", 3000)
+            .unwrap();
 
         let entries = db.list_all_metadata().unwrap();
         assert_eq!(entries.len(), 3);

@@ -52,14 +52,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     match cli.command {
         Commands::Chart(args) => {
-            commands::chart::run_chart(&args, &cfg.vault.notes_dir, &cfg.vault.db_path, &cfg.indexing)?;
+            commands::chart::run_chart(
+                &args,
+                &cfg.vault.notes_dir,
+                &cfg.vault.db_path,
+                &cfg.indexing,
+            )?;
         }
         Commands::Dive(args) => {
             if !cfg.vault.db_path.exists() {
-                eprintln!("Error: database not found. Run `shiotsuchi chart` to index your vault first.");
+                eprintln!(
+                    "Error: database not found. Run `shiotsuchi chart` to index your vault first."
+                );
                 std::process::exit(1);
             }
-            match commands::dive::run_dive(&args, &cfg.vault.notes_dir, &cfg.vault.db_path, &cfg.indexing) {
+            match commands::dive::run_dive(
+                &args,
+                &cfg.vault.notes_dir,
+                &cfg.vault.db_path,
+                &cfg.indexing,
+            ) {
                 Ok(results) => commands::dive::print_results(&results, args.json),
                 Err(e) => {
                     eprintln!("Error: {}", e);
@@ -72,7 +84,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             commands::tide::print_stats(&stats);
         }
         Commands::Scan(args) => {
-            commands::scan::run_scan(&args, &cfg.vault.notes_dir, &cfg.vault.db_path, &cfg.watcher)?;
+            commands::scan::run_scan(
+                &args,
+                &cfg.vault.notes_dir,
+                &cfg.vault.db_path,
+                &cfg.watcher,
+            )?;
         }
         Commands::Log => commands::log::run_log(&cfg.vault.db_path)?,
         Commands::Delete(args) => {

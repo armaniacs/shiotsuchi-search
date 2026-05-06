@@ -1,5 +1,5 @@
-use clap::Args;
 use crate::config::IndexingConfig;
+use clap::Args;
 use shiotsuchi_core::{
     db::NoteDatabase,
     indexer::index_directory,

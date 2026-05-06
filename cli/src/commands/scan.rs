@@ -1,11 +1,11 @@
 use clap::Args;
 use shiotsuchi_core::{
-    db::NoteDatabase,
-    models::IndexConfig,
-    tokenizer::get_tokenizer,
-    watcher::VaultWatcher,
+    db::NoteDatabase, models::IndexConfig, tokenizer::get_tokenizer, watcher::VaultWatcher,
 };
-use std::{path::Path, sync::{Arc, Mutex}};
+use std::{
+    path::Path,
+    sync::{Arc, Mutex},
+};
 
 #[derive(Args, Debug)]
 pub struct ScanArgs {

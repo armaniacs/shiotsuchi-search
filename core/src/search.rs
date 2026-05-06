@@ -4,11 +4,7 @@ use crate::{
     models::SearchResult,
     tokenizer::{simple_and_query, JapaneseTokenizer},
 };
-use std::{
-    fs,
-    io,
-    path::Path,
-};
+use std::{fs, io, path::Path};
 
 /// 検索のメインエントリポイント。
 /// 1. tokenizer.and_query() で FTS5 AND クエリを構築（vaporetto_and_query() と等価）
@@ -74,7 +70,11 @@ pub fn search(
 pub fn extract_snippet(text: &str, query: &str, max_lines: usize) -> String {
     let tokens: Vec<&str> = query.split_whitespace().collect();
     if tokens.is_empty() {
-        return text.chars().take(constants::FALLBACK_SNIPPET_CHARS).collect::<String>() + "…";
+        return text
+            .chars()
+            .take(constants::FALLBACK_SNIPPET_CHARS)
+            .collect::<String>()
+            + "…";
     }
 
     let lower_text = text.to_lowercase();
@@ -87,7 +87,13 @@ pub fn extract_snippet(text: &str, query: &str, max_lines: usize) -> String {
 
     let pos = match best_pos {
         Some(p) => p,
-        None => return text.chars().take(constants::FALLBACK_SNIPPET_CHARS).collect::<String>() + "…",
+        None => {
+            return text
+                .chars()
+                .take(constants::FALLBACK_SNIPPET_CHARS)
+                .collect::<String>()
+                + "…"
+        }
     };
 
     let before = &text[..pos];
@@ -116,7 +122,11 @@ pub fn extract_snippet(text: &str, query: &str, max_lines: usize) -> String {
     let result = lines.join("\n");
 
     if result.len() > constants::MAX_SNIPPET_CHARS {
-        result.chars().take(constants::MAX_SNIPPET_CHARS).collect::<String>() + "…"
+        result
+            .chars()
+            .take(constants::MAX_SNIPPET_CHARS)
+            .collect::<String>()
+            + "…"
     } else {
         result
     }
@@ -174,7 +184,10 @@ mod tests {
         // Use non-existent path to trigger canonicalize failure
         let nonexistent = temp.path().join("nonexistent");
         let result = search(&db, &tokenizer, &nonexistent, "some", 10);
-        assert!(result.is_err(), "search should error when notes_dir cannot be canonicalized");
+        assert!(
+            result.is_err(),
+            "search should error when notes_dir cannot be canonicalized"
+        );
     }
 
     #[test]

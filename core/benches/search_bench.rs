@@ -24,7 +24,10 @@ fn setup_vault(size: usize) -> (TempDir, std::path::PathBuf) {
     let ndb = NoteDatabase::open(&db_path).unwrap();
     let tok = JapaneseTokenizer::new(TokenizerConfig::default())
         .expect("SHIOTSUCHI_MODEL_PATH required for benchmarks");
-    let cfg = IndexConfig { notes_dir: temp.path().to_path_buf(), ..Default::default() };
+    let cfg = IndexConfig {
+        notes_dir: temp.path().to_path_buf(),
+        ..Default::default()
+    };
     index_directory(&ndb, &tok, &cfg).unwrap();
     (temp, db_path)
 }
@@ -42,7 +45,10 @@ fn bench_indexing(c: &mut Criterion) {
             }
             let db = NoteDatabase::open_in_memory().unwrap();
             let tok = JapaneseTokenizer::new(TokenizerConfig::default()).unwrap();
-            let cfg = IndexConfig { notes_dir: temp.path().to_path_buf(), ..Default::default() };
+            let cfg = IndexConfig {
+                notes_dir: temp.path().to_path_buf(),
+                ..Default::default()
+            };
             black_box(index_directory(&db, &tok, &cfg).unwrap())
         })
     });

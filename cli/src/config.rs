@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
 use shiotsuchi_core::paths::default_db_path as core_default_db_path;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -18,8 +18,6 @@ impl Default for VaultConfig {
     }
 }
 
-
-
 fn xdg_config_home() -> PathBuf {
     std::env::var_os("XDG_CONFIG_HOME")
         .map(PathBuf::from)
@@ -29,10 +27,6 @@ fn xdg_config_home() -> PathBuf {
                 .join(".config")
         })
 }
-
-
-
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]

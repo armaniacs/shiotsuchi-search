@@ -6,11 +6,7 @@ use crate::{
 use pulldown_cmark::{Event, Parser};
 use rayon::prelude::*;
 use sha2::{Digest, Sha256};
-use std::{
-    fs,
-    path::Path,
-    time::SystemTime,
-};
+use std::{fs, path::Path, time::SystemTime};
 use walkdir::WalkDir;
 
 /// Extract YAML frontmatter from markdown content.
@@ -59,7 +55,10 @@ pub fn markdown_to_text(markdown: &str) -> String {
             _ => {}
         }
     }
-    text.lines().map(|l| l.trim()).collect::<Vec<_>>().join("\n")
+    text.lines()
+        .map(|l| l.trim())
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// Derive title from filename stem (hyphens/underscores → spaces).
@@ -87,7 +86,11 @@ pub fn index_file(
     let hash = compute_hash(&content);
     let mtime = fs::metadata(file_path)
         .and_then(|m| m.modified())
-        .map(|t| t.duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default().as_secs() as i64)
+        .map(|t| {
+            t.duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs() as i64
+        })
         .unwrap_or(0);
 
     let (frontmatter_title, body) = extract_frontmatter(&content);
@@ -145,7 +148,10 @@ pub fn index_directory(
             }
             let relative = path.strip_prefix(notes_dir).unwrap_or(path);
             let rel_str = relative.to_string_lossy();
-            !config.exclude_patterns.iter().any(|pat| rel_str.contains(pat))
+            !config
+                .exclude_patterns
+                .iter()
+                .any(|pat| rel_str.contains(pat))
         })
         .collect();
 
@@ -164,7 +170,11 @@ pub fn index_directory(
             let hash = compute_hash(&content);
             let mtime = fs::metadata(path)
                 .and_then(|m| m.modified())
-                .map(|t| t.duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default().as_secs() as i64)
+                .map(|t| {
+                    t.duration_since(SystemTime::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs() as i64
+                })
                 .unwrap_or(0);
 
             let (frontmatter_title, body) = extract_frontmatter(&content);
@@ -172,13 +182,16 @@ pub fn index_directory(
             let plain_text = markdown_to_text(&body);
             let tokenized = tokenizer.split(&plain_text);
 
-            (rel_str.clone(), Ok(PreparedFile {
-                relative_path: rel_str,
-                hash,
-                mtime,
-                title,
-                plain_text: tokenized,
-            }))
+            (
+                rel_str.clone(),
+                Ok(PreparedFile {
+                    relative_path: rel_str,
+                    hash,
+                    mtime,
+                    title,
+                    plain_text: tokenized,
+                }),
+            )
         })
         .collect();
 
@@ -187,7 +200,13 @@ pub fn index_directory(
     for (rel_str, prep_result) in prepared {
         match prep_result {
             Ok(prep) => {
-                let result = match db.upsert_note(&prep.relative_path, &prep.title, &prep.plain_text, &prep.hash, prep.mtime) {
+                let result = match db.upsert_note(
+                    &prep.relative_path,
+                    &prep.title,
+                    &prep.plain_text,
+                    &prep.hash,
+                    prep.mtime,
+                ) {
                     Ok(true) => IndexResult::Inserted,
                     Ok(false) => IndexResult::Skipped,
                     Err(e) => IndexResult::Error(e.to_string()),
@@ -235,7 +254,10 @@ mod tests {
             writeln!(f, "# Note {}\n\nContent body for note {}", i, i).unwrap();
         }
         let db = NoteDatabase::open_in_memory().unwrap();
-        let config = IndexConfig { notes_dir: vault.clone(), ..Default::default() };
+        let config = IndexConfig {
+            notes_dir: vault.clone(),
+            ..Default::default()
+        };
         let results = index_directory(&db, &tokenizer, &config).unwrap();
         assert_eq!(results.len(), 10);
         assert_eq!(db.stats().unwrap().total_notes, 10);
@@ -306,7 +328,10 @@ mod tests {
     #[test]
     fn test_title_from_path() {
         assert_eq!(title_from_path(&PathBuf::from("my-note.md")), "my note");
-        assert_eq!(title_from_path(&PathBuf::from("dir/file_name.md")), "file name");
+        assert_eq!(
+            title_from_path(&PathBuf::from("dir/file_name.md")),
+            "file name"
+        );
     }
 
     #[test]
@@ -323,7 +348,10 @@ mod tests {
         writeln!(f2, "---\ntitle: Special\n---\n\nUnique text here").unwrap();
 
         let db = NoteDatabase::open_in_memory().unwrap();
-        let config = IndexConfig { notes_dir: vault.clone(), ..Default::default() };
+        let config = IndexConfig {
+            notes_dir: vault.clone(),
+            ..Default::default()
+        };
 
         let results = index_directory(&db, &tokenizer, &config).unwrap();
         assert_eq!(results.len(), 2);
@@ -342,7 +370,10 @@ mod tests {
         writeln!(f, "content").unwrap();
 
         let db = NoteDatabase::open_in_memory().unwrap();
-        let config = IndexConfig { notes_dir: vault.clone(), ..Default::default() };
+        let config = IndexConfig {
+            notes_dir: vault.clone(),
+            ..Default::default()
+        };
         index_directory(&db, &tokenizer, &config).unwrap();
         assert_eq!(db.stats().unwrap().total_notes, 1);
 

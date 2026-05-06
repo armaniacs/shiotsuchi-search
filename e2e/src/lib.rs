@@ -38,7 +38,8 @@ mod tests {
         }
         // Fall back to release binary
         let release_p = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .parent().unwrap()
+            .parent()
+            .unwrap()
             .join("target/release/shiotsuchi-mcp");
         if release_p.exists() {
             return release_p;
@@ -53,7 +54,11 @@ mod tests {
     }
 
     /// Convenience: run a shiotsuchi subcommand with --notes-dir and --db-path pre-set.
-    fn cmd(args: &[&str], notes_dir: &std::path::Path, db: &std::path::Path) -> std::process::Output {
+    fn cmd(
+        args: &[&str],
+        notes_dir: &std::path::Path,
+        db: &std::path::Path,
+    ) -> std::process::Output {
         Command::new(shiotsuchi_bin())
             .env("SHIOTSUCHI_MODEL_PATH", model_path())
             .args(["--notes-dir", notes_dir.to_str().unwrap()])
@@ -103,9 +108,17 @@ mod tests {
         setup_vault(&temp);
 
         let out = cmd(&["chart"], &temp.path(), &db);
-        assert!(out.status.success(), "chart failed: {}", String::from_utf8_lossy(&out.stderr));
+        assert!(
+            out.status.success(),
+            "chart failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
         let stdout = String::from_utf8_lossy(&out.stdout);
-        assert!(stdout.contains("Indexed 2"), "expected 2 indexed files: {}", stdout);
+        assert!(
+            stdout.contains("Indexed 2"),
+            "expected 2 indexed files: {}",
+            stdout
+        );
     }
 
     /// §2: dive "project" returns meeting.md.
@@ -119,7 +132,11 @@ mod tests {
         let out = cmd(&["dive", "project"], &temp.path(), &db);
         assert!(out.status.success());
         let stdout = String::from_utf8_lossy(&out.stdout);
-        assert!(stdout.contains("meeting.md"), "expected meeting.md: {}", stdout);
+        assert!(
+            stdout.contains("meeting.md"),
+            "expected meeting.md: {}",
+            stdout
+        );
     }
 
     /// §2: dive --json produces valid JSON.
@@ -146,11 +163,20 @@ mod tests {
         setup_vault(&temp);
 
         cmd(&["chart", "--quiet"], &temp.path(), &db);
-        let out = cmd(&["dive", "xyzzy-no-match-query", "--json"], &temp.path(), &db);
+        let out = cmd(
+            &["dive", "xyzzy-no-match-query", "--json"],
+            &temp.path(),
+            &db,
+        );
         assert!(out.status.success());
         let stdout = String::from_utf8_lossy(&out.stdout);
         let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
-        assert_eq!(parsed.as_array().unwrap().len(), 0, "expected 0 results: {}", stdout);
+        assert_eq!(
+            parsed.as_array().unwrap().len(),
+            0,
+            "expected 0 results: {}",
+            stdout
+        );
     }
 
     /// §2: tide shows total_notes: 2.
@@ -164,7 +190,11 @@ mod tests {
         let out = cmd(&["tide"], &temp.path(), &db);
         assert!(out.status.success());
         let stdout = String::from_utf8_lossy(&out.stdout);
-        assert!(stdout.contains("Total notes"), "expected 'Total notes': {}", stdout);
+        assert!(
+            stdout.contains("Total notes"),
+            "expected 'Total notes': {}",
+            stdout
+        );
         assert!(stdout.contains('2'), "expected count 2: {}", stdout);
     }
 
@@ -177,14 +207,30 @@ mod tests {
 
         cmd(&["chart", "--quiet"], &temp.path(), &db);
         let out = cmd(&["log"], &temp.path(), &db);
-        assert!(out.status.success(), "log failed: {}", String::from_utf8_lossy(&out.stderr));
+        assert!(
+            out.status.success(),
+            "log failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
         let stdout = String::from_utf8_lossy(&out.stdout);
-        assert!(stdout.contains("meeting.md"), "expected meeting.md: {}", stdout);
-        assert!(stdout.contains("shopping.md"), "expected shopping.md: {}", stdout);
+        assert!(
+            stdout.contains("meeting.md"),
+            "expected meeting.md: {}",
+            stdout
+        );
+        assert!(
+            stdout.contains("shopping.md"),
+            "expected shopping.md: {}",
+            stdout
+        );
         // ISO 8601 timestamp (YYYY-MM-DDThh:mm:ssZ)
         assert!(stdout.contains('Z'), "expected UTC marker: {}", stdout);
         assert!(stdout.contains(':'), "expected time separator: {}", stdout);
-        assert!(stdout.contains("Total: 2 notes"), "expected total: {}", stdout);
+        assert!(
+            stdout.contains("Total: 2 notes"),
+            "expected total: {}",
+            stdout
+        );
     }
 
     // ─── §3: Error message ───────────────────────────────────────────────────────
@@ -214,14 +260,19 @@ mod tests {
     /// Uses the CLI binary in watch mode: start scan, write a file, verify it appears in dive output.
     #[test]
     fn e2e_scan_indexes_new_file() {
-        use std::{sync::atomic::{AtomicBool, Ordering}, sync::Arc, thread, time::Duration};
+        use notify::{Config as NotifyConfig, Event, PollWatcher, RecursiveMode, Watcher};
         use shiotsuchi_core::{
             db::NoteDatabase,
             indexer::index_file,
             models::IndexConfig,
             tokenizer::{JapaneseTokenizer, TokenizerConfig},
         };
-        use notify::{Config as NotifyConfig, Event, PollWatcher, RecursiveMode, Watcher};
+        use std::{
+            sync::atomic::{AtomicBool, Ordering},
+            sync::Arc,
+            thread,
+            time::Duration,
+        };
 
         let temp = TempDir::new().unwrap();
         let db_path = temp.path().join("db.sqlite3");
@@ -243,14 +294,22 @@ mod tests {
 
         let handle = thread::spawn(move || -> usize {
             let tokenizer = Arc::new(JapaneseTokenizer::new(TokenizerConfig::default()).unwrap());
-            let config = IndexConfig { notes_dir: vault.clone(), ..Default::default() };
+            let config = IndexConfig {
+                notes_dir: vault.clone(),
+                ..Default::default()
+            };
             let (tx, rx) = std::sync::mpsc::channel();
-            let poll_config = NotifyConfig::default()
-                .with_poll_interval(Duration::from_millis(poll_interval_ms));
+            let poll_config =
+                NotifyConfig::default().with_poll_interval(Duration::from_millis(poll_interval_ms));
             let mut watcher = PollWatcher::new(
-                move |res: Result<Event, _>| { if let Ok(e) = res { let _ = tx.send(e); } },
+                move |res: Result<Event, _>| {
+                    if let Ok(e) = res {
+                        let _ = tx.send(e);
+                    }
+                },
                 poll_config,
-            ).unwrap();
+            )
+            .unwrap();
             watcher.watch(&vault, RecursiveMode::Recursive).unwrap();
             ready_clone.store(true, Ordering::SeqCst);
 
@@ -259,11 +318,20 @@ mod tests {
             while std::time::Instant::now() < deadline {
                 if let Ok(event) = rx.recv_timeout(Duration::from_millis(50)) {
                     use notify::event::{EventKind, ModifyKind};
-                    if matches!(event.kind, EventKind::Create(_) | EventKind::Modify(ModifyKind::Data(_))) {
+                    if matches!(
+                        event.kind,
+                        EventKind::Create(_) | EventKind::Modify(ModifyKind::Data(_))
+                    ) {
                         for path in &event.paths {
                             if let Ok(rel) = path.strip_prefix(&config.notes_dir) {
                                 let db = db_clone.lock().unwrap();
-                                let _ = index_file(&db, &tokenizer, path, &rel.to_string_lossy(), &config);
+                                let _ = index_file(
+                                    &db,
+                                    &tokenizer,
+                                    path,
+                                    &rel.to_string_lossy(),
+                                    &config,
+                                );
                                 indexed += 1;
                             }
                         }
@@ -277,7 +345,11 @@ mod tests {
             thread::sleep(Duration::from_millis(10));
         }
         thread::sleep(Duration::from_millis(poll_interval_ms));
-        fs::write(temp.path().join("new.md"), "# New note\n\nauto-index test\n").unwrap();
+        fs::write(
+            temp.path().join("new.md"),
+            "# New note\n\nauto-index test\n",
+        )
+        .unwrap();
         thread::sleep(Duration::from_millis(timeout_ms));
 
         let _ = handle.join();
@@ -298,11 +370,24 @@ mod tests {
         let out = Command::new(shiotsuchi_bin())
             .env("SHIOTSUCHI_MODEL_PATH", model_path())
             .env("XDG_CACHE_HOME", &fake_cache)
-            .args(["--notes-dir", temp.path().to_str().unwrap(), "chart", "--quiet"])
+            .args([
+                "--notes-dir",
+                temp.path().to_str().unwrap(),
+                "chart",
+                "--quiet",
+            ])
             .output()
             .unwrap();
-        assert!(out.status.success(), "chart failed: {}", String::from_utf8_lossy(&out.stderr));
-        assert!(expected_db.exists(), "expected DB at XDG path: {}", expected_db.display());
+        assert!(
+            out.status.success(),
+            "chart failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert!(
+            expected_db.exists(),
+            "expected DB at XDG path: {}",
+            expected_db.display()
+        );
     }
 
     /// §5: --db-path override places the DB at the specified path.
@@ -314,14 +399,25 @@ mod tests {
         let out = Command::new(shiotsuchi_bin())
             .env("SHIOTSUCHI_MODEL_PATH", model_path())
             .args([
-                "--notes-dir", temp.path().to_str().unwrap(),
-                "--db-path", custom_db.to_str().unwrap(),
-                "chart", "--quiet",
+                "--notes-dir",
+                temp.path().to_str().unwrap(),
+                "--db-path",
+                custom_db.to_str().unwrap(),
+                "chart",
+                "--quiet",
             ])
             .output()
             .unwrap();
-        assert!(out.status.success(), "chart failed: {}", String::from_utf8_lossy(&out.stderr));
-        assert!(custom_db.exists(), "expected DB at custom path: {}", custom_db.display());
+        assert!(
+            out.status.success(),
+            "chart failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert!(
+            custom_db.exists(),
+            "expected DB at custom path: {}",
+            custom_db.display()
+        );
     }
 
     // ─── §6: Makefile ────────────────────────────────────────────────────────────
@@ -337,7 +433,12 @@ mod tests {
         assert!(out.status.success());
         let stdout = String::from_utf8_lossy(&out.stdout);
         for target in &["build", "test", "install", "uninstall", "clean", "model"] {
-            assert!(stdout.contains(target), "make help missing '{}': {}", target, stdout);
+            assert!(
+                stdout.contains(target),
+                "make help missing '{}': {}",
+                target,
+                stdout
+            );
         }
     }
 
@@ -346,14 +447,20 @@ mod tests {
     fn e2e_make_install_uninstall() {
         let temp = TempDir::new().unwrap();
         let prefix = temp.path().to_str().unwrap();
-        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap();
 
         let install = Command::new("make")
             .args(["install", &format!("PREFIX={}", prefix)])
             .current_dir(root)
             .output()
             .unwrap();
-        assert!(install.status.success(), "make install failed: {}", String::from_utf8_lossy(&install.stderr));
+        assert!(
+            install.status.success(),
+            "make install failed: {}",
+            String::from_utf8_lossy(&install.stderr)
+        );
 
         for bin in &["shiotsuchi", "shiotsuchi-mcp"] {
             let p = temp.path().join("bin").join(bin);
@@ -423,19 +530,33 @@ mod tests {
         cmd(&["chart", "--quiet"], &temp.path(), &db);
 
         let requests = vec![
-            mcp_request(1, "initialize", serde_json::json!({"protocolVersion": "2024-11-05", "clientInfo": {}})),
-            mcp_request(2, "tools/call", serde_json::json!({
-                "name": "search_vault",
-                "arguments": {"query": "project"}
-            })),
+            mcp_request(
+                1,
+                "initialize",
+                serde_json::json!({"protocolVersion": "2024-11-05", "clientInfo": {}}),
+            ),
+            mcp_request(
+                2,
+                "tools/call",
+                serde_json::json!({
+                    "name": "search_vault",
+                    "arguments": {"query": "project"}
+                }),
+            ),
         ];
 
         let responses = run_mcp(&requests, &temp.path(), &db);
-        let tool_resp = responses.into_iter().find(|r| r["id"] == 2 && r.get("result").is_some());
+        let tool_resp = responses
+            .into_iter()
+            .find(|r| r["id"] == 2 && r.get("result").is_some());
         assert!(tool_resp.is_some(), "no tool response found");
         let resp = tool_resp.unwrap();
         let text = resp["result"]["content"][0]["text"].as_str().unwrap_or("");
-        assert!(text.contains("meeting.md"), "expected meeting.md in MCP response: {}", text);
+        assert!(
+            text.contains("meeting.md"),
+            "expected meeting.md in MCP response: {}",
+            text
+        );
     }
 
     /// §7: read_full_note returns file content.
@@ -447,19 +568,33 @@ mod tests {
         cmd(&["chart", "--quiet"], &temp.path(), &db);
 
         let requests = vec![
-            mcp_request(1, "initialize", serde_json::json!({"protocolVersion": "2024-11-05", "clientInfo": {}})),
-            mcp_request(2, "tools/call", serde_json::json!({
-                "name": "read_full_note",
-                "arguments": {"path": "meeting.md"}
-            })),
+            mcp_request(
+                1,
+                "initialize",
+                serde_json::json!({"protocolVersion": "2024-11-05", "clientInfo": {}}),
+            ),
+            mcp_request(
+                2,
+                "tools/call",
+                serde_json::json!({
+                    "name": "read_full_note",
+                    "arguments": {"path": "meeting.md"}
+                }),
+            ),
         ];
 
         let responses = run_mcp(&requests, &temp.path(), &db);
-        let tool_resp = responses.into_iter().find(|r| r["id"] == 2 && r.get("result").is_some());
+        let tool_resp = responses
+            .into_iter()
+            .find(|r| r["id"] == 2 && r.get("result").is_some());
         assert!(tool_resp.is_some(), "no tool response found");
         let resp = tool_resp.unwrap();
         let text = resp["result"]["content"][0]["text"].as_str().unwrap_or("");
-        assert!(text.contains("project plan"), "expected note content: {}", text);
+        assert!(
+            text.contains("project plan"),
+            "expected note content: {}",
+            text
+        );
     }
 
     /// §7: vault_status returns note count.
@@ -471,15 +606,25 @@ mod tests {
         cmd(&["chart", "--quiet"], &temp.path(), &db);
 
         let requests = vec![
-            mcp_request(1, "initialize", serde_json::json!({"protocolVersion": "2024-11-05", "clientInfo": {}})),
-            mcp_request(2, "tools/call", serde_json::json!({
-                "name": "vault_status",
-                "arguments": {}
-            })),
+            mcp_request(
+                1,
+                "initialize",
+                serde_json::json!({"protocolVersion": "2024-11-05", "clientInfo": {}}),
+            ),
+            mcp_request(
+                2,
+                "tools/call",
+                serde_json::json!({
+                    "name": "vault_status",
+                    "arguments": {}
+                }),
+            ),
         ];
 
         let responses = run_mcp(&requests, &temp.path(), &db);
-        let tool_resp = responses.into_iter().find(|r| r["id"] == 2 && r.get("result").is_some());
+        let tool_resp = responses
+            .into_iter()
+            .find(|r| r["id"] == 2 && r.get("result").is_some());
         assert!(tool_resp.is_some(), "no tool response found");
         let resp = tool_resp.unwrap();
         let text = resp["result"]["content"][0]["text"].as_str().unwrap_or("");

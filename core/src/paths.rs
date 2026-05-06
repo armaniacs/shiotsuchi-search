@@ -10,9 +10,7 @@ fn xdg_cache_home() -> PathBuf {
 
 /// Returns the user's home directory, falling back to current directory.
 fn home_dir() -> PathBuf {
-    dirs::home_dir().unwrap_or_else(|| {
-        env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
-    })
+    dirs::home_dir().unwrap_or_else(|| env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
 }
 
 /// Returns the default database path for shiotsuchi:
@@ -38,13 +36,19 @@ mod tests {
         // Save original value
         let original = env::var("XDG_CACHE_HOME").ok();
         // Set temporary XDG_CACHE_HOME
-        unsafe { env::set_var("XDG_CACHE_HOME", "/tmp/xyz_cache"); }
+        unsafe {
+            env::set_var("XDG_CACHE_HOME", "/tmp/xyz_cache");
+        }
         let path = default_db_path();
         assert!(path.starts_with("/tmp/xyz_cache"));
         // Restore
         match original {
-            Some(val) => unsafe { env::set_var("XDG_CACHE_HOME", val); },
-            None => unsafe { env::remove_var("XDG_CACHE_HOME"); },
+            Some(val) => unsafe {
+                env::set_var("XDG_CACHE_HOME", val);
+            },
+            None => unsafe {
+                env::remove_var("XDG_CACHE_HOME");
+            },
         }
     }
 }

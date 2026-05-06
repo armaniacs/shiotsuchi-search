@@ -1,5 +1,5 @@
+use sha2::{Digest, Sha256};
 use std::{env, fs, io::Read, path::PathBuf};
-use sha2::{Sha256, Digest};
 
 // Shared decompress logic — see src/_decompress.rs
 include!("src/_decompress.rs");
@@ -54,5 +54,3 @@ fn build_predictor(model_path: &str) -> Result<Vec<u8>, Box<dyn std::error::Erro
     let predictor = Predictor::new(model, false)?;
     Ok(predictor.serialize_to_vec()?)
 }
-
-

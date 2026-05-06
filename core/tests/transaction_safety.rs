@@ -8,13 +8,7 @@ fn test_upsert_note_commits_on_success() {
     let db = NoteDatabase::open(&db_path).unwrap();
 
     let result = db
-        .upsert_note(
-            "note1.md",
-            "Title 1",
-            "トークン化 本文",
-            "hash1",
-            1_000,
-        )
+        .upsert_note("note1.md", "Title 1", "トークン化 本文", "hash1", 1_000)
         .unwrap();
     assert!(result, "first upsert should report changed");
 
@@ -24,13 +18,7 @@ fn test_upsert_note_commits_on_success() {
 
     // Second upsert with same hash should skip
     let result2 = db
-        .upsert_note(
-            "note1.md",
-            "Title 1",
-            "トークン化 本文",
-            "hash1",
-            1_000,
-        )
+        .upsert_note("note1.md", "Title 1", "トークン化 本文", "hash1", 1_000)
         .unwrap();
     assert!(!result2, "unchanged note should be skipped");
 

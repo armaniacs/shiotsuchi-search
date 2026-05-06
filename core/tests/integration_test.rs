@@ -1,6 +1,6 @@
 use shiotsuchi_core::{
     db::NoteDatabase,
-    indexer::{index_directory, cleanup_deleted},
+    indexer::{cleanup_deleted, index_directory},
     models::IndexConfig,
     search::extract_snippet,
     tokenizer::TokenizerConfig,
@@ -19,21 +19,27 @@ fn test_end_to_end_index_and_search() {
     fs::write(
         vault.join("project.md"),
         "# Project Plan\n\nThis project is about building a search engine.",
-    ).unwrap();
+    )
+    .unwrap();
 
     fs::write(
         vault.join("meeting.md"),
         "---\ntitle: Team Meeting\n---\n\nWe discussed the search feature and timeline.",
-    ).unwrap();
+    )
+    .unwrap();
 
     fs::write(
         vault.join("japanese.md"),
         "# 日本語ノート\n\n形態素解析は非常に便利です。",
-    ).unwrap();
+    )
+    .unwrap();
 
     // Index: tokenizer を index_directory に渡す
     let db = NoteDatabase::open_in_memory().unwrap();
-    let config = IndexConfig { notes_dir: vault.clone(), ..Default::default() };
+    let config = IndexConfig {
+        notes_dir: vault.clone(),
+        ..Default::default()
+    };
     let results = index_directory(&db, &tokenizer, &config).unwrap();
     assert_eq!(results.len(), 3);
 
