@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.5] - 2026-05-06
+
+### Changed
+
+- **README simplified:** Removed Quick Start, Building from Source, and Running Tests sections from both `README.md` and `README.ja.md` — these are covered in `docs/INSTALL.md` / `docs/INSTALL.ja.md`. Each README now focuses on project overview, features, commands, MCP integration, security, configuration, performance, and license.
+- **Unnecessary env var removed:** `SHIOTSUCHI_MODEL_PATH` prefix removed from `shiotsuchi chart` example in MCP sections of both READMEs — the model is embedded at build time and not needed at runtime.
+
 ## [0.2.4] - 2026-05-06
 
 ### Added
@@ -164,7 +171,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `docs/MODEL_LICENSES.md` with BSD-3-Clause notice for the bundled tokenizer model
 - `README.md` (English) and `README.ja.md` (Japanese)
 
-[Unreleased]: https://github.com/your-org/shiotsuchi-search/compare/v0.2.4...HEAD
+[Unreleased]: https://github.com/your-org/shiotsuchi-search/compare/v0.2.5...HEAD
+[0.2.5]: https://github.com/your-org/shiotsuchi-search/compare/v0.2.4...v0.2.5
 [0.2.4]: https://github.com/your-org/shiotsuchi-search/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/your-org/shiotsuchi-search/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/your-org/shiotsuchi-search/compare/v0.2.1...v0.2.2
