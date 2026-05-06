@@ -220,7 +220,7 @@ pub fn cleanup_deleted(db: &NoteDatabase, config: &IndexConfig) -> Result<Vec<St
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{db::NoteDatabase, tokenizer::JapaneseTokenizer};
+    use crate::db::NoteDatabase;
     use std::{io::Write, path::PathBuf};
     use tempfile::TempDir;
 

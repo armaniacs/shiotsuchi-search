@@ -28,9 +28,21 @@ bench: $(MODEL_FILE)
 	  cargo bench -p obsidian-shiotsuchi-vault-core
 
 install: build
-	install -d $(BINDIR)
-	install -m 755 target/release/shiotsuchi $(BINDIR)/
-	install -m 755 target/release/shiotsuchi-mcp $(BINDIR)/
+	@if [ "$$(id -u)" -eq 0 ]; then \
+		INSTALL_DIR="$(BINDIR)"; \
+	else \
+		if [ -d "$$HOME/.local/bin" ]; then \
+			INSTALL_DIR="$$HOME/.local/bin"; \
+		elif [ -d "$$HOME/.cargo/bin" ]; then \
+			INSTALL_DIR="$$HOME/.cargo/bin"; \
+		else \
+			INSTALL_DIR="$$HOME/.local/bin"; \
+			mkdir -p "$$INSTALL_DIR"; \
+		fi; \
+	fi; \
+	install -d "$$INSTALL_DIR"; \
+	install -m 755 target/release/shiotsuchi "$$INSTALL_DIR"/; \
+	install -m 755 target/release/shiotsuchi-mcp "$$INSTALL_DIR"/;
 
 uninstall:
 	rm -f $(BINDIR)/shiotsuchi \
@@ -56,7 +68,7 @@ help:
 	@echo "  integration-test Run Vitest MCP integration tests"
 	@echo "  test-all         Run all tests (Rust + E2E + Vitest)"
 	@echo "  bench            Run criterion benchmarks"
-	@echo "  install          Install binaries to \$$(PREFIX)/bin  [default: /usr/local/bin]"
+	@echo "  install          Install binaries to ~/.local/bin (or ~/.cargo/bin if exists) when not root, otherwise to $(PREFIX)/bin [default: /usr/local/bin]"
 	@echo "  uninstall        Remove installed binaries"
 	@echo "  model            Download tokenizer model"
 	@echo "  clean            Remove build artifacts"

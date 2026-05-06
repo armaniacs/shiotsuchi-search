@@ -68,10 +68,10 @@ mod tests {
             db::NoteDatabase,
             indexer::index_directory,
             models::IndexConfig,
-            tokenizer::{JapaneseTokenizer, TokenizerConfig},
+            tokenizer::get_tokenizer,
         };
         let ndb = NoteDatabase::open(&db).unwrap();
-        let tok = JapaneseTokenizer::new(TokenizerConfig::default())
+        let tok = get_tokenizer()
             .unwrap_or_else(|_| panic!("SHIOTSUCHI_MODEL_PATH を設定してください"));
         let cfg = IndexConfig { notes_dir: temp.path().to_path_buf(), ..Default::default() };
         index_directory(&ndb, &tok, &cfg).unwrap();
