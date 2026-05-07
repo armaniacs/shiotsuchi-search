@@ -37,9 +37,14 @@ pub fn default_config_path() -> PathBuf {
 pub struct IndexingConfig {
     pub snippet_lines: usize,
     pub include_extensions: Vec<String>,
-    pub exclude_patterns: Vec<String>,
+    /// Directory names to exclude from indexing (renamed from exclude_patterns).
+    /// The old key will cause a deserialize error — use `exclude_dirs` instead.
+    pub exclude_dirs: Vec<String>,
     pub auto_exclude_hidden: bool,
     pub follow_links: bool,
+    /// Minimum number of matching files for a directory to be dynamically detected
+    /// as a noise candidate. Defaults to 5.
+    pub dynamic_threshold: usize,
 }
 
 impl Default for IndexingConfig {
@@ -48,9 +53,10 @@ impl Default for IndexingConfig {
             snippet_lines: 3,
             include_extensions: vec!["md".to_string(), "markdown".to_string()],
             // .git/.obsidian は auto_exclude_hidden=true により自動除外される
-            exclude_patterns: vec!["node_modules".to_string()],
+            exclude_dirs: vec!["node_modules".to_string()],
             auto_exclude_hidden: true,
-            follow_links: true,
+            follow_links: false,
+            dynamic_threshold: 5,
         }
     }
 }

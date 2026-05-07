@@ -40,7 +40,7 @@ fn test_end_to_end_index_and_search() {
         notes_dir: vault.clone(),
         ..Default::default()
     };
-    let results = index_directory(&db, &tokenizer, &config).unwrap();
+    let (results, _invalid) = index_directory(&db, &tokenizer, &config).unwrap();
     assert_eq!(results.len(), 3);
 
     // Search: tokenizer.and_query() で FTS5 AND クエリを構築してから db.search() に渡す

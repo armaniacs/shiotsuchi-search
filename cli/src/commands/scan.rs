@@ -20,6 +20,7 @@ pub fn run_scan(
     notes_dir: &Path,
     db_path: &Path,
     _watcher_cfg: &WatcherConfig,
+    indexing_cfg: &crate::config::IndexingConfig,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if let Some(parent) = db_path.parent() {
         std::fs::create_dir_all(parent)?;
@@ -28,7 +29,11 @@ pub fn run_scan(
     let tokenizer = get_tokenizer()?;
     let config = IndexConfig {
         notes_dir: notes_dir.to_path_buf(),
-        ..Default::default()
+        include_extensions: indexing_cfg.include_extensions.clone(),
+        exclude_dirs: indexing_cfg.exclude_dirs.clone(),
+        auto_exclude_hidden: indexing_cfg.auto_exclude_hidden,
+        follow_links: indexing_cfg.follow_links,
+        dynamic_threshold: indexing_cfg.dynamic_threshold,
     };
     let watcher = VaultWatcher::new(db, tokenizer, config);
     watcher.watch()

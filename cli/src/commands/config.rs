@@ -22,19 +22,30 @@ pub struct DetectNoiseArgs {
 }
 
 pub fn run_config(
-    _args: &ConfigArgs,
+    args: &ConfigArgs,
     notes_dir: &std::path::Path,
     include_extensions: &[String],
+    auto_exclude_hidden: bool,
+    dynamic_threshold: usize,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // For now, detect-noise is the only subcommand.
-    let candidates = scan_vault(notes_dir, include_extensions);
+    // Dispatch on subcommand. Currently only DetectNoise is supported.
+    let detect_notes_dir = match &args.command {
+        ConfigCommands::DetectNoise(detect_args) => {
+            detect_args.notes_dir.as_deref().unwrap_or(notes_dir)
+        }
+    };
+
+    let (candidates, _truncated) = scan_vault(detect_notes_dir, include_extensions, auto_exclude_hidden, dynamic_threshold, 1000);
 
     if candidates.is_empty() {
-        println!("No exclusion candidates detected in {}", notes_dir.display());
+        println!(
+            "No exclusion candidates detected in {}",
+            detect_notes_dir.display()
+        );
         return Ok(());
     }
 
-    println!("Exclusion candidates in {}:", notes_dir.display());
+    println!("Exclusion candidates in {}:", detect_notes_dir.display());
     println!();
     for (i, candidate) in candidates.iter().enumerate() {
         let label = if candidate.is_known_pattern {
@@ -70,7 +81,7 @@ mod tests {
         let vault = temp.path().join("vault");
         fs::create_dir(&vault).unwrap();
 
-        let candidates = scan_vault(&vault, &["md".to_string(), "markdown".to_string()]);
+        let (candidates, _truncated) = scan_vault(&vault, &["md".to_string(), "markdown".to_string()], true, 5, 1000);
         assert!(candidates.is_empty());
     }
 
@@ -87,7 +98,7 @@ mod tests {
             fs::write(d.join("f.md"), "# test").unwrap();
         }
 
-        let candidates = scan_vault(&vault, &["md".to_string(), "markdown".to_string()]);
+        let (candidates, _truncated) = scan_vault(&vault, &["md".to_string(), "markdown".to_string()], true, 5, 1000);
         assert_eq!(candidates.len(), 3);
 
         let paths: Vec<_> = candidates.iter().map(|c| c.relative_path.as_str()).collect();

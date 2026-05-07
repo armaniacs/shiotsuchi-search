@@ -20,6 +20,7 @@ pub struct ChartSummary {
     pub indexed: usize,
     pub skipped: usize,
     pub errors: usize,
+    pub invalid_patterns: usize,
 }
 
 pub fn run_chart(
@@ -36,17 +37,19 @@ pub fn run_chart(
     let config = IndexConfig {
         notes_dir: notes_dir.to_path_buf(),
         include_extensions: indexing_cfg.include_extensions.clone(),
-        exclude_patterns: indexing_cfg.exclude_patterns.clone(),
+        exclude_dirs: indexing_cfg.exclude_dirs.clone(),
         auto_exclude_hidden: indexing_cfg.auto_exclude_hidden,
         follow_links: indexing_cfg.follow_links,
+        dynamic_threshold: indexing_cfg.dynamic_threshold,
     };
 
-    let results = index_directory(&db, &tokenizer, &config)?;
+    let (results, invalid_patterns) = index_directory(&db, &tokenizer, &config)?;
 
     let mut summary = ChartSummary {
         indexed: 0,
         skipped: 0,
         errors: 0,
+        invalid_patterns,
     };
     for (_, result) in &results {
         match result {
@@ -57,10 +60,18 @@ pub fn run_chart(
     }
 
     if !args.quiet {
-        println!(
+        let mut msg = format!(
             "Indexed {} files ({} skipped, {} errors)",
             summary.indexed, summary.skipped, summary.errors
         );
+        if summary.invalid_patterns > 0 {
+            msg.push_str(&format!(
+                ", {} invalid pattern{}",
+                summary.invalid_patterns,
+                if summary.invalid_patterns == 1 { "" } else { "s" }
+            ));
+        }
+        println!("{}", msg);
     }
 
     Ok(summary)

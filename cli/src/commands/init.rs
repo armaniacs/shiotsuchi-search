@@ -35,13 +35,19 @@ pub fn run_init(
     let effective_notes_dir: PathBuf = match raw_notes_dir {
         Some(dir) => dir.to_path_buf(),
         None => {
-            let cwd = std::env::current_dir()?;
-            eprintln!(
-                "info: --notes-dir not specified, scanning current directory: {}",
-                cwd.display()
-            );
-            eprintln!("info: use --notes-dir <PATH> to scan a different vault root.");
-            cwd
+            // When --force is used, preserve the existing notes_dir if it was
+            // explicitly set (not the default ".").
+            if args.force && cfg.vault.notes_dir != std::path::PathBuf::from(".") {
+                cfg.vault.notes_dir.clone()
+            } else {
+                let cwd = std::env::current_dir()?;
+                eprintln!(
+                    "info: --notes-dir not specified, scanning current directory: {}",
+                    cwd.display()
+                );
+                eprintln!("info: use --notes-dir <PATH> to scan a different vault root.");
+                cwd
+            }
         }
     };
 
@@ -65,7 +71,13 @@ pub fn run_init(
         )
         .into());
     }
-    let candidates = scan_vault(&effective_notes_dir, &out_cfg.indexing.include_extensions);
+    let (candidates, _truncated) = scan_vault(
+        &effective_notes_dir,
+        &out_cfg.indexing.include_extensions,
+        out_cfg.indexing.auto_exclude_hidden,
+        out_cfg.indexing.dynamic_threshold,
+        1000,
+    );
 
     // --- Interactive or non-interactive exclusion selection ---
     let is_tty = dialoguer_stdin_is_tty();
@@ -90,18 +102,33 @@ pub fn run_init(
         candidates.iter().map(|c| c.relative_path.clone()).collect()
     };
 
-    out_cfg.indexing.exclude_patterns = selected_patterns;
+    // Merge selected patterns with existing exclude_dirs so that
+    // manually added custom patterns are not lost on --force.
+    let mut merged: Vec<String> = cfg.indexing.exclude_dirs.clone();
+    for p in selected_patterns {
+        if !merged.contains(&p) {
+            merged.push(p);
+        }
+    }
+    out_cfg.indexing.exclude_dirs = merged;
 
-    // --- Write config ---
+    // --- Write config atomically with restricted permissions ---
     let toml = toml::to_string_pretty(&out_cfg)?;
-    std::fs::write(config_path, toml)?;
+    let tmp_path = config_path.with_extension("toml.tmp");
+    std::fs::write(&tmp_path, toml)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&tmp_path, std::fs::Permissions::from_mode(0o600))?;
+    }
+    std::fs::rename(&tmp_path, config_path)?;
 
     println!("Created config file at {}", config_path.display());
     if !candidates.is_empty() {
         println!(
             "Excluded {} director{} from indexing.",
-            out_cfg.indexing.exclude_patterns.len(),
-            if out_cfg.indexing.exclude_patterns.len() == 1 {
+            out_cfg.indexing.exclude_dirs.len(),
+            if out_cfg.indexing.exclude_dirs.len() == 1 {
                 "y"
             } else {
                 "ies"
@@ -114,12 +141,27 @@ pub fn run_init(
 }
 
 /// Create a timestamped backup of the existing config file.
-/// Uses sub-second precision (%f = microseconds/milliseconds padded to 6 digits)
-/// to avoid collisions when multiple backups are created within the same second.
+/// Uses Unix epoch seconds + microseconds to ensure unique, sortable timestamps.
 fn backup_config(config_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
-    let timestamp = chrono::Local::now().format("%Y%m%d-%H%M%S.%f");
-    let backup_path = config_path.with_extension(format!("toml.bak.{}", timestamp));
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default();
+    let secs = now.as_secs();
+    let micros = now.subsec_micros();
+    let timestamp = format!("{}.{:06}", secs, micros);
+    let mut backup_path = config_path.with_extension(format!("toml.bak.{}", timestamp));
+    // Avoid overwriting an existing backup (e.g. fast successive runs).
+    let mut counter = 1u32;
+    while backup_path.exists() {
+        backup_path = config_path.with_extension(format!("toml.bak.{}.{}", timestamp, counter));
+        counter += 1;
+    }
     std::fs::copy(config_path, &backup_path)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&backup_path, std::fs::Permissions::from_mode(0o600));
+    }
     println!(
         "Backed up existing config to {}",
         backup_path.display()
@@ -148,7 +190,7 @@ fn select_exclusions_interactive(candidates: &[ExclusionCandidate]) -> Result<Ve
         .filter(|(_, c)| c.is_known_pattern)
         .map(|(i, _)| i)
         .collect();
-    let dynamic_indices: Vec<usize> = candidates
+    let _dynamic_indices: Vec<usize> = candidates
         .iter()
         .enumerate()
         .filter(|(_, c)| !c.is_known_pattern)
@@ -167,12 +209,11 @@ fn select_exclusions_interactive(candidates: &[ExclusionCandidate]) -> Result<Ve
 
     // Determine pre-selected items for Stage 2.
     let mut defaults: Vec<bool> = vec![false; candidates.len()];
-    for &i in &dynamic_indices {
-        defaults[i] = true; // dynamic candidates always pre-selected
-    }
+    // Known-pattern candidates are pre-selected by default; dynamic candidates
+    // start unselected so the user must explicitly choose them.
     if bulk_exclude_known {
         for &i in &known_indices {
-            defaults[i] = true; // known candidates pre-selected if user chose Yes
+            defaults[i] = true;
         }
     }
 
@@ -203,10 +244,10 @@ fn select_exclusions_interactive(candidates: &[ExclusionCandidate]) -> Result<Ve
     Ok(selected)
 }
 
-/// Check whether stdin is a TTY (interactive terminal).
+/// Check whether stdin and stdout are both TTYs (interactive terminal).
 fn dialoguer_stdin_is_tty() -> bool {
     use std::io::IsTerminal;
-    std::io::Stdin::is_terminal(&std::io::stdin())
+    std::io::stdin().is_terminal() && std::io::stdout().is_terminal()
 }
 
 #[cfg(test)]
@@ -329,7 +370,7 @@ mod tests {
         run_init(&args, &cfg, &config_path, Some(&vault), None).unwrap();
 
         let contents = fs::read_to_string(&config_path).unwrap();
-        // The exclude_patterns should include our noise dirs
+        // The exclude_dirs should include our noise dirs
         assert!(contents.contains("node_modules"));
         assert!(contents.contains("dist"));
         assert!(contents.contains("templates"));
@@ -352,8 +393,8 @@ mod tests {
         run_init(&args, &cfg, &config_path, Some(&vault), None).unwrap();
 
         let contents = fs::read_to_string(&config_path).unwrap();
-        // exclude_patterns should be empty
-        assert!(contents.contains("exclude_patterns = []"));
+        // Default exclude_dirs (node_modules) is preserved when no candidates are found.
+        assert!(contents.contains(r#"exclude_dirs = ["node_modules"]"#));
     }
 
     #[test]
@@ -397,5 +438,34 @@ mod tests {
         let contents = fs::read_to_string(&config_path).unwrap();
         let vault_str = vault.to_string_lossy().to_string();
         assert!(contents.contains(&vault_str));
+    }
+
+    #[test]
+    fn test_init_preserves_existing_exclude_patterns() {
+        let temp = TempDir::new().unwrap();
+        let vault = temp.path().join("vault");
+        fs::create_dir(&vault).unwrap();
+
+        // Create a noise directory that scan_vault will detect
+        let node_modules = vault.join("node_modules");
+        fs::create_dir(&node_modules).unwrap();
+        fs::write(node_modules.join("dep.md"), "# Dep").unwrap();
+
+        // Build a config with pre-existing custom exclude patterns
+        let mut cfg = ShiotsuchiConfig::default();
+        cfg.indexing.exclude_dirs = vec!["legacy".to_string(), "private".to_string()];
+
+        let config_path = temp.path().join("config.toml");
+        let args = InitArgs {
+            force: true,
+            yes: true,
+        };
+
+        run_init(&args, &cfg, &config_path, Some(&vault), None).unwrap();
+
+        let contents = fs::read_to_string(&config_path).unwrap();
+        assert!(contents.contains("node_modules"), "scan result should be merged");
+        assert!(contents.contains("legacy"), "existing custom pattern should be preserved");
+        assert!(contents.contains("private"), "existing custom pattern should be preserved");
     }
 }

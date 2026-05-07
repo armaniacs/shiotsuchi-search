@@ -58,12 +58,16 @@ pub struct IndexConfig {
     pub notes_dir: PathBuf,
     /// File extensions to include (e.g., `["md", "markdown"]`).
     pub include_extensions: Vec<String>,
-    /// Directory/path patterns to exclude (matched as gitignore-style globs).
-    pub exclude_patterns: Vec<String>,
+    /// Directory names to exclude (matched as gitignore-style component globs).
+    /// Renamed from `exclude_patterns` — the old key will cause a deserialize error.
+    pub exclude_dirs: Vec<String>,
     /// If true, skip directories whose name starts with '.' at the WalkDir level.
     pub auto_exclude_hidden: bool,
     /// If true, follow symbolic links when walking the vault (with vault boundary check).
     pub follow_links: bool,
+    /// Minimum number of matching files for a directory to be dynamically detected
+    /// as a noise candidate. Defaults to 5.
+    pub dynamic_threshold: usize,
 }
 
 impl Default for IndexConfig {
@@ -72,11 +76,12 @@ impl Default for IndexConfig {
             notes_dir: PathBuf::from("."),
             include_extensions: vec!["md".to_string(), "markdown".to_string()],
             // .git/.obsidian は auto_exclude_hidden により自動除外されるため、
-            // exclude_patterns から削除（hidden dir 除外を無効にした場合は
+            // exclude_dirs から削除（hidden dir 除外を無効にした場合は
             // ユーザーが明示的に追加する）
-            exclude_patterns: vec!["node_modules".to_string()],
+            exclude_dirs: vec!["node_modules".to_string()],
             auto_exclude_hidden: true,
-            follow_links: true,
+            follow_links: false,
+            dynamic_threshold: 5,
         }
     }
 }
@@ -103,8 +108,9 @@ mod tests {
     fn default_index_config() {
         let config = IndexConfig::default();
         assert_eq!(config.include_extensions, vec!["md", "markdown"]);
-        assert_eq!(config.exclude_patterns, vec!["node_modules"]);
+        assert_eq!(config.exclude_dirs, vec!["node_modules"]);
         assert!(config.auto_exclude_hidden);
-        assert!(config.follow_links);
+        assert!(!config.follow_links);
+        assert_eq!(config.dynamic_threshold, 5);
     }
 }

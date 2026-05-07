@@ -90,6 +90,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 &cfg.vault.notes_dir,
                 &cfg.vault.db_path,
                 &cfg.watcher,
+                &cfg.indexing,
             )?;
         }
         Commands::Log => commands::log::run_log(&cfg.vault.db_path)?,
@@ -107,7 +108,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             )?;
         }
         Commands::Config(args) => {
-            commands::config::run_config(&args, &cfg.vault.notes_dir, &cfg.indexing.include_extensions)?;
+            commands::config::run_config(
+                &args,
+                &cfg.vault.notes_dir,
+                &cfg.indexing.include_extensions,
+                cfg.indexing.auto_exclude_hidden,
+                cfg.indexing.dynamic_threshold,
+            )?;
         }
     }
 
