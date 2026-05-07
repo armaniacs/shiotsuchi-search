@@ -25,17 +25,25 @@ shiotsuchi dive "project plan"
 
 ### `init` — Create a config file
 
-Generates `~/.config/shiotsuchi/config.toml` (or `$XDG_CONFIG_HOME/shiotsuchi/config.toml`) with default settings. Use this once to avoid passing `--notes-dir` and `--db-path` on every command.
+Generates `~/.config/shiotsuchi/config.toml` (or `$XDG_CONFIG_HOME/shiotsuchi/config.toml`) with default settings. When run interactively in a TTY, it scans the vault for exclusion candidates (directories like `node_modules`, `dist`, `templates`, etc.) and presents a 2-stage selection UI. Use `--yes` to auto-accept all candidates in non-interactive environments (CI, scripts).
 
 ```sh
+# Interactive mode (default)
 shiotsuchi init --notes-dir ~/Notes
+
+# Non-interactive mode (CI, scripts)
+shiotsuchi init --notes-dir ~/Notes --yes
+
+# Regenerate config with latest exclusion candidates
+shiotsuchi init --notes-dir ~/Notes --force --yes
 ```
 
 | Option | Default | Description |
 |--------|---------|-------------|
 | `--notes-dir` | `.` | Vault root directory to store in the config |
 | `--db-path` | `~/.cache/shiotsuchi/db.sqlite3` | Database path to store in the config |
-| `--force` | off | Overwrite an existing config file |
+| `--force` | off | Overwrite an existing config file (creates a timestamped `.bak` backup) |
+| `--yes` | off | Non-interactive mode: auto-accept all detected exclusion candidates |
 
 ---
 
@@ -105,6 +113,30 @@ shiotsuchi tide
 
 ---
 
+### `config detect-noise` — Scan for exclusion candidates
+
+Scans the vault for directories matching known noise patterns or containing many markdown files, and prints a human-readable report. Does **not** modify the config file — use `shiotsuchi init --force` to update the config with the detected candidates.
+
+```sh
+shiotsuchi config detect-noise --notes-dir ~/Notes
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--notes-dir` | from config | Vault root to scan |
+
+Output format:
+
+```
+Exclusion candidates in /Users/yourname/Notes:
+  1. node_modules [known] (142 files)
+  2. dist [known] (3 files)
+  3. archive [known] (0 files)
+  4. generated_docs [dynamic] (15 files)
+```
+
+---
+
 ### `log` — Indexing history
 
 Lists the most recently indexed files with timestamps.
@@ -127,12 +159,18 @@ db_path   = "/Users/yourname/.cache/shiotsuchi/db.sqlite3"
 [indexing]
 snippet_lines      = 3
 include_extensions = ["md", "markdown"]
-exclude_patterns   = [".obsidian", ".git", "node_modules"]
+exclude_dirs       = ["node_modules"]
+auto_exclude_hidden = true
+follow_links       = false
+dynamic_threshold  = 5
 
 [watcher]
 debounce_ms = 500
 enabled     = true
 ```
+
+> **Note:** The field `exclude_patterns` was renamed to `exclude_dirs` in v0.2.9.
+> If your existing config uses `exclude_patterns`, rename the key to `exclude_dirs`.
 
 CLI flags always take precedence over config file values.
 

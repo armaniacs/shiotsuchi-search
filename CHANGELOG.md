@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.9] - 2026-05-08
+
+### Added
+
+- **Chunked indexing for OOM protection:** `index_directory` now processes files in chunks of 256 entries or 25.6 MB, preventing memory exhaustion on large vaults with many or large files.
+- **Dynamic threshold config:** New `dynamic_threshold` field in `[indexing]` config section (default 5) controls how many matching files trigger dynamic noise detection during vault scan.
+- **Candidate limit:** `scan_vault` enforces a 1000-candidate upper limit to prevent UI freeze on extremely large vaults. A truncated flag is returned when the limit is hit.
+- **Invalid pattern feedback:** `chart` now reports the number of invalid exclude patterns in its output summary.
+- **Restricted file permissions:** Config files and backups are created with `0o600` permissions on Unix, preventing accidental disclosure to other users.
+
+### Changed
+
+- **`exclude_patterns` renamed to `exclude_dirs`** (BREAKING): The config field name now accurately reflects its behavior — it matches directory names via gitignore-style component globs. Old `exclude_patterns` key causes a deserialization error with a migration hint. Update your `config.toml` to use `exclude_dirs`.
+- **`scan_vault` I/O halved:** Directory scan now uses a single-pass HashMap-based counting strategy instead of separate `WalkDir` + `read_dir` passes, reducing system calls on large vaults.
+- **`init` uses config's `dynamic_threshold`:** The vault scan during `init` now respects the user-configured `dynamic_threshold` instead of the hardcoded constant.
+- **Backup timestamp format changed:** `backup_config` now uses Unix epoch seconds (e.g., `1743984552.123456`) instead of `%Y%m%d-%H%M%S.%f` for unique, sortable timestamps.
+- **Removed `chrono` dependency:** Backup timestamp generation now uses `std::time::SystemTime`.
+
+### Fixed
+
+- **OOM risk mitigated:** `index_directory` no longer processes all files in a single `par_iter()` batch. Chunked processing caps peak memory at ~25.6 MB × thread count.
+- **Symlink guard completeness:** `strip_prefix` now verifies `path.starts_with(notes_dir)` before extracting relative paths, preventing full-path DB storage on unexpected prefix mismatches.
+- **Walk errors no longer silent:** `filter_map(|e| e.ok())` replaced with explicit `match` that logs walk errors via `log::warn!`.
+
+### Security
+
+- **Config file permissions:** Both primary config and backup files now use `0o600` permissions on Unix, preventing other users on the same host from reading vault metadata.
+
 ## [0.2.8] - 2026-05-07
 
 ### Added
