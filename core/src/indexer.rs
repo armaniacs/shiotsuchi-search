@@ -10,24 +10,34 @@ use sha2::{Digest, Sha256};
 use std::{fs, io, path::Path, time::SystemTime};
 use walkdir::WalkDir;
 
-/// Build a GlobSet from exclude_patterns for gitignore-style matching.
-/// Invalid patterns are skipped with a warning.
+/// Build a GlobSet from exclude_patterns for gitignore-style component matching.
+///
+/// Each pattern is wrapped as `**/{pat}/**` so that it matches when `{pat}`
+/// appears as any path component (directory name) at any depth. For example,
+/// `"node_modules"` matches `node_modules/foo.md` and `a/node_modules/b/c.md`
+/// but not `my-node_modules/foo.md`.
+///
+/// Invalid patterns (e.g., unterminated character classes) are skipped with
+/// a warning rather than failing the entire index operation.
 fn build_exclude_globset(patterns: &[String]) -> GlobSet {
     let mut builder = GlobSetBuilder::new();
     for pat in patterns {
-        // Add two patterns for gitignore-style component matching:
-        //   "**/{pat}"    — matches when the pattern is the last path component
-        //   "**/{pat}/**" — matches when the pattern is an intermediate component
-        for wrapped in [format!("**/{}", pat), format!("**/{}/**", pat)] {
-            match Glob::new(&wrapped) {
-                Ok(glob) => {
-                    builder.add(glob);
-                }
-                Err(e) => {
-                    log::warn!("Invalid exclude pattern {:?} (wrapped as {:?}): {}", pat, wrapped, e);
-                }
+        // "**/{pat}/**" handles files at any depth under a directory matching
+        // the pattern: "**/" matches any prefix, "{pat}/" matches the directory,
+        // and the final "**" matches any file suffix.
+        let wrapped = format!("**/{}/**", pat);
+        let glob = match Glob::new(&wrapped) {
+            Ok(g) => g,
+            Err(e) => {
+                log::warn!(
+                    "Skipping invalid exclude pattern {:?}: {}",
+                    pat,
+                    e
+                );
+                continue;
             }
-        }
+        };
+        builder.add(glob);
     }
     builder.build().unwrap_or_else(|e| {
         log::warn!("Failed to build exclude GlobSet: {}", e);

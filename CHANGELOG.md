@@ -5,19 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.2.7] - 2026-05-07
+## [0.2.8] - 2026-05-07
 
 ### Added
 
-- **`init` command:** New `shiotsuchi init` subcommand that generates a default `~/.config/shiotsuchi/config.toml` file.
-- **MCP config file support:** `shiotsuchi-mcp` now accepts `--config <path>` flag and automatically loads `~/.config/shiotsuchi/config.toml` when no flag is given. The `SHIOTSUCHI_NOTES_DIR` / `SHIOTSUCHI_DB_PATH` env vars are replaced by the config file. Config struct supports partial overrides with fallback to defaults.
-- **Documentation:** Added `docs/CLI-USE.md` / `docs/CLI-USE.ja.md` (command reference) and `docs/MCP-SETUP.md` / `docs/MCP-SETUP.ja.md` (MCP setup guide).
+- **`config detect-noise` subcommand:** New `shiotsuchi config detect-noise` command that scans a vault for directories matching known noise patterns or containing many markdown files. Prints a human-readable report without modifying the config file.
+- **`--yes` flag for `init`:** Non-interactive mode that auto-accepts all detected exclusion candidates. Required when stdin is not a TTY.
+- **Config backup on `--force`:** `shiotsuchi init --force` now creates a timestamped `.bak` file before overwriting, enabling easy rollback.
+- **Interactive exclusion selection:** `shiotsuchi init` presents a 2-stage interactive prompt (Confirm + MultiSelect) that lets users choose which directories to exclude from indexing.
+- **Vault scan during init:** Automatically detects 28 known noise patterns (`node_modules`, `dist`, `build`, `target`, `templates`, etc.) plus directories with 5+ markdown files as dynamic candidates.
+- **`globset` dependency:** Added `globset = "0.4"` to `core` crate for gitignore-style glob matching of exclude patterns.
 
 ### Changed
 
-- **Makefile:** Simplified PREFIX detection from `$(origin PREFIX)` to direct string comparison.
+- **Gitignore-style exclude matching:** `exclude_patterns` now uses path-component glob matching via `globset` instead of substring `contains()`. A pattern like `"templates"` matches `templates/daily.md` but not `templates_extra/foo.md`. Patterns support `*`, `**`, and `?` wildcards.
+- **Hidden directories auto-excluded:** WalkDir `filter_entry` now skips directories starting with `.` by default, controlled by new `auto_exclude_hidden: bool` config field (default `true`). `.git` and `.obsidian` removed from default `exclude_patterns`.
+- **Symlink following on by default:** `follow_links` now defaults to `true` with canonicalize-based vault boundary checks on both directory and file entries, preventing symlink escape attacks.
+- **`init` command enhanced:** Rewritten with vault scanning, 2-stage interactive UI, config backup, `--yes` flag for non-TTY environments, and notes-dir existence validation.
+- **Config defaults:** `exclude_patterns` default reduced to `["node_modules"]` (`.git`, `.obsidian` now covered by `auto_exclude_hidden: true`).
 
-## [0.2.6] - 2026-05-06
+### Security
+
+- **Symlink-to-file vault escape prevented:** The canonicalize boundary check now applies to both directories (in `filter_entry`) and file entries (in `.filter()`), closing a vector where a symlink-to-file pointing outside the vault could be indexed.
+- **Vault boundary check on file symlinks:** When `follow_links` is enabled, every file path is canonicalized and verified to stay within the vault root before being read or indexed.
+
+## [0.2.7] - 2026-05-07
 
 ### Fixed
 
@@ -189,7 +201,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `docs/MODEL_LICENSES.md` with BSD-3-Clause notice for the bundled tokenizer model
 - `README.md` (English) and `README.ja.md` (Japanese)
 
-[Unreleased]: https://github.com/your-org/shiotsuchi-search/compare/v0.2.7...HEAD
+[Unreleased]: https://github.com/your-org/shiotsuchi-search/compare/v0.2.8...HEAD
+[0.2.8]: https://github.com/your-org/shiotsuchi-search/compare/v0.2.7...v0.2.8
 [0.2.7]: https://github.com/your-org/shiotsuchi-search/compare/v0.2.6...v0.2.7
 [0.2.6]: https://github.com/your-org/shiotsuchi-search/compare/v0.2.5...v0.2.6
 [0.2.5]: https://github.com/your-org/shiotsuchi-search/compare/v0.2.4...v0.2.5

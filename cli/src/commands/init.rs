@@ -114,10 +114,10 @@ pub fn run_init(
 }
 
 /// Create a timestamped backup of the existing config file.
-/// Uses sub-second precision (%6f = microseconds) to avoid collisions
-/// when multiple backups are created within the same second.
+/// Uses sub-second precision (%f = microseconds/milliseconds padded to 6 digits)
+/// to avoid collisions when multiple backups are created within the same second.
 fn backup_config(config_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
-    let timestamp = chrono::Local::now().format("%Y%m%d-%H%M%S.%6f");
+    let timestamp = chrono::Local::now().format("%Y%m%d-%H%M%S.%f");
     let backup_path = config_path.with_extension(format!("toml.bak.{}", timestamp));
     std::fs::copy(config_path, &backup_path)?;
     println!(

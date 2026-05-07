@@ -56,6 +56,14 @@ const KNOWN_NOISE_PATTERNS: &[&str] = &[
 /// Minimum number of matching files for a directory to be dynamically detected
 /// as a noise candidate (applies even if the directory name does not match a
 /// known pattern).
+///
+/// Heuristic: directories with many markdown files are likely to be generated
+/// content (e.g., `_site/`, `book/`, imported documentation sets) rather than
+/// hand-written notes. A threshold of 5 avoids flagging small topic directories
+/// while catching bulk-imported or output directories.
+///
+/// This is intentionally a constant rather than a config option — it is a
+/// scanning heuristic, not a user-facing setting.
 const DYNAMIC_THRESHOLD: usize = 5;
 
 /// Scan a vault directory for exclusion candidates.
