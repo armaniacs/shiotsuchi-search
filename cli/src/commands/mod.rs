@@ -1,7 +1,9 @@
 pub mod chart;
+pub mod config;
 pub mod delete;
 pub mod dive;
 pub mod init;
 pub mod log;
+pub mod noise;
 pub mod scan;
 pub mod tide;

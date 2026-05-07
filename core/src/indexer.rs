@@ -3,11 +3,37 @@ use crate::{
     models::{IndexConfig, IndexResult},
     tokenizer::JapaneseTokenizer,
 };
+use globset::{Glob, GlobSet, GlobSetBuilder};
 use pulldown_cmark::{Event, Parser};
 use rayon::prelude::*;
 use sha2::{Digest, Sha256};
-use std::{fs, path::Path, time::SystemTime};
+use std::{fs, io, path::Path, time::SystemTime};
 use walkdir::WalkDir;
+
+/// Build a GlobSet from exclude_patterns for gitignore-style matching.
+/// Invalid patterns are skipped with a warning.
+fn build_exclude_globset(patterns: &[String]) -> GlobSet {
+    let mut builder = GlobSetBuilder::new();
+    for pat in patterns {
+        // Add two patterns for gitignore-style component matching:
+        //   "**/{pat}"    — matches when the pattern is the last path component
+        //   "**/{pat}/**" — matches when the pattern is an intermediate component
+        for wrapped in [format!("**/{}", pat), format!("**/{}/**", pat)] {
+            match Glob::new(&wrapped) {
+                Ok(glob) => {
+                    builder.add(glob);
+                }
+                Err(e) => {
+                    log::warn!("Invalid exclude pattern {:?} (wrapped as {:?}): {}", pat, wrapped, e);
+                }
+            }
+        }
+    }
+    builder.build().unwrap_or_else(|e| {
+        log::warn!("Failed to build exclude GlobSet: {}", e);
+        GlobSet::empty()
+    })
+}
 
 /// Extract YAML frontmatter from markdown content.
 /// Returns (title, body_without_frontmatter).
@@ -131,15 +157,64 @@ pub fn index_directory(
 ) -> Result<Vec<(String, IndexResult)>, DbError> {
     let notes_dir = &config.notes_dir;
 
+    // Pre-compile exclude patterns into a GlobSet for gitignore-style matching.
+    let exclude_globset = build_exclude_globset(&config.exclude_patterns);
+
+    // If following links, canonicalize the notes_dir for vault boundary checks.
+    let notes_canonical = if config.follow_links {
+        Some(notes_dir.canonicalize().map_err(|e| {
+            DbError::Io(io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("cannot canonicalize notes_dir: {}", e),
+            ))
+        })?)
+    } else {
+        None
+    };
+
     // Collect matching file entries (serial — WalkDir is not Send)
     let entries: Vec<_> = WalkDir::new(notes_dir)
-        .follow_links(false)
+        .follow_links(config.follow_links)
         .into_iter()
+        .filter_entry(|e| {
+            if e.file_type().is_dir() {
+                // Auto-skip hidden directories when enabled.
+                if config.auto_exclude_hidden
+                    && e.file_name().to_string_lossy().starts_with('.')
+                {
+                    return false;
+                }
+                // Vault boundary check: when following links, ensure the resolved
+                // path stays within the vault root (defeats symlink escape).
+                if let Some(ref canonical_root) = notes_canonical {
+                    match e.path().canonicalize() {
+                        Ok(canonical) => {
+                            if !canonical.starts_with(canonical_root) {
+                                return false;
+                            }
+                        }
+                        Err(_) => return false, // broken symlink or unresolvable
+                    }
+                }
+            }
+            true
+        })
         .filter_map(|e| e.ok())
         .filter(|entry| {
             let path = entry.path();
             if !path.is_file() {
                 return false;
+            }
+            // Vault boundary check for file entries (defeats symlink-to-file escapes).
+            if let Some(ref canonical_root) = notes_canonical {
+                match path.canonicalize() {
+                    Ok(canonical) => {
+                        if !canonical.starts_with(canonical_root) {
+                            return false;
+                        }
+                    }
+                    Err(_) => return false, // broken symlink or unresolvable
+                }
             }
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
             if !config.include_extensions.iter().any(|e| e == ext) {
@@ -147,10 +222,9 @@ pub fn index_directory(
             }
             let relative = path.strip_prefix(notes_dir).unwrap_or(path);
             let rel_str = relative.to_string_lossy();
-            !config
-                .exclude_patterns
-                .iter()
-                .any(|pat| rel_str.contains(pat))
+            // Gitignore-style glob matching via GlobSet.
+            // Patterns like "node_modules" match any path component named "node_modules".
+            !exclude_globset.is_match(rel_str.as_ref())
         })
         .collect();
 
@@ -380,5 +454,140 @@ mod tests {
         let removed = cleanup_deleted(&db, &config).unwrap();
         assert_eq!(removed.len(), 1);
         assert_eq!(db.stats().unwrap().total_notes, 0);
+    }
+
+    #[test]
+    fn test_hidden_dir_auto_excluded() {
+        let tokenizer = crate::require_tokenizer!(Default::default());
+
+        let temp = TempDir::new().unwrap();
+        let vault = temp.path().join("vault");
+        fs::create_dir(&vault).unwrap();
+
+        // Hidden directories should be auto-excluded by filter_entry
+        let hidden = vault.join(".obsidian");
+        fs::create_dir(&hidden).unwrap();
+        fs::write(hidden.join("note.md"), "# Hidden").unwrap();
+
+        // Visible directory with a file
+        let notes = vault.join("notes");
+        fs::create_dir(&notes).unwrap();
+        fs::write(notes.join("visible.md"), "# Visible").unwrap();
+
+        let db = NoteDatabase::open_in_memory().unwrap();
+        let config = IndexConfig {
+            notes_dir: vault.clone(),
+            ..Default::default()
+        };
+        // Default auto_exclude_hidden=true
+        assert!(config.auto_exclude_hidden);
+
+        let results = index_directory(&db, &tokenizer, &config).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].0, "notes/visible.md");
+    }
+
+    #[test]
+    fn test_hidden_dir_included_when_disabled() {
+        let tokenizer = crate::require_tokenizer!(Default::default());
+
+        let temp = TempDir::new().unwrap();
+        let vault = temp.path().join("vault");
+        fs::create_dir(&vault).unwrap();
+
+        // Hidden directory — should NOT be excluded when auto_exclude_hidden=false
+        let hidden = vault.join(".hidden_notes");
+        fs::create_dir(&hidden).unwrap();
+        fs::write(hidden.join("secret.md"), "# Secret").unwrap();
+
+        let db = NoteDatabase::open_in_memory().unwrap();
+        let config = IndexConfig {
+            notes_dir: vault.clone(),
+            auto_exclude_hidden: false,
+            ..Default::default()
+        };
+
+        let results = index_directory(&db, &tokenizer, &config).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].0, ".hidden_notes/secret.md");
+    }
+
+    #[test]
+    fn test_exclude_patterns_globset_basename_matching() {
+        let tokenizer = crate::require_tokenizer!(Default::default());
+
+        let temp = TempDir::new().unwrap();
+        let vault = temp.path().join("vault");
+        fs::create_dir(&vault).unwrap();
+
+        // Create directories
+        let templates = vault.join("templates");
+        fs::create_dir(&templates).unwrap();
+        fs::write(templates.join("daily.md"), "# Daily").unwrap();
+
+        // This dir name contains "templates" as substring but is NOT the same component
+        // With globset matching (unlike old substring matching), this should NOT be excluded
+        let templates_extra = vault.join("templates_extra");
+        fs::create_dir(&templates_extra).unwrap();
+        fs::write(templates_extra.join("extra.md"), "# Extra").unwrap();
+
+        // Normal dir
+        let notes = vault.join("notes");
+        fs::create_dir(&notes).unwrap();
+        fs::write(notes.join("main.md"), "# Main").unwrap();
+
+        let db = NoteDatabase::open_in_memory().unwrap();
+        let config = IndexConfig {
+            notes_dir: vault.clone(),
+            exclude_patterns: vec!["templates".to_string()],
+            auto_exclude_hidden: false,
+            ..Default::default()
+        };
+
+        let results = index_directory(&db, &tokenizer, &config).unwrap();
+        // templates should be excluded, but templates_extra should NOT be (globset component matching)
+        assert_eq!(results.len(), 2, "templates_extra and notes should be indexed, templates excluded");
+        let paths: Vec<&str> = results.iter().map(|r| r.0.as_str()).collect();
+        assert!(paths.contains(&"notes/main.md"));
+        assert!(paths.contains(&"templates_extra/extra.md"));
+        assert!(!paths.contains(&"templates/daily.md"));
+    }
+
+    #[test]
+    fn test_build_exclude_globset_invalid_pattern() {
+        // Malformed pattern should not panic; should produce an empty or partial set.
+        let patterns = vec![r"[invalid".to_string(), "node_modules".to_string()];
+        let set = build_exclude_globset(&patterns);
+        // At least the valid "node_modules" patterns should be present.
+        assert!(set.is_match("node_modules/foo.md"));
+        assert!(set.is_match("a/node_modules/foo.md"));
+        // The invalid pattern should not cause a crash
+    }
+
+    #[test]
+    fn test_globset_matches_subdirectory_files() {
+        // Verify that exclude pattern "node_modules" also excludes files
+        // nested within node_modules subdirectories.
+        let temp = TempDir::new().unwrap();
+        let vault = temp.path().join("vault");
+        fs::create_dir(&vault).unwrap();
+
+        let nm = vault.join("node_modules");
+        fs::create_dir(&nm).unwrap();
+        let sub = nm.join("sub");
+        fs::create_dir(&sub).unwrap();
+        fs::write(sub.join("deep.md"), "# Deep inside node_modules").unwrap();
+
+        let db = NoteDatabase::open_in_memory().unwrap();
+        let tokenizer = crate::require_tokenizer!(Default::default());
+        let config = IndexConfig {
+            notes_dir: vault.clone(),
+            exclude_patterns: vec!["node_modules".to_string()],
+            auto_exclude_hidden: false,
+            ..Default::default()
+        };
+
+        let results = index_directory(&db, &tokenizer, &config).unwrap();
+        assert!(results.is_empty(), "all files under node_modules should be excluded");
     }
 }

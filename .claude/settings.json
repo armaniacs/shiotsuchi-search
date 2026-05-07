@@ -1,9 +1,5 @@
 {
   "permissions": {
-    "additionalDirectories": [
-      "/Users/yaar/.agents/skills/checking-team",
-      "/private/tmp/checking-team"
-    ],
     "allow": [
       "Bash(cargo clippy *)",
       "Bash(cargo fmt *)",
@@ -15,7 +11,12 @@
       "Read(//Users/yaar/.agents/skills/checking-team/**)",
       "Read(//Users/yaar/.config/claude/skills/**)",
       "Read(//private/tmp/checking-team/**)",
-      "WebFetch(domain:api.github.com)"
+      "WebFetch(domain:api.github.com)",
+      "Bash(cargo run *)"
+    ],
+    "additionalDirectories": [
+      "/Users/yaar/.agents/skills/checking-team",
+      "/private/tmp/checking-team"
     ]
   }
 }

@@ -38,6 +38,8 @@ pub struct IndexingConfig {
     pub snippet_lines: usize,
     pub include_extensions: Vec<String>,
     pub exclude_patterns: Vec<String>,
+    pub auto_exclude_hidden: bool,
+    pub follow_links: bool,
 }
 
 impl Default for IndexingConfig {
@@ -45,11 +47,10 @@ impl Default for IndexingConfig {
         Self {
             snippet_lines: 3,
             include_extensions: vec!["md".to_string(), "markdown".to_string()],
-            exclude_patterns: vec![
-                ".obsidian".to_string(),
-                ".git".to_string(),
-                "node_modules".to_string(),
-            ],
+            // .git/.obsidian は auto_exclude_hidden=true により自動除外される
+            exclude_patterns: vec!["node_modules".to_string()],
+            auto_exclude_hidden: true,
+            follow_links: true,
         }
     }
 }

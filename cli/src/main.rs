@@ -27,6 +27,7 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     Chart(commands::chart::ChartArgs),
+    Config(commands::config::ConfigArgs),
     Delete(commands::delete::DeleteArgs),
     Dive(commands::dive::DiveArgs),
     Init(commands::init::InitArgs),
@@ -43,11 +44,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::Builder::from_env(env).init();
 
     let mut cfg = config::ShiotsuchiConfig::load();
-    if let Some(dir) = cli.notes_dir {
-        cfg.vault.notes_dir = dir;
+    if let Some(ref dir) = cli.notes_dir {
+        cfg.vault.notes_dir = dir.clone();
     }
-    if let Some(db) = cli.db_path {
-        cfg.vault.db_path = db;
+    if let Some(ref db) = cli.db_path {
+        cfg.vault.db_path = db.clone();
     }
 
     match cli.command {
@@ -97,7 +98,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Commands::Init(args) => {
             let config_path = config::default_config_path();
-            commands::init::run_init(&args, &cfg, &config_path)?;
+            commands::init::run_init(
+                &args,
+                &cfg,
+                &config_path,
+                cli.notes_dir.as_deref(),
+                cli.db_path.as_deref(),
+            )?;
+        }
+        Commands::Config(args) => {
+            commands::config::run_config(&args, &cfg.vault.notes_dir, &cfg.indexing.include_extensions)?;
         }
     }
 
