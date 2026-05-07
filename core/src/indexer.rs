@@ -257,7 +257,9 @@ pub fn index_directory(
         .follow_links(config.follow_links)
         .into_iter()
         .filter_entry(|e| {
-            if e.file_type().is_dir() {
+            if e.file_type().is_dir() && e.depth() > 0 {
+                // Only skip subdirectories whose name starts with '.',
+                // not the vault root itself (depth == 0).
                 if config.auto_exclude_hidden
                     && e.file_name().to_string_lossy().starts_with('.')
                 {
