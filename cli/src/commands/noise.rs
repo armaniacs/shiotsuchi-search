@@ -54,6 +54,10 @@ const KNOWN_NOISE_PATTERNS: &[&str] = &[
     "partials",
 ];
 
+/// Maximum number of exclusion candidates returned by scan_vault.
+/// When exceeded, the list is truncated and the truncated flag is set.
+pub const CANDIDATE_LIMIT: usize = 1000;
+
 /// Scan a vault directory for exclusion candidates.
 ///
 /// Walks the vault (skipping hidden directories when `auto_exclude_hidden` is

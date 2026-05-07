@@ -1,4 +1,4 @@
-use crate::commands::noise::scan_vault;
+use crate::commands::noise::{scan_vault, CANDIDATE_LIMIT};
 use clap::{Args, Subcommand};
 use std::path::PathBuf;
 
@@ -35,7 +35,7 @@ pub fn run_config(
         }
     };
 
-    let (candidates, _truncated) = scan_vault(detect_notes_dir, include_extensions, auto_exclude_hidden, dynamic_threshold, 1000);
+    let (candidates, _truncated) = scan_vault(detect_notes_dir, include_extensions, auto_exclude_hidden, dynamic_threshold, CANDIDATE_LIMIT);
 
     if candidates.is_empty() {
         println!(

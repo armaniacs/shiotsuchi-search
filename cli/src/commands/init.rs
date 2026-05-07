@@ -1,5 +1,5 @@
 use crate::config::ShiotsuchiConfig;
-use crate::commands::noise::{scan_vault, ExclusionCandidate};
+use crate::commands::noise::{scan_vault, CANDIDATE_LIMIT, ExclusionCandidate};
 use clap::Args;
 use dialoguer::{theme::ColorfulTheme, Confirm, MultiSelect};
 use std::path::{Path, PathBuf};
@@ -76,7 +76,7 @@ pub fn run_init(
         &out_cfg.indexing.include_extensions,
         out_cfg.indexing.auto_exclude_hidden,
         out_cfg.indexing.dynamic_threshold,
-        1000,
+        CANDIDATE_LIMIT,
     );
 
     // --- Interactive or non-interactive exclusion selection ---
@@ -441,7 +441,7 @@ mod tests {
     }
 
     #[test]
-    fn test_init_preserves_existing_exclude_patterns() {
+    fn test_init_preserves_existing_exclude_dirs() {
         let temp = TempDir::new().unwrap();
         let vault = temp.path().join("vault");
         fs::create_dir(&vault).unwrap();
