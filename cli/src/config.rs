@@ -18,7 +18,7 @@ impl Default for VaultConfig {
     }
 }
 
-fn xdg_config_home() -> PathBuf {
+pub(crate) fn xdg_config_home() -> PathBuf {
     std::env::var_os("XDG_CONFIG_HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| {
@@ -26,6 +26,10 @@ fn xdg_config_home() -> PathBuf {
                 .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
                 .join(".config")
         })
+}
+
+pub fn default_config_path() -> PathBuf {
+    xdg_config_home().join("shiotsuchi").join("config.toml")
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -29,7 +29,7 @@ bench: $(MODEL_FILE)
 
 install: build
 	@INSTALL_DIR="$(BINDIR)"; \
-	if [ "$(origin PREFIX)" = "default" ] && [ "$$(id -u)" -ne 0 ]; then \
+	if [ "$(PREFIX)" = "/usr/local" ] && [ "$$(id -u)" -ne 0 ]; then \
 		if [ -d "$$HOME/.local/bin" ]; then \
 			INSTALL_DIR="$$HOME/.local/bin"; \
 		elif [ -d "$$HOME/.cargo/bin" ]; then \
@@ -45,7 +45,7 @@ install: build
 
 uninstall:
 	@INSTALL_DIR="$(BINDIR)"; \
-	if [ "$(origin PREFIX)" = "default" ] && [ "$$(id -u)" -ne 0 ]; then \
+	if [ "$(PREFIX)" = "/usr/local" ] && [ "$$(id -u)" -ne 0 ]; then \
 		if [ -d "$$HOME/.local/bin" ]; then \
 			INSTALL_DIR="$$HOME/.local/bin"; \
 		elif [ -d "$$HOME/.cargo/bin" ]; then \

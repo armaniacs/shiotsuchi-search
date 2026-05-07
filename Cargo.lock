@@ -1368,6 +1368,7 @@ dependencies = [
  "shiotsuchi-core",
  "tempfile",
  "thiserror",
+ "toml",
 ]
 
 [[package]]
@@ -1407,6 +1408,8 @@ dependencies = [
 name = "shiotsuchi-mcp"
 version = "0.2.6"
 dependencies = [
+ "clap",
+ "config",
  "dirs",
  "env_logger",
  "log",

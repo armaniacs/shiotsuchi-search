@@ -26,12 +26,13 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    Dive(commands::dive::DiveArgs),
     Chart(commands::chart::ChartArgs),
-    Tide,
-    Scan(commands::scan::ScanArgs),
-    Log,
     Delete(commands::delete::DeleteArgs),
+    Dive(commands::dive::DiveArgs),
+    Init(commands::init::InitArgs),
+    Log,
+    Scan(commands::scan::ScanArgs),
+    Tide,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -93,6 +94,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Commands::Log => commands::log::run_log(&cfg.vault.db_path)?,
         Commands::Delete(args) => {
             commands::delete::run_delete(&args, &cfg.vault.notes_dir, &cfg.vault.db_path)?;
+        }
+        Commands::Init(args) => {
+            let config_path = config::default_config_path();
+            commands::init::run_init(&args, &cfg, &config_path)?;
         }
     }
 
