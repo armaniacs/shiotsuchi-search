@@ -1,16 +1,21 @@
 {
   "permissions": {
+    "additionalDirectories": [
+      "/Users/yaar/.agents/skills/checking-team",
+      "/private/tmp/checking-team"
+    ],
     "allow": [
+      "Bash(cargo clippy *)",
+      "Bash(cargo fmt *)",
+      "Bash(curl -sL \"https://github.com/daac-tools/vaporetto-models/releases/download/v0.5.0/bccwj-suw%2Bunidic_pos%2Bkana.tar.xz\")",
+      "Bash(gh run *)",
       "Bash(git diff *)",
       "Bash(mkdir -p /tmp/checking-team)",
+      "Bash(tar -tJ)",
       "Read(//Users/yaar/.agents/skills/checking-team/**)",
       "Read(//Users/yaar/.config/claude/skills/**)",
       "Read(//private/tmp/checking-team/**)",
       "WebFetch(domain:api.github.com)"
-    ],
-    "additionalDirectories": [
-      "/Users/yaar/.agents/skills/checking-team",
-      "/private/tmp/checking-team"
     ]
   }
 }
