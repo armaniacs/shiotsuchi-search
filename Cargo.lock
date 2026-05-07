@@ -1355,7 +1355,7 @@ dependencies = [
 
 [[package]]
 name = "shiotsuchi"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "clap",
  "config",
@@ -1373,7 +1373,7 @@ dependencies = [
 
 [[package]]
 name = "shiotsuchi-core"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "criterion",
  "dirs",
@@ -1396,7 +1396,7 @@ dependencies = [
 
 [[package]]
 name = "shiotsuchi-e2e"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "notify",
  "serde_json",
@@ -1406,7 +1406,7 @@ dependencies = [
 
 [[package]]
 name = "shiotsuchi-mcp"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "clap",
  "config",

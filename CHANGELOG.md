@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.7] - 2026-05-07
+
+### Added
+
+- **`init` command:** New `shiotsuchi init` subcommand that generates a default `~/.config/shiotsuchi/config.toml` file.
+- **MCP config file support:** `shiotsuchi-mcp` now accepts `--config <path>` flag and automatically loads `~/.config/shiotsuchi/config.toml` when no flag is given. The `SHIOTSUCHI_NOTES_DIR` / `SHIOTSUCHI_DB_PATH` env vars are replaced by the config file. Config struct supports partial overrides with fallback to defaults.
+- **Documentation:** Added `docs/CLI-USE.md` / `docs/CLI-USE.ja.md` (command reference) and `docs/MCP-SETUP.md` / `docs/MCP-SETUP.ja.md` (MCP setup guide).
+
+### Changed
+
+- **Makefile:** Simplified PREFIX detection from `$(origin PREFIX)` to direct string comparison.
+
 ## [0.2.6] - 2026-05-06
 
 ### Fixed
@@ -177,7 +189,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `docs/MODEL_LICENSES.md` with BSD-3-Clause notice for the bundled tokenizer model
 - `README.md` (English) and `README.ja.md` (Japanese)
 
-[Unreleased]: https://github.com/your-org/shiotsuchi-search/compare/v0.2.6...HEAD
+[Unreleased]: https://github.com/your-org/shiotsuchi-search/compare/v0.2.7...HEAD
+[0.2.7]: https://github.com/your-org/shiotsuchi-search/compare/v0.2.6...v0.2.7
 [0.2.6]: https://github.com/your-org/shiotsuchi-search/compare/v0.2.5...v0.2.6
 [0.2.5]: https://github.com/your-org/shiotsuchi-search/compare/v0.2.4...v0.2.5
 [0.2.4]: https://github.com/your-org/shiotsuchi-search/compare/v0.2.3...v0.2.4
