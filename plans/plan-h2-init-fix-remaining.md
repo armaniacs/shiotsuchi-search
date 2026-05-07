@@ -1626,62 +1626,62 @@ cargo test -p shiotsuchi-cli 2>&1   # 回帰確認
 
 ### 1a: チャンク分割
 - [x] RED: チャンク分割テスト (7件) を書き、失敗を確認
-- [ ] GREEN: `index_directory` にチャンク分割 + `process_chunk` 追加
-- [ ] 全テスト PASS 確認（回帰なし）
-- [ ] REFACTOR: チャンク条件 OR/AND の統一
+- [x] GREEN: `index_directory` にチャンク分割 + `process_chunk` 追加
+- [x] 全テスト PASS 確認（回帰なし）
+- [x] REFACTOR: チャンク条件 OR/AND の統一
 
 ### 1b: exclude_dirs リネーム
 - [x] RED: 新キーテスト (3件) を書き、失敗を確認
-- [ ] GREEN: `IndexConfig.exclude_dirs` + `IndexingConfig.exclude_dirs` + `build_exclude_globset` 更新
-- [ ] 破壊される既存テスト (7件) を修正
-- [ ] 全テスト PASS 確認
+- [x] GREEN: `IndexConfig.exclude_dirs` + `IndexingConfig.exclude_dirs` + `build_exclude_globset` 更新
+- [x] 破壊される既存テスト (7件) を修正
+- [x] 全テスト PASS 確認
 
 ### 1c: Dynamic 閾値
 - [x] RED: 閾値テスト (3件) を書き、失敗を確認
-- [ ] GREEN: `IndexConfig.dynamic_threshold` + `scan_vault` パラメータ追加
-- [ ] 全テスト PASS 確認
+- [x] GREEN: `IndexConfig.dynamic_threshold` + `scan_vault` パラメータ追加
+- [x] 全テスト PASS 確認
 
 ### 1d: 無効パターン可視化
 - [x] RED: 無効パターンテスト (1件) を書き、失敗を確認
-- [ ] GREEN: `build_exclude_globset` 戻り値変更 + `ChartSummary.invalid_patterns`
-- [ ] 破壊される既存テスト (3件) を修正
-- [ ] 全テスト PASS 確認
+- [x] GREEN: `build_exclude_globset` 戻り値変更 + `ChartSummary.invalid_patterns`
+- [x] 破壊される既存テスト (3件) を修正
+- [x] 全テスト PASS 確認
 
 ### 1e: strip_prefix + 走査エラー
 - [x] RED: strip_prefix テスト + 権限テスト (2件) を書き、失敗を確認
-- [ ] GREEN: プレフィックス確認ロジック + `filter_map` → `match` + `log::warn!`
-- [ ] 全テスト PASS 確認
+- [x] GREEN: プレフィックス確認ロジック + `filter_map` → `match` + `log::warn!`
+- [x] 全テスト PASS 確認
 
 ### 1f: 重複除去
 - [x] RED: 一貫性テスト (1件) を書き、失敗を確認
-- [ ] GREEN: `prepare_file` 関数抽出
-- [ ] 全テスト PASS 確認
+- [x] GREEN: `prepare_file` 関数抽出
+- [x] 全テスト PASS 確認
 
 ### 2a: scan_vault I/O最適化
 - [x] RED: I/O最適化テスト (4件) を書き、失敗を確認
-- [ ] GREEN: `scan_vault` HashMap 集約 + `count_matching_files` 削除
-- [ ] 破壊される既存テスト (9件) を修正
-- [ ] 全テスト PASS 確認
+- [x] GREEN: `scan_vault` HashMap 集約 + `count_matching_files` 削除
+- [x] 破壊される既存テスト (9件) を修正
+- [x] 全テスト PASS 確認
 
 ### 2b: 候補数上限
 - [x] RED: 上限テスト (3件) を書き、失敗を確認
-- [ ] GREEN: `candidate_limit` パラメータ + truncated 表示
-- [ ] 全テスト PASS 確認
+- [x] GREEN: `candidate_limit` パラメータ + truncated 表示
+- [x] 全テスト PASS 確認
 
 ### 2c: パーミッション
 - [x] RED: パーミッションテスト (2件) を書き、失敗を確認
-- [ ] GREEN: `set_permissions(0o600)` 追加
-- [ ] 全テスト PASS 確認
+- [x] GREEN: `set_permissions(0o600)` 追加
+- [x] 全テスト PASS 確認
 
 ### 2d: chrono 除去
 - [x] RED: タイムスタンプテスト (2件) を書き、失敗を確認
-- [ ] GREEN: `SystemTime` ベース + `Cargo.toml` から chrono 削除
-- [ ] 全テスト PASS 確認
+- [x] GREEN: `SystemTime` ベース + `Cargo.toml` から chrono 削除
+- [x] 全テスト PASS 確認
 
 ### 2e: DynamicThreshold 注入
 - [x] RED: パススルーテスト (2件) を書き、失敗を確認
-- [ ] GREEN: `main.rs` + `init.rs` + `config.rs` パラメータ追加
-- [ ] 全テスト PASS 確認
+- [x] GREEN: `main.rs` + `init.rs` + `config.rs` パラメータ追加
+- [x] 全テスト PASS 確認
 
 ### Phase 4: ドキュメント
 - [x] `ref/cli.md` — exclude_dirs, dynamic_threshold, init, config detect-noise 反映
