@@ -4,6 +4,16 @@
 **Severity**: High
 **Status**: Plan only (not implemented)
 
+> **Review (2026-05-08): Not needed until an actual schema change arises.**
+>
+> **Why deferred:**
+> - **YAGNI** — Only one schema version (v1) exists. No v2 change is planned or implemented.
+> - **Low cost of manual rebuild** — The DB is a local cache at `~/.cache/shiotsuchi/db.sqlite3`. Note content lives in the vault, so `rm db && shiotsuchi chart` fully recovers without data loss. This is acceptable for a CLI tool in early development.
+> - **Right timing** — A migration framework should be introduced *together with* the first real schema change (e.g., a new column or FTS5 index), not before it. That way the framework is exercised and tested immediately.
+> - **Current safeguard** — `PRAGMA user_version` already records that the schema is v1, so we won't lose track of version state.
+>
+> **Revisit when:** A concrete v2 schema change is on the roadmap.
+
 ## Problem
 
 The current codebase uses `PRAGMA user_version` to track schema version but has **no migration path for future schema changes**.

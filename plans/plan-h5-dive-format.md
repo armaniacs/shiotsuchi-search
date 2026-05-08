@@ -2,22 +2,44 @@
 
 **Issue**: H5 — UI Expert (Checking Team)
 **Severity**: High
-**Status**: Plan only (not implemented)
+**Status**: Implemented (2026-05-08)
+
+> **Review (2026-05-08): Worth implementing — the only H-plan that addresses a real user-facing pain point.**
+>
+> **Why implemented now:**
+> - **Consistency gap** — `tide` and `log` already use human-readable tables. `dive` is the primary search command and was the odd one out with raw JSON.
+> - **Low cost, high impact** — ~100 lines of Rust, no new dependencies, no risk to core logic. The improvement is immediately visible every time someone runs a search.
+> - **Backward compatible** — `--json` flag preserved, `--format json`/`--format json-pretty` also available. Existing scripts and pipes (`| jq`) continue working.
+> - **No data risk** — Pure display change. DB, search engine, tokenizer untouched.
 
 ## Problem
 
 The `dive` command outputs search results only as raw JSON. Users get no immediate visual feedback — no file paths, titles, or snippets in a readable format.
 
-### Current State
+### Before
 
 ```bash
 $ shiotsuchi dive "search term"
 [{"path":"notes/project.md","title":"Project","snippet":"...","relevance":0.95}]
 ```
 
-- Raw JSON output is machine-oriented
+- Raw JSON output was machine-oriented
 - No alignment, no color, no visual hierarchy
 - Contrast with `tide` and `log` commands which use fixed-width table formatting
+
+### After (current)
+
+```bash
+$ shiotsuchi dive "search term"
+Results for "search term"
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  1. Project Plan                                                     [0.95]
+     notes/project.md
+     This project is about building a search engine
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1 results found (0.042s)
+```
 
 ### User Experience Goals
 
@@ -56,75 +78,76 @@ Results for "search term"                         ← Header
 2 results found (0.042s)                          ← Footer
 ```
 
-### Implementation
+### Implementation (actual)
 
-**`cli/src/commands/dive.rs` changes:**
+**`cli/src/commands/dive.rs`:**
 
-1. **New enum**:
-   ```rust
-   #[derive(clap::ValueEnum, Clone, Debug)]
-   enum OutputFormat {
-       Table,
-       Json,
-       JsonPretty,
-   }
-   ```
+1. **`OutputFormat` enum** — `Table`, `Json`, `JsonPretty`. Public, derives `clap::ValueEnum`.
 
-2. **Add `--format` flag**:
+2. **`--format` flag** on `DiveArgs`:
    ```rust
    #[arg(long, value_enum, default_value_t = OutputFormat::Table)]
-   format: OutputFormat,
-   // Keep existing `--json` for backward compat (overrides format)
+   pub format: OutputFormat,
    #[arg(long)]
-   json: bool,
+   pub json: bool,
    ```
+   Plus `effective_format()` method: if `json == true` returns `Json`, otherwise returns `format`. This handles the `--json` → `Json` override cleanly without clap conflicts.
 
-3. **New function `print_table(results, query, elapsed)`**:
-   - Calculate column widths based on terminal width (or use `term_size` crate)
-   - Print header with query text
-   - For each result: print title/socre header, indented path, indented snippet (truncated to 3 lines)
-   - Print footer with count and timing
+3. **`print_results(results, query, format, elapsed)`** — dispatches to `print_table`, `serde_json::to_string` (Json), or `serde_json::to_string_pretty` (JsonPretty).
 
-4. **Backward compatibility**:
-   - `--json` flag overrides `--format` to `Json`
-   - Default behavior (`dive "query"`) outputs table format
+4. **`print_table(results, query, elapsed)`**:
+   - Fixed-width formatting (78-char separator line, no terminal-size crate needed)
+   - Header line: `Results for "query"`
+   - Separator: `━` × 78
+   - Per result: `N. title [score]` on line 1, `path` indented on line 2, up to 3 snippet lines indented on subsequent lines, `…` if snippet exceeds 3 lines
+   - Footer: separator + `N results found (Ts)`
+   - Timing measured via `std::time::Instant` in `main.rs` around the `run_dive` call (no core API changes)
 
-### Dependencies
+5. **Dependencies** — Zero added. `serde_json` was already present in the CLI crate. No `term_size` / `terminal_size` / `ansi_term` crates.
 
-- **`term_size`** or **`terminal_size`** crate for terminal width detection (optional, fallback to 80 chars)
-- None required — simple format strings suffice for basic implementation
+6. **Color support** — Not implemented (deferred, as noted in the plan). The implementation keeps formatting clean and readable without ANSI codes.
 
-### Color Support (Optional Enhancement)
+**`cli/src/main.rs`:**
 
-- Title: Bold + color (using `ansi_term` or manual ANSI codes)
-- Path: Dimmed
-- Score: Yellow highlight for high scores (>0.8)
-- Snippet match keyword: Underline or highlight
+- Dive handler wraps `run_dive` call with `Instant::now()` / `.elapsed()`
+- Passes `args.effective_format()` and `elapsed` to `print_results`
 
-### Testing
+### Testing (actual)
 
-- Unit test `print_table` output format for known inputs
-- Test `--format json` produces valid JSON
-- Test backward compatibility: `--json` flag still works and produces JSON
-- Test empty results table format
-- Test results with very long paths/titles (truncation)
+All 9 new tests pass (added to `cli/src/commands/dive.rs`):
+
+| Test | What it verifies |
+|------|------------------|
+| `test_effective_format_default_is_table` | No `--json`, no explicit `--format` → `Table` |
+| `test_effective_format_json_flag_overrides` | `--json` alone → `Json` |
+| `test_effective_format_json_pretty` | `--format json-pretty` → `JsonPretty` |
+| `test_dive_effective_format_json_overrides_explicit_format` | `--json` wins over `--format json-pretty` |
+| `test_print_results_json_produces_valid_json` | Serde round-trip with `Json` format |
+| `test_print_results_json_pretty_produces_valid_json` | Serde round-trip with `JsonPretty` format |
+| `test_print_table_empty_results` | No panic on empty slice |
+| `test_print_table_with_results` | No panic with normal data |
+| `test_print_table_long_content_truncation` | No panic with 200-char title, deep path, 5-line snippet |
+
+Plus existing `test_dive_returns_results` and `test_dive_empty_query_returns_empty` updated to use `OutputFormat::Json` explicitly (matching prior JSON-only behavior).
+
+**Full test suite**: 102 passed (45 CLI + 51 core + 6 workspace-integration), 0 failed. Clean build, zero warnings.
 
 ## Trade-offs
 
 | Approach | Changes | Pros | Cons |
 |----------|---------|------|------|
 | **A: Only table (replace JSON)** | ~50 lines | Simplest, best UX | Breaking change for scripts using JSON |
-| **B: --format flag** (recommended) | ~100 lines | Backward compatible, extensible | Slightly more code |
+| **B: --format flag** ✅ **implemented** | ~100 lines | Backward compatible, extensible | Slightly more code |
 | **C: Use external pager/formatter** | ~20 lines | Minimal code change | User must install separate tool, inconsistent UX |
 
-## File Changes
+## File Changes (actual)
 
 | File | Change |
 |------|--------|
-| `cli/src/commands/dive.rs` | Add `OutputFormat`, `--format` flag, `print_table()` function |
-| `cli/src/main.rs` | Update `dive` match arm to pass format flag |
-| `core/src/search.rs` | (Possibly) expose elapsed time for footer |
-| `Cargo.toml` (cli) | No new deps needed for basic implementation |
+| `cli/src/commands/dive.rs` | Added `OutputFormat` enum, `--format` flag, `effective_format()`, `print_table()`, 9 new tests. Rewrote `print_results()`. |
+| `cli/src/main.rs` | Wrap dive call with `Instant` timing; pass `effective_format()` and `elapsed` to `print_results` |
+| `core/src/search.rs` | Unchanged — timing handled entirely in CLI layer |
+| `Cargo.toml` (cli) | Unchanged — no new dependencies needed |
 
 ## Not In Scope
 

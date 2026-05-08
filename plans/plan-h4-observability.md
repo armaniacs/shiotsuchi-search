@@ -4,6 +4,16 @@
 **Severity**: High
 **Status**: Plan only (not implemented)
 
+> **Review (2026-05-08): Not needed at this stage. All three layers are over-engineered for a single-user local CLI/MCP tool.**
+>
+> **Why deferred:**
+> - **Logging is adequate** — `env_logger` + `RUST_LOG` handles filtering. The codebase has only ~13 `log::warn!()` calls and no async/multi-thread complexity that would benefit from tracing spans. Moving to `tracing` would add 3 dependencies for negligible gain.
+> - **Health check has no consumer** — The MCP server is a stdio child process of Claude Desktop. There is no HTTP endpoint, no external monitor, and no automated caller for a `vault_health` tool. `PRAGMA integrity_check` is also expensive on large DBs.
+> - **Metrics are speculative** — Atomic counters for indexing rate, latency histograms, etc. serve no actionable purpose in a single-user tool. The `scan` watcher runs in the foreground; errors are visible immediately on stderr.
+> - **Three orders of magnitude over-spec** — This plan is designed for a production server (multi-user, HTTP/gRPC, monitoring infrastructure). Shiotsuchi Search is none of those things today.
+>
+> **Revisit when:** The tool gains a network-facing server, multi-user access, or the logging surface grows past ~50 call sites.
+
 ## Problem
 
 The current project uses only `env_logger` for unstructured logging. There are no metrics, health checks, or structured observability hooks. This makes it impossible to:

@@ -2,6 +2,7 @@ mod commands;
 mod config;
 
 use clap::{Parser, Subcommand};
+use std::time::Instant;
 
 #[derive(Parser)]
 #[command(
@@ -67,13 +68,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 );
                 std::process::exit(1);
             }
+            let start = Instant::now();
             match commands::dive::run_dive(
                 &args,
                 &cfg.vault.notes_dir,
                 &cfg.vault.db_path,
                 &cfg.indexing,
             ) {
-                Ok(results) => commands::dive::print_results(&results, args.json),
+                Ok(results) => {
+                    let elapsed = start.elapsed();
+                    let fmt = args.effective_format();
+                    commands::dive::print_results(&results, &args.query, &fmt, elapsed);
+                }
                 Err(e) => {
                     eprintln!("Error: {}", e);
                     std::process::exit(1);
