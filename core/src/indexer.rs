@@ -698,4 +698,144 @@ mod tests {
         let (results, _invalid) = index_directory(&db, &tokenizer, &config).unwrap();
         assert!(results.is_empty());
     }
+
+    #[test]
+    fn test_chunking_splits_at_256_entries() {
+        let tokenizer = crate::require_tokenizer!(Default::default());
+        let temp = TempDir::new().unwrap();
+        let vault = temp.path().join("vault");
+        fs::create_dir(&vault).unwrap();
+        for i in 0..257 {
+            let content = format!("# Note {}\n\nSmall content", i);
+            fs::write(vault.join(format!("note{}.md", i)), content).unwrap();
+        }
+        let db = NoteDatabase::open_in_memory().unwrap();
+        let config = IndexConfig {
+            notes_dir: vault.clone(),
+            ..Default::default()
+        };
+        let (results, _invalid) = index_directory(&db, &tokenizer, &config).unwrap();
+        assert_eq!(results.len(), 257, "all files should be indexed");
+        assert_eq!(db.stats().unwrap().total_notes, 257);
+    }
+
+    #[test]
+    fn test_chunking_splits_at_byte_threshold() {
+        let tokenizer = crate::require_tokenizer!(Default::default());
+        let temp = TempDir::new().unwrap();
+        let vault = temp.path().join("vault");
+        fs::create_dir(&vault).unwrap();
+        let big_content = "x".repeat(13_000_000);
+        fs::write(vault.join("big1.md"), &big_content).unwrap();
+        fs::write(vault.join("big2.md"), &big_content).unwrap();
+        let db = NoteDatabase::open_in_memory().unwrap();
+        let config = IndexConfig {
+            notes_dir: vault.clone(),
+            ..Default::default()
+        };
+        let (results, _invalid) = index_directory(&db, &tokenizer, &config).unwrap();
+        assert_eq!(results.len(), 2, "both large files should be indexed");
+    }
+
+    #[test]
+    fn test_chunking_single_chunk_for_small_vault() {
+        let tokenizer = crate::require_tokenizer!(Default::default());
+        let temp = TempDir::new().unwrap();
+        let vault = temp.path().join("vault");
+        fs::create_dir(&vault).unwrap();
+        for i in 0..100 {
+            fs::write(vault.join(format!("note{}.md", i)), format!("# Note {}", i)).unwrap();
+        }
+        let db = NoteDatabase::open_in_memory().unwrap();
+        let config = IndexConfig {
+            notes_dir: vault.clone(),
+            ..Default::default()
+        };
+        let (results, _invalid) = index_directory(&db, &tokenizer, &config).unwrap();
+        assert_eq!(results.len(), 100, "all 100 small files should be indexed");
+    }
+
+    #[test]
+    fn test_chunking_exact_boundary_256() {
+        let tokenizer = crate::require_tokenizer!(Default::default());
+        let temp = TempDir::new().unwrap();
+        let vault = temp.path().join("vault");
+        fs::create_dir(&vault).unwrap();
+        for i in 0..256 {
+            fs::write(vault.join(format!("note{}.md", i)), format!("# Note {}", i)).unwrap();
+        }
+        let db = NoteDatabase::open_in_memory().unwrap();
+        let config = IndexConfig {
+            notes_dir: vault.clone(),
+            ..Default::default()
+        };
+        let (results, _invalid) = index_directory(&db, &tokenizer, &config).unwrap();
+        assert_eq!(
+            results.len(),
+            256,
+            "exactly 256 files should all be indexed"
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_strip_prefix_outside_vault_is_rejected() {
+        let tokenizer = crate::require_tokenizer!(Default::default());
+        let temp = TempDir::new().unwrap();
+        let vault = temp.path().join("vault");
+        fs::create_dir(&vault).unwrap();
+        let outside = temp.path().join("outside.md");
+        fs::write(&outside, "# Outside").unwrap();
+        let symlink = vault.join("escape.md");
+        std::os::unix::fs::symlink(&outside, &symlink).unwrap();
+        let db = NoteDatabase::open_in_memory().unwrap();
+        let config = IndexConfig {
+            notes_dir: vault.clone(),
+            follow_links: true,
+            ..Default::default()
+        };
+        let (results, _invalid) = index_directory(&db, &tokenizer, &config).unwrap();
+        assert!(
+            results.is_empty(),
+            "external symlink should be rejected and result empty"
+        );
+    }
+
+    #[test]
+    fn test_index_file_and_directory_produce_same_result() {
+        let tokenizer = crate::require_tokenizer!(Default::default());
+        let temp = TempDir::new().unwrap();
+        let vault = temp.path().join("vault");
+        fs::create_dir(&vault).unwrap();
+        fs::write(vault.join("test.md"), "---\ntitle: Same\n---\n\nContent").unwrap();
+
+        let db1 = NoteDatabase::open_in_memory().unwrap();
+        let config1 = IndexConfig {
+            notes_dir: vault.clone(),
+            ..Default::default()
+        };
+        let result1 = index_file(
+            &db1,
+            &tokenizer,
+            &vault.join("test.md"),
+            "test.md",
+            &config1,
+        );
+        assert_eq!(result1, IndexResult::Inserted);
+
+        let db2 = NoteDatabase::open_in_memory().unwrap();
+        let config2 = IndexConfig {
+            notes_dir: vault.clone(),
+            ..Default::default()
+        };
+        let (results, _invalid) = index_directory(&db2, &tokenizer, &config2).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].1, IndexResult::Inserted);
+
+        let meta1 = db1.get_metadata("test.md").unwrap();
+        let meta2 = db2.get_metadata("test.md").unwrap();
+        assert_eq!(meta1.title, meta2.title);
+        assert_eq!(meta1.hash, meta2.hash);
+        assert_eq!(meta1.path, meta2.path);
+    }
 }

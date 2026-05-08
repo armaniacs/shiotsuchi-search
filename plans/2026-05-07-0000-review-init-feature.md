@@ -1,6 +1,31 @@
 # Checking Team Review Report
-## Branch: main (HEAD~2...HEAD)
-## Date: 2026-05-07
+## Branch: main
+## Date: 2026-05-07 (Updated 2026-05-09)
+
+> **Update Log (2026-05-09):** 以下の修正が追加実施され、すべての High/Medium 指摘が解決済み。v0.2.9 として CHANGELOG に記録済み。
+>
+> | # | 項目 | 状態 | コミット/日付 |
+> |---|------|------|--------------|
+> | 1 | `scan_vault` が `auto_exclude_hidden` を無視 | **修正済** | v0.2.9 |
+> | 2 | `init --force` が `notes_dir` を CWD で上書き | **修正済** | v0.2.9 |
+> | 3 | `config detect-noise` の `--notes-dir` 無視 | **修正済** | v0.2.9 |
+> | 4 | `scan` コマンドが indexing config を無視 | **修正済** | v0.2.9 |
+> | 5 | `follow_links` デフォルト `true` → `false` | **修正済** | v0.2.9 |
+> | 6 | アトミック書き込み / バックアップ衝突回避 | **修正済** | v0.2.9 |
+> | 7 | dynamic 候補の自動選択 → デフォルト未選択 | **修正済** | v0.2.9 |
+> | 8 | stdout TTY チェック欠如 | **修正済** | v0.2.9 |
+> | 9 | `scan_vault` I/O 倍増（WalkDir + read_dir） | **修正済** | v0.2.9 — HashMap 単一パスに変更 |
+> | 10 | `exclude_patterns` → `exclude_dirs` リネーム | **修正済** | v0.2.9 — 即時置き換え + エラーメッセージ |
+> | 11 | 大規模 vault OOM リスク | **修正済** | v0.2.9 — チャンク分割（256エントリ OR 25.6MB） |
+> | 12 | `strip_prefix` フルパス DB 格納リスク | **修正済** | v0.2.9 — `path.starts_with(notes_dir)` 事前確認 |
+> | 13 | 走査エラー黙殺 | **修正済** | v0.2.9 — `filter_map(|e| e.ok())` → `match` + `log::warn!` |
+> | 14 | ファイルパーミッション未制限 | **修正済** | v0.2.9 — config/backup を `0o600` に設定（Unix のみ） |
+> | 15 | dynamic 閾値ハードコード | **修正済** | v0.2.9 — `IndexConfig::dynamic_threshold: usize`（デフォルト5） |
+> | 16 | 無効パターンのフィードバック不足 | **修正済** | v0.2.9 — `ChartSummary::invalid_patterns` を追加 |
+> | 17 | 候補数上限なし（DoS/フリーズ） | **修正済** | v0.2.9 — `CANDIDATE_LIMIT = 1000` |
+> | 18 | `chrono` 依存（単一タイムスタンプ生成） | **修正済** | v0.2.9 — `std::time::SystemTime` + Unix epoch に変更 |
+> | 19 | `index_file` / `index_directory` 重複 | **修正済** | v0.2.9 — `prepare_file()` を共通関数として抽出 |
+> | 20 | cargo fmt / clippy 違反 | **修正済** | 2026-05-09 — `02810f4` |
 
 ---
 
@@ -37,178 +62,125 @@
 
 ---
 
-## 既修正事項（Test Experts により修正済み）
+## 既修正事項（レビュー時点からの累積）
 
 ### [High→解決] `build_exclude_globset` での glob メタキャラクタ未エスケープ・スラッシュ正規化漏れ
 - 指摘者: System Architect, Red Team Leader, Domain Logic Expert, API Contract Negotiator, Test Experts
 - 修正: `escape_glob_literal()` を追加し、`*`, `?`, `[`, `]`, `{`, `}` をエスケープ; `trim_matches('/')` でスラッシュ正規化; 空文字列パターンをスキップ
 
-### [Medium→解決] `scan_vault` で vault ルート自身が空文字列パターンとして書き込まれる
-- 指摘者: Domain Logic Expert, Test Experts
-- 修正: `rel_str.is_empty()` でスキップ、テスト追加
+### [High→解決] `scan_vault` が `auto_exclude_hidden` 設定を無視
+- 指摘者: System Architect, Maintainability Guardian
+- 修正: `scan_vault` に `auto_exclude_hidden: bool` と `dynamic_threshold: usize` パラメータを追加し、条件付きで隠しディレクトリをフィルタする。
 
-### [Medium→解決] `init --force` で既存の手動除外設定が完全に失われる
-- 指摘者: Domain Logic Expert, API Contract Negotiator, Test Experts
-- 修正: `selected_patterns` と既存 `exclude_patterns` をマージ（dedup）するように変更
+### [High→解決] `init --force` が既存 config の `notes_dir` を現在の作業ディレクトリで上書き
+- 指摘者: Legacy Bridge Architect
+- 修正: `--notes-dir` 未指定時、既存 `cfg.vault.notes_dir` がデフォルト値（`".`"）以外ならその値を維持し、デフォルト値の場合のみ CWD をフォールバックとして使用。
 
----
+### [High→解決] `index_directory` で大規模 vault の一括メモリロードにより OOM リスク
+- 指摘者: Edge & Mobile Strategist
+- 修正: `process_chunk()` を導入し、256エントリ OR 累積25.6MB でチャンクを分割。各チャンクを `par_iter()` で並列処理し、チャンク間は逐次処理。
 
-## 修正適用済み事項（Review後に修正実行）
+### [High/設計→解決] `exclude_patterns` のスキーマ契約と実装の乖離
+- 指摘者: API & Contract Negotiator, Red Team Leader
+- 修正: フィールド名を `exclude_dirs` に即時リネーム。旧キー名 `exclude_patterns` は deserialize エラーになる（親切なエラーメッセージで新キー名を案内）。ドキュメント（`docs/CLI-USE.md`）にも移行注記を追加。
 
-### Test Experts による修正
-1. `build_exclude_globset` での glob メタキャラクタ未エスケープ・スラッシュ正規化漏れ（High）
-2. `scan_vault` で vault ルート自身が空文字列パターンとして書き込まれる（Medium）
-3. `init --force` で既存の手動除外設定が完全に失われる（Medium）
+### [High→解決] `noise.rs` の `scan_vault` で WalkDir 走査後に各ディレクトリで追加 `read_dir` が発生し I/O が倍増
+- 指摘者: Tuning Expert
+- 修正: WalkDir イテレーション中に `HashMap<String, (usize, bool)>` で各ディレクトリのマッチングファイル数をインクリメント集計。`count_matching_files` 関数を削除。
 
-### オーケストレーターによる追加修正
-4. `scan_vault` が `auto_exclude_hidden` 設定を無視（High）→ `auto_exclude_hidden: bool` パラメータを追加、呼び出し元から設定値を渡すように変更
-5. `init --force` が既存 config の `notes_dir` を CWD で上書き（High）→ `--notes-dir` 未指定時は既存 `cfg.vault.notes_dir` を維持するように変更
-6. `config detect-noise` の `--notes-dir` フラグが無視される（Medium）→ `DetectNoiseArgs.notes_dir` を優先して使用するようにディスパッチ修正
-7. `scan` コマンドが indexing config を無視（Medium）→ `run_scan` に `indexing_cfg` を渡し、全フィールドを反映
-8. `follow_links` のデフォルトが `true`（Medium）→ `false` に変更（安全なデフォルト）
-9. 設定ファイルへの書き込みがアトミックではない（Medium）→ 一時ファイル + `fs::rename` でアトミック書き込み
-10. バックアップファイル名の衝突（Medium）→ 連番サフィックスで重複回避
-11. dynamic 候補がインタラクティブ選択で自動選択される（Medium）→ デフォルト未選択に変更
-12. stdout TTY チェック欠如（Medium）→ `stdout().is_terminal()` も併せてチェック
+### [Medium→解決] `config detect-noise` の `--notes-dir` フラグが無視される
+- 指摘者: Legacy Bridge Architect, DX Advocate
+- 修正: `run_config` 内で `DetectNoiseArgs.notes_dir` を優先して使用するようにディスパッチ修正済み。
+
+### [Medium→解決] `scan` コマンドが indexing config を無視
+- 指摘者: Legacy Bridge Architect
+- 修正: `run_scan` に `indexing_cfg: &IndexingConfig` を渡し、全フィールド（`exclude_dirs`, `auto_exclude_hidden`, `follow_links`, `dynamic_threshold`）を反映。
+
+### [Medium→解決] `follow_links` のデフォルト値が `true`
+- 指摘者: Compliance & Privacy Guard
+- 修正: `IndexConfig::default()` と `IndexingConfig::default()` で `follow_links: false` に変更。安全なデフォルトに準拠。
+
+### [Medium→解決] 設定ファイルへの書き込みがアトミックではない
+- 指摘者: Blue Team Leader, SRE/Ops Specialist
+- 修正: 一時ファイル（`.toml.tmp`）に書き込み完了後に `fs::rename` でアトミックに置き換え。
+
+### [Medium→解決] バックアップファイル名の衝突
+- 指摘者: System Architect, SRE/Ops Specialist
+- 修正: `backup_path.exists()` を確認し、存在する場合は連番サフィックスを付加（`config.toml.bak.<timestamp>.<n>`）。
+
+### [Medium→解決] dynamic 候補がインタラクティブ選択で自動選択される
+- 指摘者: UI Expert, Accessibility Advocate, Ethics & Bias Auditor
+- 修正: dynamic 候補もデフォルト未選択に変更。選択肢に `[auto-detected]` マーカーを追加。
+
+### [Medium→解決] stdout TTY チェック欠如
+- 指摘者: UI Expert, API & Contract Negotiator
+- 修正: `dialoguer_stdin_is_tty()` で `stdin().is_terminal() && stdout().is_terminal()` を両方チェック。
+
+### [Medium→解決] `init --yes` で dynamic ノイズ判定ヒューリスティックがメモリを誤除外するリスク
+- 指摘者: Ethics & Bias Auditor
+- 修正: `dynamic_threshold` を `IndexConfig` / `IndexingConfig` の設定可能フィールドに追加（デフォルト 5）。ユーザーが自身のユースケースに合わせて調整可能。
+
+### [Medium→解決] ディレクトリ走査エラーの黙殺
+- 指摘者: SRE/Ops Specialist
+- 修正: `filter_map(|e| e.ok())` を `match` + `log::warn!("Directory scan error: {}", err)` + `None` に変更（`noise.rs` と `indexer.rs` の両方）。
+
+### [Medium→解決] 巨大 vault に対する候補数の上限がなく DoS/フリーズのリスク
+- 指摘者: Blue Team Leader
+- 修正: `scan_vault` に `candidate_limit: usize` パラメータを追加（`CANDIDATE_LIMIT = 1000`）。超過時に truncated フラグを返し、呼び出し元で "showing first 1000 of many candidates" と表示。
+
+### [Medium→解決] `strip_prefix` の失敗フォールバックによるフルパス DB 格納と情報露出
+- 指摘者: Red Team Leader
+- 修正: `strip_prefix` 前に `path.starts_with(notes_dir)` でプレフィックス確認。失敗時は `log::warn!` + スキップ（フォールバックでフルパスが保存されることはなくなった）。
+
+### [Medium→解決] 設定ファイル・バックアップのファイルパーミッション未制限
+- 指摘者: Compliance & Privacy Guard
+- 修正: Unix 環境では `std::fs::set_permissions` で `0o600` を設定（プライマリconfig + バックアップ両方）。
+
+### [Medium→解決] 無効な除外パターンのフィードバックが不足
+- 指摘者: UI Expert
+- 修正: `ChartSummary` に `invalid_patterns: usize` を追加。`build_exclude_globset` でエスケープ後も無効なパターンをカウントし、`chart` の実行結果に表示（例: "3 invalid patterns"）。
+
+### [Medium→解決] `core/src/indexer.rs` でファイル処理ロジックが `index_file` と `index_directory` に重複
+- 指摘者: Maintainability Guardian, Refactoring Evangelist
+- 修正: 読み込み～トークナイズまでを `prepare_file(path: &Path, ...)` として共通関数に抽出。`index_file` と `process_chunk`（チャンク処理）の両方から呼び出し。
+
+### [Low→解決] 単一のタイムスタンプ文字列生成のために `chrono` 依存
+- 指摘者: DX Advocate
+- 修正: `chrono` クレートを削除。バックアップタイムスタンプは `std::time::SystemTime::now()` の Unix epoch 秒（小数部あり）を使用。
 
 ---
 
 ## 未修正の重要指摘事項（残タスク）
 
-### [High] `scan_vault` が `auto_exclude_hidden` 設定を無視して隠しディレクトリを常にスキップ
-- 指摘者: System Architect, Maintainability Guardian
-- 場所: `cli/src/commands/noise.rs:76-89`
-- 影響: `auto_exclude_hidden = false` を設定しても、`noise` / `init` で隠しディレクトリ内の候補を検出できない。`.env`, `.ssh`, `.obsidian` などがインデックス対象になっていることに気づかないままセキュリティリスクが生じる。
-- 対処: `scan_vault` に `auto_exclude_hidden: bool` パラメータを追加し、条件付きでフィルタする。呼び出し元から設定値を渡す。
-
-### [High] `init --force` が既存 config の `notes_dir` を現在の作業ディレクトリで上書きする
-- 指摘者: Legacy Bridge Architect
-- 場所: `cli/src/commands/init.rs:35-45`
-- 影響: `--notes-dir` を省略して `init --force` を実行すると、`std::env::current_dir()` が無条件で採用され、設定済みの vault ルートが失われる。
-- 対処: `--notes-dir` が未指定の場合、既存 `cfg.vault.notes_dir` がデフォルト値以外ならその値を維持し、デフォルト値の場合のみ CWD をフォールバックとして使用する。
-
-### [High] `index_directory` で大規模 vault の一括メモリロードにより OOM リスク
-- 指摘者: Edge & Mobile Strategist
-- 場所: `core/src/indexer.rs:186-279`
-- 影響: WalkDir の全エントリを `Vec` に collect した後 `par_iter()` で全ファイルを同時に処理し、低スペックデバイスで OOM する可能性がある。
-- 対処: バッチ単位で処理するか、`par_bridge()` を使用するか、ファイルサイズ上限を設ける。
-
-### [High/設計] `exclude_patterns` のスキーマ契約と実装の乖離
-- 指摘者: API & Contract Negotiator, Red Team Leader
-- 場所: `core/src/indexer.rs:22-46`
-- 影響: `exclude_patterns` は強制的に `**/{pat}/**` でディレクトリ名のみに限定しているが、CHANGELOG や設定ファイルでは「gitignore-style glob matching」と説明しており、ユーザーはファイル名パターンも除外できると期待する。
-- 対処: フィールド名を `exclude_dirs` に変更するか、ファイル名マッチングも可能な実装にする。またはドキュメントで「ディレクトリ名のみ有効」と明記する。
-
-### [High] `noise.rs` の `scan_vault` で WalkDir 走査後に各ディレクトリで追加 `read_dir` が発生し I/O が倍増
-- 指摘者: Tuning Expert
-- 場所: `cli/src/commands/noise.rs:76-138`
-- 影響: ディレクトリ数が多い vault でシステムコールと I/O がほぼ2倍になり、スキャン時間が著しく長くなる。
-- 対処: WalkDir のイテレーション中に `HashMap<PathBuf, usize>` でディレクトリごとのマッチングファイル数をインクリメント集計し、`count_matching_files` を削除する。
+**すべての High / Medium 指摘が v0.2.9 で解決済み。残タスクはありません。**
 
 ---
 
-### [Medium] 設定ファイルへの書き込みがアトミックではない
-- 指摘者: Blue Team Leader, SRE/Ops Specialist
-- 場所: `cli/src/commands/init.rs:96-97`
-- 影響: 書き込み途中にプロセスが終了すると設定ファイルが破損する。
-- 対処: 一時ファイルに書き込み、完了後に `std::fs::rename` でアトミックに置き換える。
+## Low 指摘（スコアに影響なし / 将来対応）
 
-### [Medium] バックアップファイル名の衝突
-- 指摘者: System Architect, SRE/Ops Specialist
-- 場所: `cli/src/commands/init.rs:120-122`
-- 影響: 高速連続実行・並列実行で過去のバックアップが上書きされる。
-- 対処: `backup_path.exists()` を確認し、存在する場合は連番やランダムサフィックスを付加する。
-
-### [Medium] `config detect-noise` の `--notes-dir` フラグが無視される
-- 指摘者: Legacy Bridge Architect, DX Advocate
-- 場所: `cli/src/commands/config.rs:24-30`, `cli/src/main.rs:109-111`
-- 影響: CLI インターフェースが実装と不一致になる。
-- 対処: `run_config` 内で `args.command` を展開し、`DetectNoiseArgs.notes_dir` があればそれを優先して使用する。
-
-### [Medium] `scan` コマンドが indexing config を無視
-- 指摘者: Legacy Bridge Architect
-- 場所: `cli/src/commands/scan.rs:29-32`
-- 影響: 同一 vault に対して `chart` と `scan` の挙動が不一致になる。
-- 対処: `run_scan` の引数に `indexing_cfg: &IndexingConfig` を追加し、各フィールドを引き継ぐ。
-
-### [Medium] `follow_links` のデフォルト値が `true`
-- 指摘者: Compliance & Privacy Guard
-- 場所: `core/src/models.rs:79`, `cli/src/config.rs:53`
-- 影響: デフォルトでシンボリックリンクをフォローする。安全なデフォルトの観点から `false` に変更すべき。
-- 対処: `follow_links` のデフォルト値を `false` に変更する。
-
-### [Medium] 設定ファイル・バックアップのファイルパーミッション未制限
-- 指摘者: Compliance & Privacy Guard
-- 場所: `cli/src/commands/init.rs:97`, `:122`
-- 影響: 同一ホストの他ユーザーから読み取り可能になる。
-- 対処: Unix 環境では `0o600` に設定する。
-
-### [Medium] 無効な除外パターンのフィードバックが不足
-- 指摘者: UI Expert
-- 場所: `core/src/indexer.rs:31-38`
-- 影響: 無効な glob パターンがあっても `log::warn!` のみでユーザーが原因を把握しにくい。
-- 対処: `ChartSummary` に `invalid_patterns: usize` を追加し、実行結果に表示する。
-
-### [Medium] dynamic 候補がインタラクティブ除外選択で自動選択される
-- 指摘者: UI Expert, Accessibility Advocate, Ethics & Bias Auditor
-- 場所: `cli/src/commands/init.rs:169-177`
-- 影響: ユーザーが存在を知らないディレクトリが勝手に選択され、メモリ等がインデックス対象から漏れる。
-- 対処: dynamic 候補もデフォルト未選択とし、選択肢に `[auto-detected]` マーカーを表示する。
-
-### [Medium] stdout TTY チェック欠如
-- 指摘者: UI Expert, API & Contract Negotiator
-- 場所: `cli/src/commands/init.rs:207-210`
-- 影響: stdout がリダイレクトされている環境でプロンプトが表示されずにフリーズしたように見える。
-- 対処: `std::io::stdout().is_terminal()` も併せてチェックする。
-
-### [Medium] `init --yes` で dynamic ノイズ判定ヒューリスティックがメモリを誤除外するリスク
-- 指摘者: Ethics & Bias Auditor
-- 場所: `cli/src/commands/noise.rs:67`, `cli/src/commands/init.rs:86-91`
-- 影響: 閾値（5ファイルで「ノイズ」判定）が、日記・講義ノートなどをまとめるユーザーを不利にする。
-- 対処: `DYNAMIC_THRESHOLD` を設定可能にするか、閾値を引き上げる。または `--yes` 時に dynamic 候補のみを分離する。
-
-### [Medium] ディレクトリ走査エラーの黙殺
-- 指摘者: SRE/Ops Specialist
-- 場所: `cli/src/commands/noise.rs:90`, `core/src/indexer.rs:212`
-- 影響: 権限不足でディレクトリが読めない場合、単純にスキップされるだけで警告が出ない。
-- 対処: `filter_map(|e| e.ok())` を `match` で置き換え、エラーを `log::warn!` で可視化する。
-
-### [Medium] 巨大 vault に対する候補数の上限がなく DoS/フリーズのリスク
-- 指摘者: Blue Team Leader
-- 場所: `cli/src/commands/noise.rs:76-121`
-- 影響: 数百万ファイルの vault でメモリ圧迫や UI フリーズの可能性がある。
-- 対処: `candidates` の数に上限を設けるか、走査深度の上限を追加する。
-
-### [Medium] `strip_prefix` の失敗フォールバックによるフルパス DB 格納と情報露出
-- 指摘者: Red Team Leader
-- 場所: `core/src/indexer.rs:233`, `:246`
-- 影響: `strip_prefix` が失敗すると絶対パスが DB に保存され、ファイルシステム構造が露出する。
-- 対処: `notes_dir` を事前に `canonicalize` し、`strip_prefix` の失敗を厳密にエラーとして処理する。
-
-### [Medium] `core/src/indexer.rs` でファイル処理ロジックが `index_file` と `index_directory` に重複
-- 指摘者: Maintainability Guardian, Refactoring Evangelist
-- 場所: `core/src/indexer.rs:110-143`, `242-279`
-- 影響: 両方を更新し忘れるリスクがある。
-- 対処: 読み込み〜トークナイズまでの処理を共通関数に抽出する。
+| # | 項目 | 指摘者 | 対応状況 |
+|---|------|--------|---------|
+| 1 | `init --yes` のヘルプにデータ取り扱いの注記が不十分 | Compliance & Privacy | 保留 — ドキュメントレベルでの対応検討 |
+| 2 | ハードコードされた英語複数形ロジック（"1 invalid pattern" / "2 invalid patterns"） | i18n | 保留 — 本格的な i18n は将来対応 |
+| 3 | ハードコードされた英語フォールバックタイトル "Untitled" | i18n | 保留 — 同上 |
+| 4 | Documentation 未更新（README, ref/cli.md, docs/CLI-USE.md の移行注記） | Documentation Architect | **部分的に対応** — `docs/CLI-USE.md` に `exclude_dirs` 移行注記を追加済み。残りのドキュメントは次回メジャー更新時に統合。 |
 
 ---
 
-## コンフリクト調整結果
+## 検証コマンド
 
-特に相反する指摘は確認されませんでした。
+```bash
+# フォーマティング
+cargo fmt --all --check
 
-System Architect（55/100）が最も低いスコアを示しており、以下3点に絞って指摘しています：
-1. `build_exclude_globset` の glob メタキャラクタ未エスケープ → **Test Experts により修正済み**
-2. `scan_vault` が `auto_exclude_hidden` を無視 → **未修正（優先度 High）**
-3. `backup_config` のタイムスタンプ衝突 → **未修正（優先度 Medium）**
+# リント
+cargo clippy --workspace --exclude shiotsuchi-e2e -- -D warnings
 
----
+# テスト（ワークスペース全体）
+cargo test --workspace --exclude shiotsuchi-e2e
 
-## Low 指摘（スコアに影響なし）
+# ビルド確認
+cargo build --workspace --exclude shiotsuchi-e2e
+```
 
-- `init --yes` のヘルプにデータ取り扱いの注記が不十分（Compliance & Privacy）
-- `chrono` 依存が単一のタイムスタンプ文字列生成のために追加されている（DX Advocate）
-- ハードコードされた英語複数形ロジック（i18n）
-- ハードコードされた英語フォールバックタイトル "Untitled"（i18n）
-- Documentation 未更新（README, ref/cli.md, docs/CLI-USE.md）
-
+**最終検証日**: 2026-05-09 — すべて PASS

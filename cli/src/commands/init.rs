@@ -475,4 +475,74 @@ mod tests {
             "existing custom pattern should be preserved"
         );
     }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_config_file_permissions_0600() {
+        let temp = TempDir::new().unwrap();
+        let vault = temp.path().join("vault");
+        fs::create_dir(&vault).unwrap();
+
+        let config_path = temp.path().join("config.toml");
+        let cfg = ShiotsuchiConfig::default();
+        let args = InitArgs {
+            force: false,
+            yes: true,
+        };
+
+        run_init(&args, &cfg, &config_path, Some(&vault), None).unwrap();
+
+        use std::os::unix::fs::PermissionsExt;
+        let metadata = fs::metadata(&config_path).unwrap();
+        let permissions = metadata.permissions();
+        let mode = permissions.mode();
+        assert_eq!(
+            mode & 0o777,
+            0o600,
+            "config file should have mode 0o600, got {:o}",
+            mode & 0o777
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_backup_file_permissions_0600() {
+        let temp = TempDir::new().unwrap();
+        let vault = temp.path().join("vault");
+        fs::create_dir(&vault).unwrap();
+
+        let config_path = temp.path().join("config.toml");
+        fs::write(&config_path, "existing config").unwrap();
+
+        let cfg = ShiotsuchiConfig::default();
+        let args = InitArgs {
+            force: true,
+            yes: true,
+        };
+
+        run_init(&args, &cfg, &config_path, Some(&vault), None).unwrap();
+
+        let parent = config_path.parent().unwrap();
+        let backup_files: Vec<_> = fs::read_dir(parent)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| {
+                let name = e.file_name().to_string_lossy().to_string();
+                name.contains(".toml.bak.")
+            })
+            .collect();
+
+        assert_eq!(backup_files.len(), 1, "should have exactly one backup file");
+
+        use std::os::unix::fs::PermissionsExt;
+        let metadata = fs::metadata(&backup_files[0].path()).unwrap();
+        let permissions = metadata.permissions();
+        let mode = permissions.mode();
+        assert_eq!(
+            mode & 0o777,
+            0o600,
+            "backup file should have mode 0o600, got {:o}",
+            mode & 0o777
+        );
+    }
 }

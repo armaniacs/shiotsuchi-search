@@ -371,4 +371,21 @@ mod tests {
             "candidate_limit=0 should truncate if candidates exist"
         );
     }
+
+    #[test]
+    fn test_scan_vault_threshold_zero_matches_all() {
+        let temp = TempDir::new().unwrap();
+        let vault = temp.path().join("vault");
+        fs::create_dir(&vault).unwrap();
+
+        let one_file = vault.join("one_file");
+        fs::create_dir(&one_file).unwrap();
+        fs::write(one_file.join("note.md"), "# Note").unwrap();
+
+        let (candidates, _) = scan_vault(&vault, &["md".to_string()], true, 0, 1000);
+        assert!(
+            !candidates.is_empty(),
+            "threshold=0 should match any file count"
+        );
+    }
 }

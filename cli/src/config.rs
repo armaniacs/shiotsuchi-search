@@ -33,7 +33,7 @@ pub fn default_config_path() -> PathBuf {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct IndexingConfig {
     pub snippet_lines: usize,
     pub include_extensions: Vec<String>,
@@ -148,5 +148,24 @@ mod tests {
         let config = ShiotsuchiConfig::load_from(&config_path).unwrap();
         assert_eq!(config.vault.notes_dir.to_string_lossy(), "/tmp/notes");
         assert_eq!(config.indexing.snippet_lines, 5);
+    }
+
+    #[test]
+    fn test_exclude_dirs_rejects_old_key() {
+        let result =
+            toml::from_str::<ShiotsuchiConfig>("[indexing]\nexclude_patterns = ['node_modules']");
+        assert!(
+            result.is_err(),
+            "expected error for old key exclude_patterns"
+        );
+    }
+
+    #[test]
+    fn test_exclude_dirs_accepts_new_key() {
+        let result =
+            toml::from_str::<ShiotsuchiConfig>("[indexing]\nexclude_dirs = ['node_modules']");
+        assert!(result.is_ok(), "expected ok for new key exclude_dirs");
+        let config = result.unwrap();
+        assert_eq!(config.indexing.exclude_dirs, vec!["node_modules"]);
     }
 }
