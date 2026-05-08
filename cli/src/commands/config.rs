@@ -35,7 +35,13 @@ pub fn run_config(
         }
     };
 
-    let (candidates, _truncated) = scan_vault(detect_notes_dir, include_extensions, auto_exclude_hidden, dynamic_threshold, CANDIDATE_LIMIT);
+    let (candidates, _truncated) = scan_vault(
+        detect_notes_dir,
+        include_extensions,
+        auto_exclude_hidden,
+        dynamic_threshold,
+        CANDIDATE_LIMIT,
+    );
 
     if candidates.is_empty() {
         println!(
@@ -81,7 +87,13 @@ mod tests {
         let vault = temp.path().join("vault");
         fs::create_dir(&vault).unwrap();
 
-        let (candidates, _truncated) = scan_vault(&vault, &["md".to_string(), "markdown".to_string()], true, 5, 1000);
+        let (candidates, _truncated) = scan_vault(
+            &vault,
+            &["md".to_string(), "markdown".to_string()],
+            true,
+            5,
+            1000,
+        );
         assert!(candidates.is_empty());
     }
 
@@ -98,10 +110,19 @@ mod tests {
             fs::write(d.join("f.md"), "# test").unwrap();
         }
 
-        let (candidates, _truncated) = scan_vault(&vault, &["md".to_string(), "markdown".to_string()], true, 5, 1000);
+        let (candidates, _truncated) = scan_vault(
+            &vault,
+            &["md".to_string(), "markdown".to_string()],
+            true,
+            5,
+            1000,
+        );
         assert_eq!(candidates.len(), 3);
 
-        let paths: Vec<_> = candidates.iter().map(|c| c.relative_path.as_str()).collect();
+        let paths: Vec<_> = candidates
+            .iter()
+            .map(|c| c.relative_path.as_str())
+            .collect();
         assert!(paths.contains(&"node_modules"));
         assert!(paths.contains(&"dist"));
         assert!(paths.contains(&"build"));

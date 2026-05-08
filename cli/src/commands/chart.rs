@@ -68,7 +68,11 @@ pub fn run_chart(
             msg.push_str(&format!(
                 ", {} invalid pattern{}",
                 summary.invalid_patterns,
-                if summary.invalid_patterns == 1 { "" } else { "s" }
+                if summary.invalid_patterns == 1 {
+                    ""
+                } else {
+                    "s"
+                }
             ));
         }
         println!("{}", msg);

@@ -1,5 +1,5 @@
+use crate::commands::noise::{scan_vault, ExclusionCandidate, CANDIDATE_LIMIT};
 use crate::config::ShiotsuchiConfig;
-use crate::commands::noise::{scan_vault, CANDIDATE_LIMIT, ExclusionCandidate};
 use clap::Args;
 use dialoguer::{theme::ColorfulTheme, Confirm, MultiSelect};
 use std::path::{Path, PathBuf};
@@ -8,7 +8,10 @@ use std::path::{Path, PathBuf};
 pub struct InitArgs {
     #[arg(long, help = "Overwrite existing config file")]
     pub force: bool,
-    #[arg(long, help = "Non-interactive mode: auto-accept all detected exclusion candidates")]
+    #[arg(
+        long,
+        help = "Non-interactive mode: auto-accept all detected exclusion candidates"
+    )]
     pub yes: bool,
 }
 
@@ -37,7 +40,7 @@ pub fn run_init(
         None => {
             // When --force is used, preserve the existing notes_dir if it was
             // explicitly set (not the default ".").
-            if args.force && cfg.vault.notes_dir != std::path::PathBuf::from(".") {
+            if args.force && cfg.vault.notes_dir != std::path::Path::new(".") {
                 cfg.vault.notes_dir.clone()
             } else {
                 let cwd = std::env::current_dir()?;
@@ -162,10 +165,7 @@ fn backup_config(config_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
         use std::os::unix::fs::PermissionsExt;
         let _ = std::fs::set_permissions(&backup_path, std::fs::Permissions::from_mode(0o600));
     }
-    println!(
-        "Backed up existing config to {}",
-        backup_path.display()
-    );
+    println!("Backed up existing config to {}", backup_path.display());
     Ok(())
 }
 
@@ -178,7 +178,9 @@ fn backup_config(config_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
 /// Stage 2: Multi-select showing ALL candidates. Dynamic (non-known)
 /// candidates are always pre-selected. Known-pattern pre-selection
 /// depends on Stage 1 choice.
-fn select_exclusions_interactive(candidates: &[ExclusionCandidate]) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+fn select_exclusions_interactive(
+    candidates: &[ExclusionCandidate],
+) -> Result<Vec<String>, Box<dyn std::error::Error>> {
     if candidates.is_empty() {
         return Ok(Vec::new());
     }
@@ -334,11 +336,7 @@ mod tests {
         let entries: Vec<_> = fs::read_dir(parent)
             .unwrap()
             .filter_map(|e| e.ok())
-            .filter(|e| {
-                e.file_name()
-                    .to_string_lossy()
-                    .contains("config.toml.bak.")
-            })
+            .filter(|e| e.file_name().to_string_lossy().contains("config.toml.bak."))
             .collect();
         assert_eq!(entries.len(), 1, "Should have exactly one backup file");
 
@@ -464,8 +462,17 @@ mod tests {
         run_init(&args, &cfg, &config_path, Some(&vault), None).unwrap();
 
         let contents = fs::read_to_string(&config_path).unwrap();
-        assert!(contents.contains("node_modules"), "scan result should be merged");
-        assert!(contents.contains("legacy"), "existing custom pattern should be preserved");
-        assert!(contents.contains("private"), "existing custom pattern should be preserved");
+        assert!(
+            contents.contains("node_modules"),
+            "scan result should be merged"
+        );
+        assert!(
+            contents.contains("legacy"),
+            "existing custom pattern should be preserved"
+        );
+        assert!(
+            contents.contains("private"),
+            "existing custom pattern should be preserved"
+        );
     }
 }

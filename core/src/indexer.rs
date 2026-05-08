@@ -260,9 +260,7 @@ pub fn index_directory(
             if e.file_type().is_dir() && e.depth() > 0 {
                 // Only skip subdirectories whose name starts with '.',
                 // not the vault root itself (depth == 0).
-                if config.auto_exclude_hidden
-                    && e.file_name().to_string_lossy().starts_with('.')
-                {
+                if config.auto_exclude_hidden && e.file_name().to_string_lossy().starts_with('.') {
                     return false;
                 }
                 if let Some(ref canonical_root) = notes_canonical {
@@ -590,7 +588,11 @@ mod tests {
 
         let (results, _invalid) = index_directory(&db, &tokenizer, &config).unwrap();
         // templates should be excluded, but templates_extra should NOT be (globset component matching)
-        assert_eq!(results.len(), 2, "templates_extra and notes should be indexed, templates excluded");
+        assert_eq!(
+            results.len(),
+            2,
+            "templates_extra and notes should be indexed, templates excluded"
+        );
         let paths: Vec<&str> = results.iter().map(|r| r.0.as_str()).collect();
         assert!(paths.contains(&"notes/main.md"));
         assert!(paths.contains(&"templates_extra/extra.md"));
@@ -654,7 +656,10 @@ mod tests {
         };
 
         let (results, _invalid) = index_directory(&db, &tokenizer, &config).unwrap();
-        assert!(results.is_empty(), "all files under node_modules should be excluded");
+        assert!(
+            results.is_empty(),
+            "all files under node_modules should be excluded"
+        );
     }
 
     #[test]

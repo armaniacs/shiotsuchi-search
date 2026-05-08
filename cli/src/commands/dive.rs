@@ -64,7 +64,12 @@ pub fn run_dive(
 }
 
 /// Print search results in the specified format.
-pub fn print_results(results: &[SearchResult], query: &str, format: &OutputFormat, elapsed: Duration) {
+pub fn print_results(
+    results: &[SearchResult],
+    query: &str,
+    format: &OutputFormat,
+    elapsed: Duration,
+) {
     match format {
         OutputFormat::Table => print_table(results, query, elapsed),
         OutputFormat::Json => {
@@ -247,7 +252,12 @@ mod tests {
     fn test_print_table_empty_results() {
         let results: Vec<SearchResult> = vec![];
         // Verify the function doesn't panic
-        print_results(&results, "test", &OutputFormat::Table, Duration::from_secs(0));
+        print_results(
+            &results,
+            "test",
+            &OutputFormat::Table,
+            Duration::from_secs(0),
+        );
     }
 
     #[test]

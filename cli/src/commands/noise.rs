@@ -156,7 +156,8 @@ mod tests {
     #[test]
     fn test_scan_vault_empty_dir() {
         let temp = TempDir::new().unwrap();
-        let (candidates, _truncated) = scan_vault(temp.path(), &default_extensions(), true, 5, 1000);
+        let (candidates, _truncated) =
+            scan_vault(temp.path(), &default_extensions(), true, 5, 1000);
         assert!(candidates.is_empty());
     }
 
@@ -260,7 +261,10 @@ mod tests {
 
         let (candidates, _truncated) = scan_vault(&vault, &default_extensions(), true, 5, 1000);
         assert_eq!(candidates.len(), 4);
-        let paths: Vec<_> = candidates.iter().map(|c| c.relative_path.as_str()).collect();
+        let paths: Vec<_> = candidates
+            .iter()
+            .map(|c| c.relative_path.as_str())
+            .collect();
         assert!(paths.contains(&"node_modules"));
         assert!(paths.contains(&"dist"));
         assert!(paths.contains(&"templates"));
@@ -362,6 +366,9 @@ mod tests {
         let (candidates, truncated) = scan_vault(&vault, &["md".to_string()], true, 5, 0);
         // With limit=0, the single candidate is truncated to 0 elements
         assert!(candidates.is_empty());
-        assert!(truncated, "candidate_limit=0 should truncate if candidates exist");
+        assert!(
+            truncated,
+            "candidate_limit=0 should truncate if candidates exist"
+        );
     }
 }
