@@ -182,66 +182,66 @@ mod tests {
 
     #[test]
     fn test_resolve_path_env_uses_env_var_when_set() {
-        std::env::set_var("SHIOTSUCHI_TEST_PATH", "/tmp/notes");
-        let result = resolve_path_env("SHIOTSUCHI_TEST_PATH", PathBuf::from("default"));
+        std::env::set_var("SHIOTSUCHI_TEST_ABSOLUTE", "/tmp/notes");
+        let result = resolve_path_env("SHIOTSUCHI_TEST_ABSOLUTE", PathBuf::from("default"));
         assert_eq!(result, PathBuf::from("/tmp/notes"));
-        std::env::remove_var("SHIOTSUCHI_TEST_PATH");
+        std::env::remove_var("SHIOTSUCHI_TEST_ABSOLUTE");
     }
 
     #[test]
     fn test_resolve_path_env_falls_back_when_unset() {
-        std::env::remove_var("SHIOTSUCHI_TEST_PATH_NONEXISTENT");
-        let result = resolve_path_env("SHIOTSUCHI_TEST_PATH_NONEXISTENT", PathBuf::from("default"));
+        std::env::remove_var("SHIOTSUCHI_TEST_NONEXISTENT");
+        let result = resolve_path_env("SHIOTSUCHI_TEST_NONEXISTENT", PathBuf::from("default"));
         assert_eq!(result, PathBuf::from("default"));
     }
 
     #[test]
     fn test_resolve_path_env_rejects_dotdot_traversal() {
-        std::env::set_var("SHIOTSUCHI_TEST_PATH", "../outside");
-        let result = resolve_path_env("SHIOTSUCHI_TEST_PATH", PathBuf::from("default"));
+        std::env::set_var("SHIOTSUCHI_TEST_DOTDOT", "../outside");
+        let result = resolve_path_env("SHIOTSUCHI_TEST_DOTDOT", PathBuf::from("default"));
         assert_eq!(
             result,
             PathBuf::from("default"),
             "should fall back when .. detected"
         );
-        std::env::remove_var("SHIOTSUCHI_TEST_PATH");
+        std::env::remove_var("SHIOTSUCHI_TEST_DOTDOT");
     }
 
     #[test]
     fn test_resolve_path_env_rejects_multiple_dotdot_traversal() {
-        std::env::set_var("SHIOTSUCHI_TEST_PATH", "../../etc/passwd");
-        let result = resolve_path_env("SHIOTSUCHI_TEST_PATH", PathBuf::from("default"));
+        std::env::set_var("SHIOTSUCHI_TEST_NESTED_DOTDOT", "../../etc/passwd");
+        let result = resolve_path_env("SHIOTSUCHI_TEST_NESTED_DOTDOT", PathBuf::from("default"));
         assert_eq!(
             result,
             PathBuf::from("default"),
             "should fall back when .. detected"
         );
-        std::env::remove_var("SHIOTSUCHI_TEST_PATH");
+        std::env::remove_var("SHIOTSUCHI_TEST_NESTED_DOTDOT");
     }
 
     #[test]
     fn test_resolve_path_env_accepts_relative_path_without_dotdot() {
-        std::env::set_var("SHIOTSUCHI_TEST_PATH", "notes");
-        let result = resolve_path_env("SHIOTSUCHI_TEST_PATH", PathBuf::from("default"));
+        std::env::set_var("SHIOTSUCHI_TEST_RELATIVE", "notes");
+        let result = resolve_path_env("SHIOTSUCHI_TEST_RELATIVE", PathBuf::from("default"));
         assert_eq!(result, PathBuf::from("notes"));
-        std::env::remove_var("SHIOTSUCHI_TEST_PATH");
+        std::env::remove_var("SHIOTSUCHI_TEST_RELATIVE");
     }
 
     #[test]
     fn test_resolve_path_env_accepts_absolute_path_with_dotdot() {
         // Absolute paths with .. are allowed (e.g., /home/user/../config)
-        std::env::set_var("SHIOTSUCHI_TEST_PATH", "/home/user/../config");
-        let result = resolve_path_env("SHIOTSUCHI_TEST_PATH", PathBuf::from("default"));
+        std::env::set_var("SHIOTSUCHI_TEST_ABSOLUTE_DOTDOT", "/home/user/../config");
+        let result = resolve_path_env("SHIOTSUCHI_TEST_ABSOLUTE_DOTDOT", PathBuf::from("default"));
         assert_eq!(result, PathBuf::from("/home/user/../config"));
-        std::env::remove_var("SHIOTSUCHI_TEST_PATH");
+        std::env::remove_var("SHIOTSUCHI_TEST_ABSOLUTE_DOTDOT");
     }
 
     #[test]
     fn test_resolve_path_env_falls_back_on_empty_var() {
-        std::env::set_var("SHIOTSUCHI_TEST_PATH", "");
-        let result = resolve_path_env("SHIOTSUCHI_TEST_PATH", PathBuf::from("default"));
+        std::env::set_var("SHIOTSUCHI_TEST_EMPTY", "");
+        let result = resolve_path_env("SHIOTSUCHI_TEST_EMPTY", PathBuf::from("default"));
         assert_eq!(result, PathBuf::from("default"));
-        std::env::remove_var("SHIOTSUCHI_TEST_PATH");
+        std::env::remove_var("SHIOTSUCHI_TEST_EMPTY");
     }
 
     fn write_config(dir: &TempDir, content: &str) -> PathBuf {
