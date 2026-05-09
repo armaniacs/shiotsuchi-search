@@ -83,11 +83,54 @@
 
 ## 修正計画
 
-| フェーズ | 内容 | 対応指摘 |
-|---------|------|---------|
-| 1 | WAL/SHM コンパニオンファイルの `0o600` 設定 | High #1 |
-| 2 | 親ディレクトリ `0o700` 制限 | High #2 (代替), Medium #5 |
-| 3 | バックアップ失敗時のクリーンアップ | Medium #3 |
-| 4 | `--force` / `--debounce` を隠しフラグ + 警告に復元 | Medium #4 |
-| 5 | 文書更新: `--verbose`, `delete` オプション表 | Low #7 |
-| 6 | 保守性: `debounce_ms` 整理 | Low #8 |
+| フェーズ | 内容 | 対応指摘 | 状態 |
+|---------|------|---------|------|
+| 1 | WAL/SHM コンパニオンファイルの `0o600` 設定 | High #1 | **完了** (`9011e08`) |
+| 2 | 親ディレクトリ `0o700` 制限 (chart.rs, scan.rs) | High #2 (代替), Medium #5 | **完了** (`9011e08`, `0c6aff9`) |
+| 3 | バックアップ失敗時のクリーンアップ | Medium #3 | **完了** (`9011e08`) |
+| 4 | `--force` / `--debounce` を隠しフラグ + 警告に復元 | Medium #4 | **完了** (`9011e08`, `0c6aff9`) |
+| 5 | MCP `create_dir_all` エラー処理改善 | Medium (Compliance & Privacy) | **完了** (`0c6aff9`) |
+| 6 | 文書更新: `--verbose`, `delete` オプション表 | Low #7 | **保留** |
+| 7 | 保守性: `debounce_ms` 整理 | Low #8 | **保留** |
+
+### Phase 1-5 実装詳細
+
+#### `core/src/db.rs`
+```rust
+// init_schema() 後にコンパニオンファイルも制限
+#[cfg(unix)]
+if is_fresh {
+    // main DB
+    std::fs::set_permissions(&path, Permissions::from_mode(0o600))...;
+    // WAL/SHM
+    for suffix in ["-wal", "-shm"] {
+        let companion = PathBuf::from(format!("{}{}", base, suffix));
+        if companion.exists() { set_permissions(..., 0o600)... }
+    }
+}
+```
+
+#### `cli/src/commands/chart.rs` / `scan.rs`
+```rust
+#[arg(long, hide = true)]
+pub force: bool,  // deprecated, warns on use
+
+#[arg(long, hide = true)]
+pub debounce: Option<u64>,  // deprecated, warns on use
+```
+
+#### `cli/src/commands/init.rs`
+```rust
+if let Err(e) = std::fs::set_permissions(&backup_path, Permissions::from_mode(0o600)) {
+    let _ = std::fs::remove_file(&backup_path);  // cleanup on failure
+    return Err(e.into());
+}
+```
+
+### 検証結果
+
+```bash
+cargo fmt --all --check       # clean
+cargo clippy --workspace ...  # clean
+cargo test --workspace ...    # 133 passed, 0 failed
+```
