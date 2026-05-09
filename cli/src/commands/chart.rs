@@ -35,20 +35,8 @@ pub fn run_chart(
     }
     if let Some(parent) = db_path.parent() {
         std::fs::create_dir_all(parent)?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            if let Ok(meta) = std::fs::metadata(parent) {
-                if meta.permissions().mode() & 0o777 != 0o700 {
-                    if let Err(e) =
-                        std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700))
-                    {
-                        log::warn!("Failed to set parent directory permissions to 0o700: {}", e);
-                    }
-                }
-            }
-        }
     }
+    crate::util::secure_parent_dir(db_path);
     let db = NoteDatabase::open(db_path)?;
     let tokenizer = get_tokenizer()?;
     let config = IndexConfig {
@@ -131,6 +119,65 @@ mod tests {
                 }
                 panic!("chart test failed: {}", e);
             }
+        }
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_chart_creates_parent_dir_with_0700() {
+        use std::os::unix::fs::PermissionsExt;
+        let temp = TempDir::new().unwrap();
+        let vault = temp.path().join("vault");
+        std::fs::create_dir_all(&vault).unwrap();
+        fs::write(vault.join("note.md"), "# Test").unwrap();
+
+        let db_path = temp.path().join("cache").join("subdir").join("test.db");
+        let args = ChartArgs {
+            force: false,
+            quiet: true,
+        };
+        let idx_cfg = IndexingConfig::default();
+        let _result = run_chart(&args, &vault, &db_path, &idx_cfg);
+
+        let parent = db_path.parent().unwrap();
+        if parent.exists() {
+            let mode = std::fs::metadata(parent).unwrap().permissions().mode() & 0o777;
+            assert_eq!(
+                mode, 0o700,
+                "parent directory should have 0o700 permissions"
+            );
+        }
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_chart_parent_dir_0700_with_nested_path() {
+        use std::os::unix::fs::PermissionsExt;
+        let temp = TempDir::new().unwrap();
+        let vault = temp.path();
+        fs::write(vault.join("note.md"), "# Test").unwrap();
+
+        let db_path = temp.path().join("a").join("b").join("c").join("test.db");
+        let args = ChartArgs {
+            force: false,
+            quiet: true,
+        };
+        let idx_cfg = IndexingConfig::default();
+        let _result = run_chart(&args, vault, &db_path, &idx_cfg);
+
+        // secure_parent_dir sets 0o700 on the immediate parent (c)
+        // ancestor directories (a, b) are not modified by the utility
+        let immediate_parent = db_path.parent().unwrap();
+        if immediate_parent.exists() {
+            let mode = std::fs::metadata(immediate_parent)
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777;
+            assert_eq!(
+                mode, 0o700,
+                "immediate parent should have 0o700 permissions"
+            );
         }
     }
 }

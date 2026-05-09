@@ -199,8 +199,7 @@ follow_links        = false
 dynamic_threshold   = 5
 
 [watcher]
-debounce_ms = 500
-enabled     = true
+enabled = true
 ```
 
 > **注:** `exclude_patterns` フィールドは v0.2.9 で `exclude_dirs` にリネームされました。

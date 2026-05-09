@@ -7,9 +7,33 @@ use protocol::{McpNotification, McpRequest, McpResponse};
 use serde::{Deserialize, Serialize};
 use shiotsuchi_core::paths::default_db_path as core_default_db_path;
 use std::{
+    ffi::OsString,
     io::{self, BufRead, Write},
     path::{Path, PathBuf},
 };
+
+/// Resolve a path from an environment variable with traversal validation.
+/// Falls back to `default` if the variable is unset or contains `..` traversal.
+fn resolve_path_env(var: &str, default: PathBuf) -> PathBuf {
+    let val: Option<OsString> = std::env::var_os(var).filter(|v| !v.is_empty());
+    match val {
+        Some(v) => {
+            let p = PathBuf::from(&v);
+            // Only reject relative paths with '..' traversal.
+            // Absolute paths like /home/user/../config are allowed.
+            if !p.is_absolute() && p.to_string_lossy().contains("..") {
+                eprintln!(
+                    "Warning: {} contains '..' (path traversal), using config default",
+                    var
+                );
+                default
+            } else {
+                p
+            }
+        }
+        None => default,
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -114,8 +138,8 @@ fn main() {
         None => McpConfig::load_default(),
     };
 
-    let notes_dir = cfg.notes_dir;
-    let db_path = cfg.db_path;
+    let notes_dir = resolve_path_env("SHIOTSUCHI_NOTES_DIR", cfg.notes_dir);
+    let db_path = resolve_path_env("SHIOTSUCHI_DB_PATH", cfg.db_path);
 
     if let Some(parent) = db_path.parent() {
         if !parent.exists() {
@@ -151,6 +175,74 @@ mod tests {
     use super::*;
     use std::fs;
     use tempfile::TempDir;
+
+    // ---------------------------------------------------------------------------
+    // resolve_path_env tests
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn test_resolve_path_env_uses_env_var_when_set() {
+        std::env::set_var("SHIOTSUCHI_TEST_PATH", "/tmp/notes");
+        let result = resolve_path_env("SHIOTSUCHI_TEST_PATH", PathBuf::from("default"));
+        assert_eq!(result, PathBuf::from("/tmp/notes"));
+        std::env::remove_var("SHIOTSUCHI_TEST_PATH");
+    }
+
+    #[test]
+    fn test_resolve_path_env_falls_back_when_unset() {
+        std::env::remove_var("SHIOTSUCHI_TEST_PATH_NONEXISTENT");
+        let result = resolve_path_env("SHIOTSUCHI_TEST_PATH_NONEXISTENT", PathBuf::from("default"));
+        assert_eq!(result, PathBuf::from("default"));
+    }
+
+    #[test]
+    fn test_resolve_path_env_rejects_dotdot_traversal() {
+        std::env::set_var("SHIOTSUCHI_TEST_PATH", "../outside");
+        let result = resolve_path_env("SHIOTSUCHI_TEST_PATH", PathBuf::from("default"));
+        assert_eq!(
+            result,
+            PathBuf::from("default"),
+            "should fall back when .. detected"
+        );
+        std::env::remove_var("SHIOTSUCHI_TEST_PATH");
+    }
+
+    #[test]
+    fn test_resolve_path_env_rejects_multiple_dotdot_traversal() {
+        std::env::set_var("SHIOTSUCHI_TEST_PATH", "../../etc/passwd");
+        let result = resolve_path_env("SHIOTSUCHI_TEST_PATH", PathBuf::from("default"));
+        assert_eq!(
+            result,
+            PathBuf::from("default"),
+            "should fall back when .. detected"
+        );
+        std::env::remove_var("SHIOTSUCHI_TEST_PATH");
+    }
+
+    #[test]
+    fn test_resolve_path_env_accepts_relative_path_without_dotdot() {
+        std::env::set_var("SHIOTSUCHI_TEST_PATH", "notes");
+        let result = resolve_path_env("SHIOTSUCHI_TEST_PATH", PathBuf::from("default"));
+        assert_eq!(result, PathBuf::from("notes"));
+        std::env::remove_var("SHIOTSUCHI_TEST_PATH");
+    }
+
+    #[test]
+    fn test_resolve_path_env_accepts_absolute_path_with_dotdot() {
+        // Absolute paths with .. are allowed (e.g., /home/user/../config)
+        std::env::set_var("SHIOTSUCHI_TEST_PATH", "/home/user/../config");
+        let result = resolve_path_env("SHIOTSUCHI_TEST_PATH", PathBuf::from("default"));
+        assert_eq!(result, PathBuf::from("/home/user/../config"));
+        std::env::remove_var("SHIOTSUCHI_TEST_PATH");
+    }
+
+    #[test]
+    fn test_resolve_path_env_falls_back_on_empty_var() {
+        std::env::set_var("SHIOTSUCHI_TEST_PATH", "");
+        let result = resolve_path_env("SHIOTSUCHI_TEST_PATH", PathBuf::from("default"));
+        assert_eq!(result, PathBuf::from("default"));
+        std::env::remove_var("SHIOTSUCHI_TEST_PATH");
+    }
 
     fn write_config(dir: &TempDir, content: &str) -> PathBuf {
         let path = dir.path().join("config.toml");

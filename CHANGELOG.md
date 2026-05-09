@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-05-10
+
+### Added
+
+- **MCP path traversal protection:** `SHIOTSUCHI_NOTES_DIR` and `SHIOTSUCHI_DB_PATH` environment variables are now validated — relative paths containing `..` are rejected with a warning, falling back to config defaults.
+- **Permission utility for CLI:** Extracted `secure_parent_dir()` into `cli/src/util.rs`, shared between `chart` and `scan` commands (DRY).
+- **CLI global flag tests:** 11 new unit tests verify `--notes-dir`, `--db-path`, and `--verbose` are accepted on every subcommand, both before and after the subcommand.
+- **Directory permission tests:** Added Unix-specific tests in `chart.rs` and `scan.rs` verifying parent directories are created with `0o700`.
+
+### Changed
+
+- **Removed `debounce_ms` from `WatcherConfig`:** The field was unused — `VaultWatcher` never consumed it. Removed from struct, default, docs (`CLI-USE.md`, `CLI-USE.ja.md`, `INSTALL.md`, `INSTALL.ja.md`, `ref/cli.md`).
+- **`exclude_patterns` references fully purged from docs:** README, README.ja, INSTALL, INSTALL.ja, ref/core, ref/models — all config examples and field descriptions now use `exclude_dirs`.
+
+### Fixed
+
+- **`ref/models.md` and `ref/core.md`:** Updated stale `IndexConfig` field listings to match the actual struct (was `exclude_patterns`, missing `auto_exclude_hidden`, `follow_links`, `dynamic_threshold`).
+
+### Security
+
+- **Defense-in-depth for MCP:** The `resolve_path_env()` function provides a validation boundary before paths reach the handler layer, complementing the existing `read_full_note` traversal check.
+
+---
+
 ## [0.3.0] - 2026-05-09
 
 ### Added
@@ -247,7 +271,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `docs/MODEL_LICENSES.md` with BSD-3-Clause notice for the bundled tokenizer model
 - `README.md` (English) and `README.ja.md` (Japanese)
 
-[Unreleased]: https://github.com/your-org/shiotsuchi-search/compare/v0.2.8...HEAD
+[Unreleased]: https://github.com/your-org/shiotsuchi-search/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/your-org/shiotsuchi-search/compare/v0.3.0...v0.3.1
 [0.2.8]: https://github.com/your-org/shiotsuchi-search/compare/v0.2.7...v0.2.8
 [0.2.7]: https://github.com/your-org/shiotsuchi-search/compare/v0.2.6...v0.2.7
 [0.2.6]: https://github.com/your-org/shiotsuchi-search/compare/v0.2.5...v0.2.6

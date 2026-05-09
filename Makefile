@@ -60,10 +60,12 @@ uninstall:
 integration-test: build
 	cd integration && npm install --silent && npm test
 
-test-all: clean test test-e2e integration-test
+# test-all requires Docker/Act installed for the local-ci target
+test-all: clean test test-e2e integration-test local-ci
 
+# On Apple Silicon (arm64), run arm64 containers natively to avoid QEMU linker crashes.
 local-ci: $(MODEL_FILE)
-	act
+	act $$( [ "$$(uname -m)" = "arm64" ] && echo "--container-architecture linux/arm64" )
 
 .PHONY: doc
 doc:
@@ -94,7 +96,7 @@ help:
 	@echo "  test-e2e         Run end-to-end integration tests"
 	@echo "  integration-test Run Vitest MCP integration tests"
 	@echo "  test-all         Run all tests (Rust + E2E + Vitest)"
-	@echo "  local-ci         Run GitHub Actions CI locally using act"
+	@echo "  local-ci         Run GitHub Actions CI locally using act (auto-detects architecture)"
 	@echo "  bench            Run criterion benchmarks"
 	@echo "  install          Install binaries to ~/.local/bin (or ~/.cargo/bin if exists) when not root, otherwise to $(PREFIX)/bin [default: /usr/local/bin]"
 	@echo "  uninstall        Remove installed binaries"
@@ -102,4 +104,4 @@ help:
 	@echo "  clean            Remove build artifacts"
 	@echo "  help             Show this help"
 
-.PHONY: build build-dev test test-e2e bench install uninstall clean help model integration-test test-all
+.PHONY: build build-dev test test-e2e bench install uninstall clean help model integration-test test-all local-ci

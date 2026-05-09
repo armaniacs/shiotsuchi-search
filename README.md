@@ -70,7 +70,7 @@ db_path = "/home/name/.cache/shiotsuchi/db.sqlite3"
 [indexing]
 snippet_lines = 3
 include_extensions = ["md", "markdown"]
-exclude_patterns = [".obsidian", ".git", "node_modules"]
+exclude_dirs = ["node_modules"]
 ```
 
 ## Performance

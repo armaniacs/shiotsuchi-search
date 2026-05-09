@@ -25,6 +25,7 @@ jobs:
           components: clippy, rustfmt
 
       - name: Cache Rust dependencies
+        if: ${{ !env.ACT }}
         uses: Swatinem/rust-cache@v2
 
       - name: Check formatting
@@ -40,6 +41,7 @@ jobs:
         run: cargo test --workspace --exclude shiotsuchi-e2e
 
       - name: Check security advisories
+        if: ${{ !env.ACT }}
         uses: rustsec/audit-check@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}

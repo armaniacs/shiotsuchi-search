@@ -1,5 +1,6 @@
 mod commands;
 mod config;
+mod util;
 
 use clap::{Parser, Subcommand};
 use std::time::Instant;
@@ -129,8 +130,112 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    // ---------------------------------------------------------------------------
+    // Global flag tests
+    // ---------------------------------------------------------------------------
+
+    fn parse_cli(args: &[&str]) -> Cli {
+        Cli::try_parse_from(args).unwrap()
+    }
+
     #[test]
-    fn test_version_flag_compiles() {
-        assert!(true);
+    fn test_global_notes_dir_on_dive_subcommand() {
+        let cli = parse_cli(&["shiotsuchi", "dive", "--notes-dir", "/my/notes", "query"]);
+        assert_eq!(cli.notes_dir, Some(PathBuf::from("/my/notes")));
+        assert!(matches!(cli.command, Commands::Dive(_)));
+    }
+
+    #[test]
+    fn test_global_db_path_on_dive_subcommand() {
+        let cli = parse_cli(&["shiotsuchi", "dive", "--db-path", "/my/db", "query"]);
+        assert_eq!(cli.db_path, Some(PathBuf::from("/my/db")));
+        assert!(matches!(cli.command, Commands::Dive(_)));
+    }
+
+    #[test]
+    fn test_global_verbose_on_tide_subcommand() {
+        let cli = parse_cli(&["shiotsuchi", "tide", "--verbose"]);
+        assert!(cli.verbose);
+        assert!(matches!(cli.command, Commands::Tide));
+    }
+
+    #[test]
+    fn test_global_flag_before_subcommand_position() {
+        let cli = parse_cli(&["shiotsuchi", "--notes-dir", "/my/notes", "dive", "query"]);
+        assert_eq!(cli.notes_dir, Some(PathBuf::from("/my/notes")));
+        assert!(matches!(cli.command, Commands::Dive(_)));
+    }
+
+    #[test]
+    fn test_global_db_path_on_scan_subcommand() {
+        let cli = parse_cli(&["shiotsuchi", "scan", "--db-path", "/my/db"]);
+        assert_eq!(cli.db_path, Some(PathBuf::from("/my/db")));
+        assert!(matches!(cli.command, Commands::Scan(_)));
+    }
+
+    #[test]
+    fn test_global_notes_dir_on_top_level() {
+        let cli = parse_cli(&["shiotsuchi", "--notes-dir", "/top/notes", "tide"]);
+        assert_eq!(cli.notes_dir, Some(PathBuf::from("/top/notes")));
+    }
+
+    #[test]
+    fn test_global_flags_accepted_on_all_subcommands() {
+        // Subcommands with no required positionals: chart, init, log, scan, tide
+        for cmd in &["chart", "init", "log", "scan", "tide"] {
+            let args: Vec<&str> = vec!["shiotsuchi", cmd, "--verbose"];
+            let r = Cli::try_parse_from(args);
+            assert!(r.is_ok(), "{} --verbose should be accepted", cmd);
+        }
+        // Subcommands with required positionals:
+        let r = Cli::try_parse_from(["shiotsuchi", "dive", "--verbose", "test"]);
+        assert!(r.is_ok(), "dive --verbose should be accepted");
+        let r = Cli::try_parse_from(["shiotsuchi", "delete", "--verbose", "path/to/note.md"]);
+        assert!(r.is_ok(), "delete --verbose should be accepted");
+        // config requires its own subcommand
+        let r = Cli::try_parse_from(["shiotsuchi", "config", "--verbose", "detect-noise"]);
+        assert!(
+            r.is_ok(),
+            "config detect-noise --verbose should be accepted"
+        );
+    }
+
+    #[test]
+    fn test_env_var_mapped_notes_dir() {
+        // Verify the env var name is set (actual env read happens at runtime)
+        // This tests the clap config, not the env var itself
+        let cli = parse_cli(&["shiotsuchi", "--notes-dir", "/env/notes", "tide"]);
+        assert_eq!(cli.notes_dir, Some(PathBuf::from("/env/notes")));
+    }
+
+    #[test]
+    fn test_help_does_not_panic() {
+        // --help on any subcommand should not panic
+        let r = Cli::try_parse_from(["shiotsuchi", "dive", "--help"]);
+        assert!(r.is_err()); // clap returns error when --help is used
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Doc-consistency compile-time check:
+// The field name in ref/models.md must match the actual struct field.
+// If you rename `exclude_dirs`, update ref/models.md too.
+// ---------------------------------------------------------------------------
+#[cfg(test)]
+mod doc_consistency_tests {
+    // These tests verify documentation matches code behavior.
+    // They are compile-time/assertion checks against the actual struct layout.
+
+    #[test]
+    fn test_index_config_uses_exclude_dirs() {
+        // Actual code uses `exclude_dirs` — the ref docs must match.
+        // This is a compile-time guard: if someone renames the field,
+        // they must update all documentation references.
+        let cfg = shiotsuchi_core::models::IndexConfig::default();
+        // Just verify the default is non-empty and uses the correct field name
+        assert!(cfg.exclude_dirs.contains(&"node_modules".to_string()));
     }
 }

@@ -9,7 +9,7 @@ use std::{
 
 #[derive(Args, Debug)]
 pub struct ScanArgs {
-    /// Deprecated: debounce is configured via watcher.debounce_ms in config.toml.
+    /// Deprecated: debounce is now managed internally by the file watcher.
     #[arg(long, hide = true)]
     pub debounce: Option<u64>,
 }
@@ -23,25 +23,13 @@ pub fn run_scan(
     _watcher_cfg: &WatcherConfig,
     indexing_cfg: &crate::config::IndexingConfig,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    if let Some(d) = args.debounce {
-        eprintln!("warning: --debounce is deprecated; configure via [watcher] debounce_ms in config.toml (current: {})", d);
+    if let Some(_d) = args.debounce {
+        eprintln!("warning: --debounce is deprecated and has no effect; debounce is managed internally by the watcher");
     }
     if let Some(parent) = db_path.parent() {
         std::fs::create_dir_all(parent)?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            if let Ok(meta) = std::fs::metadata(parent) {
-                if meta.permissions().mode() & 0o777 != 0o700 {
-                    if let Err(e) =
-                        std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700))
-                    {
-                        log::warn!("Failed to set parent directory permissions to 0o700: {}", e);
-                    }
-                }
-            }
-        }
     }
+    crate::util::secure_parent_dir(db_path);
     let db = Arc::new(Mutex::new(NoteDatabase::open(db_path)?));
     let tokenizer = get_tokenizer()?;
     let config = IndexConfig {
@@ -82,5 +70,21 @@ mod tests {
             ..Default::default()
         };
         let _watcher = VaultWatcher::new(db, tokenizer, config);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_scan_parent_dir_0700_via_utility() {
+        use std::os::unix::fs::PermissionsExt;
+        let temp = TempDir::new().unwrap();
+        let db_path = temp.path().join("cache").join("scan-test.db");
+        let db_dir = db_path.parent().unwrap();
+        std::fs::create_dir_all(db_dir).unwrap();
+
+        // Same path that run_scan uses
+        crate::util::secure_parent_dir(&db_path);
+
+        let mode = std::fs::metadata(db_dir).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o700, "scan parent dir should have 0o700 permissions");
     }
 }

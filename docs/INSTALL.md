@@ -114,11 +114,10 @@ db_path    = "/Users/yourname/.cache/shiotsuchi/db.sqlite3"
 [indexing]
 snippet_lines       = 3
 include_extensions  = ["md", "markdown"]
-exclude_patterns    = [".obsidian", ".git", "node_modules"]
+exclude_dirs         = ["node_modules"]
 
 [watcher]
-debounce_ms = 500
-enabled     = true
+enabled = true
 ```
 
 ### Watch for changes

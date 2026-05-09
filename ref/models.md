@@ -48,7 +48,10 @@ Enum representing the outcome of indexing a single file:
 pub struct IndexConfig {
     pub notes_dir: PathBuf,
     pub include_extensions: Vec<String>,  // ["md", "markdown"]
-    pub exclude_patterns: Vec<String>,     // [".git", ".obsidian", "node_modules"]
+    pub exclude_dirs: Vec<String>,         // ["node_modules"]
+    pub auto_exclude_hidden: bool,         // true
+    pub follow_links: bool,                // false
+    pub dynamic_threshold: usize,          // 5
 }
 ```
 

@@ -199,8 +199,7 @@ follow_links       = false
 dynamic_threshold  = 5
 
 [watcher]
-debounce_ms = 500
-enabled     = true
+enabled = true
 ```
 
 > **Note:** The field `exclude_patterns` was renamed to `exclude_dirs` in v0.2.9.

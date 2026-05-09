@@ -40,7 +40,6 @@ follow_links = false
 dynamic_threshold = 5
 
 [watcher]
-debounce_ms = 500
 enabled = true
 ```
 
@@ -61,7 +60,6 @@ enabled = true
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `debounce_ms` | integer | 500 | Debounce interval for the file watcher |
 | `enabled` | bool | `true` | Enable the file watcher |
 
 ## Config Migration (v0.2.9)

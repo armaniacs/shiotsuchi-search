@@ -64,16 +64,12 @@ impl Default for IndexingConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct WatcherConfig {
-    pub debounce_ms: u64,
     pub enabled: bool,
 }
 
 impl Default for WatcherConfig {
     fn default() -> Self {
-        Self {
-            debounce_ms: 500,
-            enabled: true,
-        }
+        Self { enabled: true }
     }
 }
 
@@ -127,7 +123,6 @@ mod tests {
     fn test_default_config() {
         let config = ShiotsuchiConfig::default();
         assert_eq!(config.indexing.include_extensions, vec!["md", "markdown"]);
-        assert_eq!(config.watcher.debounce_ms, 500);
     }
 
     #[test]

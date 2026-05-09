@@ -105,7 +105,7 @@ Read file ──► Extract frontmatter ──► Markdown to text ──► Tok
 | `SearchResult` | path, title, snippet, score |
 | `VaultStats` | total_notes, total_size_bytes, last_indexed_at, db_path |
 | `IndexResult` | Inserted / Updated / Skipped / Error(String) |
-| `IndexConfig` | notes_dir, include_extensions, exclude_patterns |
+| `IndexConfig` | notes_dir, include_extensions, exclude_dirs, auto_exclude_hidden, follow_links, dynamic_threshold |
 
 ### `watcher.rs` — File System Watcher
 
