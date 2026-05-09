@@ -62,6 +62,9 @@ integration-test: build
 
 test-all: clean test test-e2e integration-test
 
+local-ci: $(MODEL_FILE)
+	act
+
 .PHONY: doc
 doc:
 	@echo "Generating local documentation..."
@@ -91,6 +94,7 @@ help:
 	@echo "  test-e2e         Run end-to-end integration tests"
 	@echo "  integration-test Run Vitest MCP integration tests"
 	@echo "  test-all         Run all tests (Rust + E2E + Vitest)"
+	@echo "  local-ci         Run GitHub Actions CI locally using act"
 	@echo "  bench            Run criterion benchmarks"
 	@echo "  install          Install binaries to ~/.local/bin (or ~/.cargo/bin if exists) when not root, otherwise to $(PREFIX)/bin [default: /usr/local/bin]"
 	@echo "  uninstall        Remove installed binaries"
