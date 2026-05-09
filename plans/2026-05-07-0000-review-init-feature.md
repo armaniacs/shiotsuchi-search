@@ -1,6 +1,6 @@
 # Checking Team Review Report
-## Branch: main
-## Date: 2026-05-07 (Updated 2026-05-09)
+## Branch: feature-0507
+## Date: 2026-05-07 (Updated 2026-05-09 10:19 JST)
 
 > **Update Log (2026-05-09):** 以下の修正が追加実施され、すべての High/Medium 指摘が解決済み。v0.2.9 として CHANGELOG に記録済み。
 >
@@ -26,6 +26,20 @@
 > | 18 | `chrono` 依存（単一タイムスタンプ生成） | **修正済** | v0.2.9 — `std::time::SystemTime` + Unix epoch に変更 |
 > | 19 | `index_file` / `index_directory` 重複 | **修正済** | v0.2.9 — `prepare_file()` を共通関数として抽出 |
 > | 20 | cargo fmt / clippy 違反 | **修正済** | 2026-05-09 — `02810f4` |
+>
+> **Update Log 2 (2026-05-09 10:19 JST, branch `feature-0507`):**
+> `plan-h2-init-fix-remaining.md` で定義された TDD テスト一式を追加実装。すべて RED→GREEN→REFACTOR のサイクルに従い実施。
+>
+> | # | 項目 | 状態 | コミット/日付 |
+> |---|------|------|--------------|
+> | 21 | TDD: チャンク分割境界テスト（256エントリ、25.6MB、exact boundary） | **追加済** | `3a3537f` |
+> | 22 | TDD: 小規模 vault 単一チャンクテスト | **追加済** | `3a3537f` |
+> | 23 | TDD: `strip_prefix` シンボリックリンク拒否テスト | **追加済** | `3a3537f` |
+> | 24 | TDD: `index_file` と `index_directory` 結果一致テスト | **追加済** | `3a3537f` |
+> | 25 | TDD: `exclude_dirs` 旧キー拒否 / 新キー受入テスト | **追加済** | `3a3537f` |
+> | 26 | TDD: `dynamic_threshold=0` マッチテスト | **追加済** | `3a3537f` |
+> | 27 | TDD: config/backup ファイルパーミッション `0o600` テスト | **追加済** | `3a3537f` |
+> | 28 | `serde(deny_unknown_fields)` 追加（旧 `exclude_patterns` を確実に拒否） | **修正済** | `3a3537f` |
 
 ---
 
@@ -183,4 +197,15 @@ cargo test --workspace --exclude shiotsuchi-e2e
 cargo build --workspace --exclude shiotsuchi-e2e
 ```
 
-**最終検証日**: 2026-05-09 — すべて PASS
+**最終検証日**: 2026-05-09 10:19 JST — **131 tests passing, 0 failures**（+11 from TDD additions on `feature-0507`）
+
+## TDD テスト追加サマリー (`feature-0507`)
+
+| ファイル | テスト数 | テスト名 |
+|---------|---------|---------|
+| `core/src/indexer.rs` | 6 | `test_chunking_splits_at_256_entries`, `test_chunking_splits_at_byte_threshold`, `test_chunking_single_chunk_for_small_vault`, `test_chunking_exact_boundary_256`, `test_strip_prefix_outside_vault_is_rejected`, `test_index_file_and_directory_produce_same_result` |
+| `cli/src/config.rs` | 2 | `test_exclude_dirs_rejects_old_key`, `test_exclude_dirs_accepts_new_key` |
+| `cli/src/commands/noise.rs` | 1 | `test_scan_vault_threshold_zero_matches_all` |
+| `cli/src/commands/init.rs` | 2 | `test_config_file_permissions_0600`, `test_backup_file_permissions_0600` |
+
+**注意**: `test_build_exclude_globset_counts_invalid_patterns` / `test_empty_globset_when_all_patterns_invalid` は計画で「現在の `escape_glob_literal` によりすべてのパターンが有効になり `invalid_patterns` は常に 0 になる」と記載されており、テスト追加対象外とした。将来的に `escape_glob_literal` の挙動が変わった場合に追加を検討。
