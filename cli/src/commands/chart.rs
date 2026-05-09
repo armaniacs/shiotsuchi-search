@@ -11,8 +11,6 @@ use std::path::Path;
 #[derive(Args, Debug)]
 pub struct ChartArgs {
     #[arg(long)]
-    pub force: bool,
-    #[arg(long)]
     pub quiet: bool,
 }
 
@@ -94,10 +92,7 @@ mod tests {
         fs::write(temp.path().join("note.md"), "# Hello\n\nWorld").unwrap();
 
         let db_file = temp.path().join("test.db");
-        let args = ChartArgs {
-            force: false,
-            quiet: true,
-        };
+        let args = ChartArgs { quiet: true };
         let idx_cfg = IndexingConfig::default();
         let result = run_chart(&args, temp.path(), &db_file, &idx_cfg);
         match result {

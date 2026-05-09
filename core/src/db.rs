@@ -22,8 +22,17 @@ pub struct NoteDatabase {
 impl NoteDatabase {
     /// Open or create a database at the given path.
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, DbError> {
-        let conn = Connection::open(path)?;
+        let is_fresh = !path.as_ref().exists();
+        let conn = Connection::open(&path)?;
         conn.pragma_update(None, "journal_mode", "WAL")?;
+        #[cfg(unix)]
+        if is_fresh {
+            use std::os::unix::fs::PermissionsExt;
+            if let Err(e) = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
+            {
+                log::warn!("Failed to set DB file permissions to 0o600: {}", e);
+            }
+        }
         let db = Self {
             conn: RefCell::new(conn),
         };
@@ -331,6 +340,22 @@ mod tests {
         assert!(paths.contains(&"a.md"));
         assert!(paths.contains(&"b.md"));
         assert!(paths.contains(&"c.md"));
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_db_file_created_with_restricted_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+        let temp = tempfile::TempDir::new().unwrap();
+        let db_path = temp.path().join("test.db");
+        let db = NoteDatabase::open(&db_path).unwrap();
+        drop(db); // close connection so we can check file
+        let metadata = std::fs::metadata(&db_path).unwrap();
+        assert_eq!(
+            metadata.permissions().mode() & 0o777,
+            0o600,
+            "newly created DB file should have 0o600 permissions"
+        );
     }
 
     #[test]

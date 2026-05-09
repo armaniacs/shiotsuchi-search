@@ -163,7 +163,7 @@ fn backup_config(config_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(&backup_path, std::fs::Permissions::from_mode(0o600));
+        std::fs::set_permissions(&backup_path, std::fs::Permissions::from_mode(0o600))?;
     }
     println!("Backed up existing config to {}", backup_path.display());
     Ok(())

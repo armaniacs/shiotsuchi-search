@@ -8,10 +8,7 @@ use std::{
 };
 
 #[derive(Args, Debug)]
-pub struct ScanArgs {
-    #[arg(long, default_value = "500")]
-    pub debounce: u64,
-}
+pub struct ScanArgs {}
 
 use crate::config::WatcherConfig;
 

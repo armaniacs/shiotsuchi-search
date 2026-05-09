@@ -62,6 +62,7 @@ Re-running `chart` is safe — it compares file hashes and only updates changed 
 | `--notes-dir` | `.` | Root directory of the vault |
 | `--db-path` | `~/.cache/shiotsuchi/db.sqlite3` | Path to the SQLite index |
 | `--verbose` | off | Print per-file progress |
+| `--quiet` | off | Suppress the summary output |
 
 ---
 
@@ -80,9 +81,24 @@ shiotsuchi dive "meeting" --json   # machine-readable output
 | `--notes-dir` | from config / `.` | Used to resolve relative snippet paths |
 | `--db-path` | `~/.cache/shiotsuchi/db.sqlite3` | Index to search |
 | `--limit` | 20 | Maximum number of results |
-| `--json` | off | Output raw JSON instead of pretty-printed |
+| `--json` | off | Output raw JSON instead of pretty-printed (legacy: use `--format json`) |
+| `--format` | `table` | Output format: `table` / `json` / `json-pretty` |
 
 Result fields: `path`, `title`, `snippet`, `score`.
+
+---
+
+### `delete` — Remove a note from the index
+
+Removes a note entry from the SQLite index by relative vault path. The path is validated to prevent directory traversal (`..`) and vault escape. If the file no longer exists on disk, the DB entry is cleaned up directly.
+
+```sh
+shiotsuchi delete meeting/notes.md
+```
+
+| Argument | Description |
+|----------|-------------|
+| `<path>` | Relative path within the vault (e.g., `meeting/notes.md`) |
 
 ---
 
@@ -94,7 +110,7 @@ Monitors the vault directory for file changes and updates the index automaticall
 shiotsuchi scan --notes-dir ~/Notes
 ```
 
-Keep this running in a terminal or register it as a background service. The watcher debounces rapid edits (default 500 ms) before re-indexing.
+Keep this running in a terminal or register it as a background service. Rapid edits are debounced before re-indexing.
 
 | Option | Default | Description |
 |--------|---------|-------------|
