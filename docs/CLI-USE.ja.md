@@ -19,6 +19,8 @@ shiotsuchi chart
 shiotsuchi dive "プロジェクト計画"
 ```
 
+> すべてのコマンドに `--verbose` フラグが利用可能です。デバッグレベルのログ（ファイルごとの処理詳細、SQL クエリなど）を出力します。トラブルシューティング時に便利です。
+
 ---
 
 ## コマンド
@@ -101,6 +103,13 @@ shiotsuchi delete meeting/notes.md
 |------|------|
 | `<path>` | vault 内の相対パス（例: `meeting/notes.md`） |
 
+**グローバルオプション**（すべてのコマンドで利用可能）:
+
+| オプション | デフォルト | 説明 |
+|-----------|-----------|------|
+| `--notes-dir` | config / `.` | パス解決に使用する vault ルート |
+| `--db-path` | `~/.cache/shiotsuchi/db.sqlite3` | 操作対象のデータベース |
+
 ---
 
 ### `scan` — ファイル変更を監視する
@@ -127,6 +136,10 @@ shiotsuchi scan --notes-dir ~/Notes
 ```sh
 shiotsuchi tide
 ```
+
+| オプション | デフォルト | 説明 |
+|-----------|-----------|------|
+| `--db-path` | `~/.cache/shiotsuchi/db.sqlite3` | 統計を読み込むデータベース |
 
 ---
 
@@ -161,6 +174,10 @@ Exclusion candidates in /Users/yourname/Notes:
 ```sh
 shiotsuchi log
 ```
+
+| オプション | デフォルト | 説明 |
+|-----------|-----------|------|
+| `--db-path` | `~/.cache/shiotsuchi/db.sqlite3` | 履歴を読み込むデータベース |
 
 ---
 

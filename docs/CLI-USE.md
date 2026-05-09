@@ -19,6 +19,8 @@ shiotsuchi chart
 shiotsuchi dive "project plan"
 ```
 
+> The `--verbose` flag is available on every command and prints debug-level logging (e.g., per-file processing details, SQL queries). Useful for troubleshooting.
+
 ---
 
 ## Commands
@@ -73,7 +75,8 @@ Runs a full-text AND search against the index and returns matching notes with sn
 ```sh
 shiotsuchi dive "weekly review"
 shiotsuchi dive "Q3 budget" --limit 5
-shiotsuchi dive "meeting" --json   # machine-readable output
+shiotsuchi dive "meeting" --json        # legacy alias for --format json
+shiotsuchi dive "meeting" --format json-pretty
 ```
 
 | Option | Default | Description |
@@ -99,6 +102,13 @@ shiotsuchi delete meeting/notes.md
 | Argument | Description |
 |----------|-------------|
 | `<path>` | Relative path within the vault (e.g., `meeting/notes.md`) |
+
+**Global options** (available on all commands):
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--notes-dir` | from config / `.` | Vault root to resolve paths |
+| `--db-path` | `~/.cache/shiotsuchi/db.sqlite3` | Database to modify |
 
 ---
 
@@ -126,6 +136,10 @@ Shows the total note count, last indexed time, and database size.
 ```sh
 shiotsuchi tide
 ```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--db-path` | `~/.cache/shiotsuchi/db.sqlite3` | Database to read statistics from |
 
 ---
 
@@ -160,6 +174,10 @@ Lists the most recently indexed files with timestamps.
 ```sh
 shiotsuchi log
 ```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--db-path` | `~/.cache/shiotsuchi/db.sqlite3` | Database to read history from |
 
 ---
 
