@@ -25,17 +25,25 @@ shiotsuchi dive "プロジェクト計画"
 
 ### `init` — 設定ファイルを作成する
 
-`~/.config/shiotsuchi/config.toml`（または `$XDG_CONFIG_HOME/shiotsuchi/config.toml`）をデフォルト設定で生成します。これを一度実行しておくと、`--notes-dir` や `--db-path` を毎回指定する必要がなくなります。
+`~/.config/shiotsuchi/config.toml`（または `$XDG_CONFIG_HOME/shiotsuchi/config.toml`）をデフォルト設定で生成します。TTY で対話的に実行すると、vault をスキャンして除外候補（`node_modules` や `dist`、`templates` などのディレクトリ）を検出し、2段階の選択 UI を提示します。CI やスクリプトなどの非対話環境では `--yes` を使ってすべての候補を自動承認できます。
 
 ```sh
+# 対話モード（デフォルト）
 shiotsuchi init --notes-dir ~/Notes
+
+# 非対話モード（CI・スクリプト向け）
+shiotsuchi init --notes-dir ~/Notes --yes
+
+# 既存設定を最新候補で再生成
+shiotsuchi init --notes-dir ~/Notes --force --yes
 ```
 
 | オプション | デフォルト | 説明 |
 |-----------|-----------|------|
 | `--notes-dir` | `.` | config に保存する vault のルートディレクトリ |
 | `--db-path` | `~/.cache/shiotsuchi/db.sqlite3` | config に保存するデータベースのパス |
-| `--force` | オフ | 既存の設定ファイルを上書きする |
+| `--force` | オフ | 既存の設定ファイルを上書きする（タイムスタンプ付き `.bak` バックアップを作成） |
+| `--yes` | オフ | 非対話モード: 検出した除外候補をすべて自動承認 |
 
 ---
 
@@ -64,7 +72,8 @@ shiotsuchi chart --notes-dir ~/Notes
 ```sh
 shiotsuchi dive "週次レビュー"
 shiotsuchi dive "Q3 予算" --limit 5
-shiotsuchi dive "ミーティング" --json   # 機械可読な JSON 出力
+shiotsuchi dive "ミーティング" --json        # レガシー: --format json と同等
+shiotsuchi dive "ミーティング" --format json-pretty
 ```
 
 | オプション | デフォルト | 説明 |
@@ -72,7 +81,8 @@ shiotsuchi dive "ミーティング" --json   # 機械可読な JSON 出力
 | `--notes-dir` | config / `.` | スニペットのパス解決に使用 |
 | `--db-path` | `~/.cache/shiotsuchi/db.sqlite3` | 検索対象のインデックス |
 | `--limit` | 20 | 最大結果件数 |
-| `--json` | オフ | pretty-print ではなく生 JSON で出力 |
+| `--json` | オフ | コンパクトな JSON 配列を出力（`--format json` のレガシー別名） |
+| `--format` | `table` | 出力形式: `table` / `json` / `json-pretty` |
 
 結果フィールド: `path`、`title`、`snippet`、`score`。
 
@@ -105,6 +115,30 @@ shiotsuchi tide
 
 ---
 
+### `config detect-noise` — 除外候補をスキャンする
+
+vault をスキャンして既知のノイズパターンに一致するディレクトリ、または多くの Markdown ファイルを含むディレクトリを検出し、人間が読める形式でレポートを出力します。設定ファイルは**変更しません** — 検出した候補を反映するには `shiotsuchi init --force` を実行してください。
+
+```sh
+shiotsuchi config detect-noise --notes-dir ~/Notes
+```
+
+| オプション | デフォルト | 説明 |
+|-----------|-----------|------|
+| `--notes-dir` | config | スキャン対象の vault ルート |
+
+出力例:
+
+```
+Exclusion candidates in /Users/yourname/Notes:
+  1. node_modules [known] (142 files)
+  2. dist [known] (3 files)
+  3. archive [known] (0 files)
+  4. generated_docs [dynamic] (15 files)
+```
+
+---
+
 ### `log` — インデックス履歴を表示する
 
 直近にインデックスされたファイルをタイムスタンプ付きで一覧表示します。
@@ -125,14 +159,20 @@ notes_dir = "/Users/yourname/Notes"
 db_path   = "/Users/yourname/.cache/shiotsuchi/db.sqlite3"
 
 [indexing]
-snippet_lines      = 3
-include_extensions = ["md", "markdown"]
-exclude_patterns   = [".obsidian", ".git", "node_modules"]
+snippet_lines       = 3
+include_extensions  = ["md", "markdown"]
+exclude_dirs        = ["node_modules"]
+auto_exclude_hidden = true
+follow_links        = false
+dynamic_threshold   = 5
 
 [watcher]
 debounce_ms = 500
 enabled     = true
 ```
+
+> **注:** `exclude_patterns` フィールドは v0.2.9 で `exclude_dirs` にリネームされました。
+> 既存の config で `exclude_patterns` を使っている場合、`exclude_dirs` にキー名を変更してください。
 
 CLI フラグは常に設定ファイルの値より優先されます。
 
@@ -155,7 +195,7 @@ shiotsuchi chart --notes-dir ~/Work     --db-path ~/.cache/shiotsuchi/work.db
 
 ```sh
 shiotsuchi dive "写真旅行"  --db-path ~/.cache/shiotsuchi/personal.db
-shiotsuchi dive "Q3 予算"  --db-path ~/.cache/shiotsuchi/work.db
+shiotsuchi dive "Q3 予算"   --db-path ~/.cache/shiotsuchi/work.db
 ```
 
 ウォッチャー（それぞれ別のターミナルまたはバックグラウンドで実行）:
