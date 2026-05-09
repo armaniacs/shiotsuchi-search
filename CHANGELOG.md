@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-05-09
+
+### Added
+
+- **TDD test coverage for review fixes:** Added 11 missing tests identified in `plan-h2-init-fix-remaining.md` following strict RED→GREEN→REFACTOR cycles.
+  - Chunking boundary tests (256 entries, 25.6 MB threshold, exact boundary, single chunk for small vaults).
+  - Vault boundary test: symlink outside vault is rejected.
+  - Consistency test: `index_file` and `index_directory` produce identical DB metadata.
+  - Config deserialization tests: old `exclude_patterns` key rejected, new `exclude_dirs` key accepted.
+  - Dynamic threshold test: `threshold=0` matches any directory with >=1 file.
+  - File permission tests (Unix): config and backup files created with `0o600`.
+
+### Fixed
+
+- **`exclude_patterns` now reliably rejected:** Added `#[serde(deny_unknown_fields)]` to `IndexingConfig` so the deprecated `exclude_patterns` key causes a clear deserialization error instead of being silently ignored.
+
+---
+
 ## [0.2.9] - 2026-05-08
 
 ### Added
