@@ -90,7 +90,7 @@
 | 3 | バックアップ失敗時のクリーンアップ | Medium #3 | **完了** (`9011e08`) |
 | 4 | `--force` / `--debounce` を隠しフラグ + 警告に復元 | Medium #4 | **完了** (`9011e08`, `0c6aff9`) |
 | 5 | MCP `create_dir_all` エラー処理改善 | Medium (Compliance & Privacy) | **完了** (`0c6aff9`) |
-| 6 | 文書更新: `--verbose`, `delete` オプション表 | Low #7 | **保留** |
+| 6 | 文書更新: `--verbose`, `delete` オプション表 | Low #7 | **完了** (`6aac874`) |
 | 7 | 保守性: `debounce_ms` 整理 | Low #8 | **保留** |
 
 ### Phase 1-5 実装詳細
