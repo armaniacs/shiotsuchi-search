@@ -8,19 +8,39 @@ use std::{
 };
 
 #[derive(Args, Debug)]
-pub struct ScanArgs {}
+pub struct ScanArgs {
+    /// Deprecated: debounce is configured via watcher.debounce_ms in config.toml.
+    #[arg(long, hide = true)]
+    pub debounce: Option<u64>,
+}
 
 use crate::config::WatcherConfig;
 
 pub fn run_scan(
-    _args: &ScanArgs,
+    args: &ScanArgs,
     notes_dir: &Path,
     db_path: &Path,
     _watcher_cfg: &WatcherConfig,
     indexing_cfg: &crate::config::IndexingConfig,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    if let Some(d) = args.debounce {
+        eprintln!("warning: --debounce is deprecated; configure via [watcher] debounce_ms in config.toml (current: {})", d);
+    }
     if let Some(parent) = db_path.parent() {
         std::fs::create_dir_all(parent)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if let Ok(meta) = std::fs::metadata(parent) {
+                if meta.permissions().mode() & 0o777 != 0o700 {
+                    if let Err(e) =
+                        std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700))
+                    {
+                        log::warn!("Failed to set parent directory permissions to 0o700: {}", e);
+                    }
+                }
+            }
+        }
     }
     let db = Arc::new(Mutex::new(NoteDatabase::open(db_path)?));
     let tokenizer = get_tokenizer()?;

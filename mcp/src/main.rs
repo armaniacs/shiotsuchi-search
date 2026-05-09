@@ -119,7 +119,8 @@ fn main() {
 
     if let Some(parent) = db_path.parent() {
         if !parent.exists() {
-            let _ = std::fs::create_dir_all(parent);
+            std::fs::create_dir_all(parent)
+                .unwrap_or_else(|e| eprintln!("Warning: failed to create parent dir: {}", e));
         }
     }
 
