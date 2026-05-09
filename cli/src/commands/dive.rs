@@ -146,7 +146,10 @@ mod tests {
         let db_file = temp.path().join("test.db");
         let idx_cfg = default_indexing_cfg();
 
-        let chart_args = crate::commands::chart::ChartArgs { quiet: true };
+        let chart_args = crate::commands::chart::ChartArgs {
+            force: false,
+            quiet: true,
+        };
         let chart_result =
             crate::commands::chart::run_chart(&chart_args, temp.path(), &db_file, &idx_cfg);
         if chart_result.is_err() {
@@ -171,7 +174,10 @@ mod tests {
         let db_file = temp.path().join("test.db");
         let idx_cfg = default_indexing_cfg();
         let _ = crate::commands::chart::run_chart(
-            &crate::commands::chart::ChartArgs { quiet: true },
+            &crate::commands::chart::ChartArgs {
+                force: false,
+                quiet: true,
+            },
             temp.path(),
             &db_file,
             &idx_cfg,

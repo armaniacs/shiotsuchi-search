@@ -10,6 +10,9 @@ use std::path::Path;
 
 #[derive(Args, Debug)]
 pub struct ChartArgs {
+    /// Deprecated: use `shiotsuchi init --force` instead.
+    #[arg(long, hide = true)]
+    pub force: bool,
     #[arg(long)]
     pub quiet: bool,
 }
@@ -27,8 +30,24 @@ pub fn run_chart(
     db_path: &Path,
     indexing_cfg: &IndexingConfig,
 ) -> Result<ChartSummary, Box<dyn std::error::Error>> {
+    if args.force {
+        eprintln!("warning: --force is deprecated and has no effect on chart; use `shiotsuchi init --force` instead");
+    }
     if let Some(parent) = db_path.parent() {
         std::fs::create_dir_all(parent)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if let Ok(meta) = std::fs::metadata(parent) {
+                if meta.permissions().mode() & 0o777 != 0o700 {
+                    if let Err(e) =
+                        std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700))
+                    {
+                        log::warn!("Failed to set parent directory permissions to 0o700: {}", e);
+                    }
+                }
+            }
+        }
     }
     let db = NoteDatabase::open(db_path)?;
     let tokenizer = get_tokenizer()?;
@@ -92,7 +111,10 @@ mod tests {
         fs::write(temp.path().join("note.md"), "# Hello\n\nWorld").unwrap();
 
         let db_file = temp.path().join("test.db");
-        let args = ChartArgs { quiet: true };
+        let args = ChartArgs {
+            force: false,
+            quiet: true,
+        };
         let idx_cfg = IndexingConfig::default();
         let result = run_chart(&args, temp.path(), &db_file, &idx_cfg);
         match result {

@@ -25,18 +25,31 @@ impl NoteDatabase {
         let is_fresh = !path.as_ref().exists();
         let conn = Connection::open(&path)?;
         conn.pragma_update(None, "journal_mode", "WAL")?;
-        #[cfg(unix)]
-        if is_fresh {
-            use std::os::unix::fs::PermissionsExt;
-            if let Err(e) = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
-            {
-                log::warn!("Failed to set DB file permissions to 0o600: {}", e);
-            }
-        }
         let db = Self {
             conn: RefCell::new(conn),
         };
         db.init_schema()?;
+        #[cfg(unix)]
+        if is_fresh {
+            use std::os::unix::fs::PermissionsExt;
+            // Restrict main DB file
+            if let Err(e) = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
+            {
+                log::warn!("Failed to set DB file permissions to 0o600: {}", e);
+            }
+            // Restrict WAL/SHM companion files if they exist
+            let base = path.as_ref().to_string_lossy();
+            for suffix in ["-wal", "-shm"] {
+                let companion = std::path::PathBuf::from(format!("{}{}", base, suffix));
+                if companion.exists() {
+                    if let Err(e) =
+                        std::fs::set_permissions(&companion, std::fs::Permissions::from_mode(0o600))
+                    {
+                        log::warn!("Failed to set companion file permissions to 0o600: {}", e);
+                    }
+                }
+            }
+        }
         Ok(db)
     }
 
@@ -356,6 +369,31 @@ mod tests {
             0o600,
             "newly created DB file should have 0o600 permissions"
         );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_db_companion_files_restricted() {
+        use std::os::unix::fs::PermissionsExt;
+        let temp = tempfile::TempDir::new().unwrap();
+        let db_path = temp.path().join("test.db");
+        let db = NoteDatabase::open(&db_path).unwrap();
+        // WAL mode creates -wal and -shm companion files
+        for suffix in ["-wal", "-shm"] {
+            let companion = db_path.with_extension("db");
+            let companion =
+                std::path::PathBuf::from(format!("{}{}", companion.to_string_lossy(), suffix));
+            if companion.exists() {
+                let meta = std::fs::metadata(&companion).unwrap();
+                assert_eq!(
+                    meta.permissions().mode() & 0o777,
+                    0o600,
+                    "companion file {} should have 0o600 permissions",
+                    companion.display()
+                );
+            }
+        }
+        drop(db);
     }
 
     #[test]
