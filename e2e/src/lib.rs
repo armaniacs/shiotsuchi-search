@@ -301,6 +301,8 @@ mod tests {
             .unwrap_or(100);
 
         let handle = thread::spawn(move || -> usize {
+            // Set the model path for the tokenizer in this thread context
+            std::env::set_var("SHIOTSUCHI_MODEL_PATH", model_path());
             let tokenizer = Arc::new(JapaneseTokenizer::new(TokenizerConfig::default()).unwrap());
             let config = IndexConfig {
                 notes_dir: vault.clone(),
