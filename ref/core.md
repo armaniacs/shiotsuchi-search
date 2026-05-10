@@ -87,13 +87,17 @@ Read file ──► Extract frontmatter ──► Markdown to text ──► Tok
 ### `search.rs` — Search Engine
 
 **Key Functions**:
-- `search(db, tokenizer, notes_dir, query, limit)` → FTS5 search + snippet extraction
+- `search(db, tokenizer, notes_dir, query, limit, search_cfg)` → FTS5 search + snippet extraction
 
 **Snippet Extraction** (`extract_snippet`):
 - Finds first matching token position
 - Extracts `max_lines * 2 + 1` lines around match
-- Falls back to first 200 chars if no match
-- Truncates at 500 chars
+- Falls back to first `max_chars` chars if no match
+- Truncates at `max_chars` chars (configurable, default 1000, clamped 128–65535)
+
+**SearchConfig** (`models.rs`):
+- `max_snippet_chars: usize` — clamped to 128–65535, default 1000
+- `SearchConfig::new(value)` applies clamping automatically
 
 **Security**: Path traversal protection via `canonicalize` + `starts_with` vault check
 

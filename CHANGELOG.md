@@ -9,8 +9,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Configurable `max_snippet_chars`:** New `SearchConfig` struct in `core/src/models.rs` with `max_snippet_chars` field — configurable via `config.toml`, default 1000, clamped to 128–65535. Replaces hardcoded `MAX_SNIPPET_CHARS = 500`.
+- **`max_snippet_chars` in CLI config:** Added to `IndexingConfig` in `cli/src/config.rs`. Deserializes from TOML, applies clamping via `SearchConfig::new()`.
+- **Tests:** 7 new tests across core and CLI:
+  - `test_search_config_clamping` — boundary values (128, 5000, 65535)
+  - `test_extract_snippet_respects_max_chars` — truncation at configured limit
+  - `test_extract_snippet_truncate_on_long_multiline` — multiline truncation
+  - `test_extract_snippet_match_after_third_line` — issue #1 reproduction (match on line 4+)
+  - `test_extract_snippet_very_short_max_chars_truncates_before_match` — edge case
+  - `test_search_with_search_config` — end-to-end config propagation
+  - `test_max_snippet_chars_default_is_1000` — CLI config default
+  - `test_max_snippet_chars_from_toml` — TOML deserialization
+  - `test_max_snippet_chars_clamped_by_search_config` — clamping behavior
 - **GitHub Pages landing page:** Added `index.html` for project website hosting on GitHub Pages. Includes project overview, installation instructions, feature highlights, and usage examples.
 - **Repository URL update:** Updated documentation to point to the correct GitHub repository (https://github.com/armaniacs/shiotsuchi-search) in INSTALL.md and INSTALL.ja.md.
+
+### Changed
+
+- **`search()` signature:** Added `search_cfg: Option<&SearchConfig>` parameter. `None` uses default (1000 chars). All call sites updated (CLI `dive`, MCP `handler`, tests).
+- **`extract_snippet()` signature:** Added `max_chars: usize` parameter. Replaces hardcoded constants `MAX_SNIPPET_CHARS` (500) and `FALLBACK_SNIPPET_CHARS` (200). All call sites updated.
+- **Character count consistency:** Fixed `extract_snippet()` truncation check from byte-length (`result.len()`) to character count (`result.chars().count()`) to match `.chars().take(max_chars)`. Ensures correct behavior for multibyte text ( Japanese, emoji, etc.).
+- **Removed constants:** `MAX_SNIPPET_CHARS` (500) and `FALLBACK_SNIPPET_CHARS` (200) removed from `core/src/constants.rs`. Value now flows from `SearchConfig`.
+- **`print_table()` output:** Removed 3-line truncation of snippet in table output. Now displays the full snippet. This fixes issue #1 where search terms appearing after the 3rd line were invisible in `--format table`.
+
+### Fixed
+
+- **Issue #1:** `shiotsuchi dive --format table` で検索文字がスニペットに表示されない — root cause was `print_table()` forcing 3-line display while `extract_snippet()` generates up to 7 lines. Matches on lines 4+ were silently omitted. Fixed by removing the hard 3-line cap in `print_table()`.
+
+### Documentation
+
+- Config examples updated: `docs/INSTALL.md`, `docs/INSTALL.ja.md`, `docs/CLI-USE.md`, `docs/CLI-USE.ja.md`, `README.md`, `README.ja.md`, `ref/cli.md`, `ref/core.md`.
+- `ref/cli.md` field table: Added `max_snippet_chars` row (type: integer, default: 1000, description: clamped 128–65535).
 
 ---
 

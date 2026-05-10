@@ -1,7 +1,10 @@
 use crate::config::IndexingConfig;
 use clap::Args;
 use shiotsuchi_core::{
-    db::NoteDatabase, models::SearchResult, search::search, tokenizer::get_tokenizer,
+    db::NoteDatabase,
+    models::{SearchConfig, SearchResult},
+    search::search,
+    tokenizer::get_tokenizer,
 };
 use std::path::Path;
 use std::time::Duration;
@@ -50,7 +53,7 @@ pub fn run_dive(
     args: &DiveArgs,
     notes_dir: &Path,
     db_path: &Path,
-    _indexing_cfg: &IndexingConfig,
+    indexing_cfg: &IndexingConfig,
 ) -> Result<Vec<SearchResult>, Box<dyn std::error::Error>> {
     if args.query.trim().is_empty() {
         return Ok(vec![]);
@@ -58,7 +61,15 @@ pub fn run_dive(
 
     let db = NoteDatabase::open(db_path)?;
     let tokenizer = get_tokenizer()?;
-    let results = search(&db, &tokenizer, notes_dir, &args.query, args.limit)?;
+    let search_cfg = SearchConfig::new(indexing_cfg.max_snippet_chars);
+    let results = search(
+        &db,
+        &tokenizer,
+        notes_dir,
+        &args.query,
+        args.limit,
+        Some(&search_cfg),
+    )?;
 
     Ok(results)
 }
@@ -96,13 +107,9 @@ fn print_table(results: &[SearchResult], query: &str, elapsed: Duration) {
         println!("  {idx}. {:<60} [{:.2}]", result.title, result.score);
         // Path on the second line (indented)
         println!("     {}", result.path);
-        // Snippet lines (indented, max 2)
-        let lines: Vec<&str> = result.snippet.lines().take(3).collect();
-        for line in &lines {
+        // Snippet lines (indented, full snippet)
+        for line in result.snippet.lines() {
             println!("     {line}");
-        }
-        if result.snippet.lines().count() > 3 {
-            println!("     …");
         }
         println!();
     }

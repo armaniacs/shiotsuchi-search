@@ -186,20 +186,14 @@ shiotsuchi log
 Create `~/.config/shiotsuchi/config.toml` (or `$XDG_CONFIG_HOME/shiotsuchi/config.toml`) to avoid repeating flags on every command.
 
 ```toml
-[vault]
-notes_dir = "/Users/yourname/Notes"
-db_path   = "/Users/yourname/.cache/shiotsuchi/db.sqlite3"
-
 [indexing]
-snippet_lines      = 3
-include_extensions = ["md", "markdown"]
-exclude_dirs       = ["node_modules"]
+snippet_lines       = 3
+max_snippet_chars   = 1000
+include_extensions  = ["md", "markdown"]
+exclude_dirs        = ["node_modules"]
 auto_exclude_hidden = true
-follow_links       = false
-dynamic_threshold  = 5
-
-[watcher]
-enabled = true
+follow_links        = false
+dynamic_threshold   = 5
 ```
 
 > **Note:** The field `exclude_patterns` was renamed to `exclude_dirs` in v0.2.9.

@@ -8,5 +8,5 @@ pub mod tokenizer;
 pub mod watcher;
 
 pub use db::NoteDatabase;
-pub use models::{NoteMetadata, SearchResult};
+pub use models::{NoteMetadata, SearchConfig, SearchResult};
 pub use tokenizer::{JapaneseTokenizer, TokenizerConfig};

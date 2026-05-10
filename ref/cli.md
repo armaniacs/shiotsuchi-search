@@ -33,6 +33,7 @@ db_path = "/home/name/.cache/shiotsuchi/db.sqlite3"
 
 [indexing]
 snippet_lines = 3
+max_snippet_chars = 1000
 include_extensions = ["md", "markdown"]
 exclude_dirs = ["node_modules"]
 auto_exclude_hidden = true
@@ -50,6 +51,7 @@ enabled = true
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `snippet_lines` | integer | 3 | Context lines to show around each search match |
+| `max_snippet_chars` | integer | 1000 | Maximum characters in a search snippet (clamped to 128–65 535) |
 | `include_extensions` | string array | `["md", "markdown"]` | File extensions to include when indexing |
 | `exclude_dirs` | string array | `["node_modules"]` | Directory names to exclude (gitignore-style component matching). Renamed from `exclude_patterns` in v0.2.9. |
 | `auto_exclude_hidden` | bool | `true` | Skip directories starting with `.` (`.git`, `.obsidian`, etc.) |
@@ -67,7 +69,7 @@ enabled = true
 In v0.2.9, the `exclude_patterns` field was renamed to `exclude_dirs` to accurately reflect that it matches directory names (not arbitrary file patterns). If your existing config uses `exclude_patterns`, you will see a deserialization error with a message like:
 
 ```
-unknown field `exclude_patterns`, expected one of `snippet_lines`, `include_extensions`, `exclude_dirs`, ...
+unknown field `exclude_patterns`, expected one of `snippet_lines`, `max_snippet_chars`, `include_extensions`, `exclude_dirs`, ...
 ```
 
 **Fix:** Rename the key to `exclude_dirs` in your config file:

@@ -51,6 +51,35 @@ pub struct VaultStats {
     pub db_path: PathBuf,
 }
 
+/// Configuration for search result display.
+#[derive(Debug, Clone)]
+pub struct SearchConfig {
+    /// Maximum characters allowed in a snippet (clamped to 128–65 535).
+    /// Default: 1000.
+    pub max_snippet_chars: usize,
+}
+
+const MIN_SNIPPET_CHARS: usize = 128;
+const MAX_SNIPPET_CHARS_LIMIT: usize = 65535;
+const DEFAULT_SNIPPET_CHARS: usize = 1000;
+
+impl SearchConfig {
+    pub fn new(value: usize) -> Self {
+        Self {
+            max_snippet_chars: value
+                .clamp(MIN_SNIPPET_CHARS, MAX_SNIPPET_CHARS_LIMIT),
+        }
+    }
+}
+
+impl Default for SearchConfig {
+    fn default() -> Self {
+        Self {
+            max_snippet_chars: DEFAULT_SNIPPET_CHARS,
+        }
+    }
+}
+
 /// Configuration for the indexer.
 #[derive(Debug, Clone)]
 pub struct IndexConfig {

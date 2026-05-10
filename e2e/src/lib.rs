@@ -49,8 +49,16 @@ mod tests {
     }
 
     fn model_path() -> String {
-        std::env::var("SHIOTSUCHI_MODEL_PATH")
-            .unwrap_or_else(|_| "models/bccwj-suw+unidic_pos+kana.model.zst".to_string())
+        std::env::var("SHIOTSUCHI_MODEL_PATH").unwrap_or_else(|_| {
+            // Resolve relative to workspace root so the path is valid regardless
+            // of the binary's current working directory.
+            let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+            let workspace_root = manifest_dir.parent().unwrap();
+            workspace_root
+                .join("models/bccwj-suw+unidic_pos+kana.model.zst")
+                .to_string_lossy()
+                .into_owned()
+        })
     }
 
     /// Convenience: run a shiotsuchi subcommand with --notes-dir and --db-path pre-set.
@@ -363,13 +371,17 @@ mod tests {
     #[test]
     fn e2e_xdg_default_db_path_created() {
         let temp = TempDir::new().unwrap();
-        // Override XDG_CACHE_HOME to a temp dir to avoid polluting the real cache.
+        // Override XDG paths to temp dirs to avoid polluting the real cache
+        // and to prevent an existing ~/.config/shiotsuchi/config.toml from
+        // overriding the default db_path.
         let fake_cache = temp.path().join("cache");
+        let fake_config = temp.path().join("config");
         let expected_db = fake_cache.join("shiotsuchi").join("db.sqlite3");
 
         let out = Command::new(shiotsuchi_bin())
             .env("SHIOTSUCHI_MODEL_PATH", model_path())
             .env("XDG_CACHE_HOME", &fake_cache)
+            .env("XDG_CONFIG_HOME", &fake_config)
             .args([
                 "--notes-dir",
                 temp.path().to_str().unwrap(),

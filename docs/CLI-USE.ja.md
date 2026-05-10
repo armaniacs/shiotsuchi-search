@@ -186,20 +186,14 @@ shiotsuchi log
 `~/.config/shiotsuchi/config.toml`（または `$XDG_CONFIG_HOME/shiotsuchi/config.toml`）を作成しておくと、毎回フラグを指定する手間が省けます。
 
 ```toml
-[vault]
-notes_dir = "/Users/yourname/Notes"
-db_path   = "/Users/yourname/.cache/shiotsuchi/db.sqlite3"
-
 [indexing]
 snippet_lines       = 3
+max_snippet_chars   = 1000
 include_extensions  = ["md", "markdown"]
 exclude_dirs        = ["node_modules"]
 auto_exclude_hidden = true
 follow_links        = false
 dynamic_threshold   = 5
-
-[watcher]
-enabled = true
 ```
 
 > **注:** `exclude_patterns` フィールドは v0.2.9 で `exclude_dirs` にリネームされました。

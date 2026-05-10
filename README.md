@@ -69,6 +69,7 @@ db_path = "/home/name/.cache/shiotsuchi/db.sqlite3"
 
 [indexing]
 snippet_lines = 3
+max_snippet_chars = 1000
 include_extensions = ["md", "markdown"]
 exclude_dirs = ["node_modules"]
 ```

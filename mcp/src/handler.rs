@@ -17,7 +17,7 @@ pub fn call_tool(
             let query = args["query"].as_str().unwrap_or("");
             let db = NoteDatabase::open(db_path)?;
             let tokenizer = get_tokenizer()?;
-            let results = search(&db, &tokenizer, notes_dir, query, 20)?;
+            let results = search(&db, &tokenizer, notes_dir, query, 20, None)?;
             let text = serde_json::to_string_pretty(&results)?;
             Ok(text_content(text))
         }

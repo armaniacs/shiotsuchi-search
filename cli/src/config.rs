@@ -36,6 +36,8 @@ pub fn default_config_path() -> PathBuf {
 #[serde(default, deny_unknown_fields)]
 pub struct IndexingConfig {
     pub snippet_lines: usize,
+    /// Maximum characters allowed in a search snippet (128–65 535). Default: 1000.
+    pub max_snippet_chars: usize,
     pub include_extensions: Vec<String>,
     /// Directory names to exclude from indexing (renamed from exclude_patterns).
     /// The old key will cause a deserialize error — use `exclude_dirs` instead.
@@ -51,6 +53,7 @@ impl Default for IndexingConfig {
     fn default() -> Self {
         Self {
             snippet_lines: 3,
+            max_snippet_chars: 1000,
             include_extensions: vec!["md".to_string(), "markdown".to_string()],
             // .git/.obsidian は auto_exclude_hidden=true により自動除外される
             exclude_dirs: vec!["node_modules".to_string()],
@@ -163,5 +166,27 @@ mod tests {
         assert!(result.is_ok(), "expected ok for new key exclude_dirs");
         let config = result.unwrap();
         assert_eq!(config.indexing.exclude_dirs, vec!["node_modules"]);
+    }
+
+    #[test]
+    fn test_max_snippet_chars_default_is_1000() {
+        let config = ShiotsuchiConfig::default();
+        assert_eq!(config.indexing.max_snippet_chars, 1000);
+    }
+
+    #[test]
+    fn test_max_snippet_chars_from_toml() {
+        let result = toml::from_str::<ShiotsuchiConfig>("[indexing]\nmax_snippet_chars = 2048");
+        assert!(result.is_ok(), "expected ok for max_snippet_chars");
+        assert_eq!(result.unwrap().indexing.max_snippet_chars, 2048);
+    }
+
+    #[test]
+    fn test_max_snippet_chars_clamped_by_search_config() {
+        // The SearchConfig::new clamps values; verify CLI config integrates correctly
+        let result = toml::from_str::<ShiotsuchiConfig>("[indexing]\nmax_snippet_chars = 65555");
+        assert!(result.is_ok(), "oversized value should deserialize");
+        // Actual clamping happens at SearchConfig construction time, not deserialization
+        assert_eq!(result.unwrap().indexing.max_snippet_chars, 65555);
     }
 }
