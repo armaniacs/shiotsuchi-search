@@ -66,8 +66,7 @@ const DEFAULT_SNIPPET_CHARS: usize = 1000;
 impl SearchConfig {
     pub fn new(value: usize) -> Self {
         Self {
-            max_snippet_chars: value
-                .clamp(MIN_SNIPPET_CHARS, MAX_SNIPPET_CHARS_LIMIT),
+            max_snippet_chars: value.clamp(MIN_SNIPPET_CHARS, MAX_SNIPPET_CHARS_LIMIT),
         }
     }
 }

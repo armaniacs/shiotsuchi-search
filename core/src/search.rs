@@ -63,12 +63,8 @@ pub fn search(
                 Some(cfg) => cfg.max_snippet_chars,
                 None => SearchConfig::default().max_snippet_chars,
             };
-            result.snippet = extract_snippet(
-                &content,
-                query,
-                constants::DEFAULT_SNIPPET_LINES,
-                max_chars,
-            );
+            result.snippet =
+                extract_snippet(&content, query, constants::DEFAULT_SNIPPET_LINES, max_chars);
         }
     }
 
@@ -79,11 +75,7 @@ pub fn search(
 pub fn extract_snippet(text: &str, query: &str, max_lines: usize, max_chars: usize) -> String {
     let tokens: Vec<&str> = query.split_whitespace().collect();
     if tokens.is_empty() {
-        return text
-            .chars()
-            .take(max_chars)
-            .collect::<String>()
-            + "…";
+        return text.chars().take(max_chars).collect::<String>() + "…";
     }
 
     let lower_text = text.to_lowercase();
@@ -96,13 +88,7 @@ pub fn extract_snippet(text: &str, query: &str, max_lines: usize, max_chars: usi
 
     let pos = match best_pos {
         Some(p) => p,
-        None => {
-            return text
-                .chars()
-                .take(max_chars)
-                .collect::<String>()
-                + "…"
-        }
+        None => return text.chars().take(max_chars).collect::<String>() + "…",
     };
 
     let before = &text[..pos];
@@ -131,11 +117,7 @@ pub fn extract_snippet(text: &str, query: &str, max_lines: usize, max_chars: usi
     let result = lines.join("\n");
 
     if result.chars().count() > max_chars {
-        result
-            .chars()
-            .take(max_chars)
-            .collect::<String>()
-            + "…"
+        result.chars().take(max_chars).collect::<String>() + "…"
     } else {
         result
     }
@@ -332,7 +314,8 @@ mod tests {
         let tokenizer = crate::require_tokenizer!(TokenizerConfig::default());
 
         let _fts5_query = tokenizer.and_query("keyword"); // validate tokenizer works
-        db.upsert_note("note.md", "Title", &content, "h", 1).unwrap();
+        db.upsert_note("note.md", "Title", &content, "h", 1)
+            .unwrap();
 
         // Without SearchConfig: default max_chars = 1000
         let results = search(&db, &tokenizer, &vault, "keyword", 10, None).unwrap();
