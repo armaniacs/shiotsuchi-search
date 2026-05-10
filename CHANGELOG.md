@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **GitHub Pages landing page:** Added `index.html` for project website hosting on GitHub Pages. Includes project overview, installation instructions, feature highlights, and usage examples.
+- **Repository URL update:** Updated documentation to point to the correct GitHub repository (https://github.com/armaniacs/shiotsuchi-search) in INSTALL.md and INSTALL.ja.md.
 
 ---
 

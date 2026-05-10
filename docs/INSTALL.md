@@ -20,7 +20,7 @@ cargo --version
 ### 1. Clone the repository
 
 ```sh
-git clone https://github.com/araki-yzrh/shiotsuchi-search.git
+git clone https://github.com/armaniacs/shiotsuchi-search.git
 cd shiotsuchi-search
 ```
 
