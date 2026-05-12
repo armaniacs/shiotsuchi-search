@@ -1,6 +1,52 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+/// A single chunk split from a Markdown file.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Chunk {
+    /// Set by the DB after INSERT; None before persisting.
+    pub id: Option<i64>,
+    pub file_path: String,
+    pub chunk_index: i64,
+    /// Ancestor header path, e.g. "大見出し > 中見出し". None for top-level chunks.
+    pub parent_header: Option<String>,
+    /// Raw Markdown content (human-readable, used for snippets/display).
+    pub content: String,
+    /// Vaporetto-tokenized, space-separated text for FTS5 indexing.
+    pub tokenized_content: String,
+}
+
+/// A search result backed by the new chunk schema.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChunkSearchResult {
+    pub chunk_id: i64,
+    pub file_path: String,
+    pub parent_header: Option<String>,
+    pub content: String,
+    /// Lower is more relevant for FTS (BM25); higher is more relevant for vec (cosine).
+    pub score: f64,
+    pub search_mode: SearchMode,
+}
+
+/// Which retrieval strategy was used.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum SearchMode {
+    Fts,
+    Vec,
+    #[default]
+    Hybrid,
+}
+
+/// Status of the embedder (model availability).
+#[derive(Debug, Clone, PartialEq)]
+pub enum EmbedderStatus {
+    /// Model loaded and ready.
+    Ready,
+    /// Model file not found — FTS-only mode.
+    Unavailable(String),
+}
+
 /// Metadata for a single note stored in the database.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NoteMetadata {
@@ -29,7 +75,7 @@ pub enum IndexResult {
     Error(String),
 }
 
-/// Single search result entry.
+/// Single search result entry (legacy, will be superseded by ChunkSearchResult).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SearchResult {
     /// Relative path of the note.
@@ -45,10 +91,13 @@ pub struct SearchResult {
 /// Statistics about the indexed vault.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VaultStats {
-    pub total_notes: usize,
+    pub total_chunks: usize,
+    pub total_files: usize,
     pub total_size_bytes: usize,
     pub last_indexed_at: Option<i64>,
     pub db_path: PathBuf,
+    pub vec_indexed_chunks: usize,
+    pub embedder_status: String,
 }
 
 /// Configuration for search result display.
@@ -117,6 +166,28 @@ impl Default for IndexConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn chunk_serde_roundtrip() {
+        let chunk = Chunk {
+            id: None,
+            file_path: "notes/a.md".to_string(),
+            chunk_index: 0,
+            parent_header: Some("Section > Sub".to_string()),
+            content: "Some content".to_string(),
+            tokenized_content: "Some content".to_string(),
+        };
+        let json = serde_json::to_string(&chunk).unwrap();
+        let decoded: Chunk = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded.content, "Some content");
+        assert_eq!(decoded.parent_header.unwrap(), "Section > Sub");
+    }
+
+    #[test]
+    fn search_mode_default_is_hybrid() {
+        let mode = SearchMode::default();
+        assert!(matches!(mode, SearchMode::Hybrid));
+    }
 
     #[test]
     fn note_metadata_serde_roundtrip() {
