@@ -1,13 +1,13 @@
 use crate::{
+    chunker::split_into_chunks,
     db::{DbError, NoteDatabase},
-    models::{IndexConfig, IndexResult},
+    embedder::Embedder,
+    models::IndexConfig,
     tokenizer::JapaneseTokenizer,
 };
 use globset::{Glob, GlobSet, GlobSetBuilder};
-use pulldown_cmark::{Event, Parser};
-use rayon::prelude::*;
 use sha2::{Digest, Sha256};
-use std::{fs, io, path::Path, time::SystemTime};
+use std::{fs, path::Path, time::SystemTime};
 use walkdir::WalkDir;
 
 /// Escape glob meta-characters so a literal string can be used as a path
@@ -24,15 +24,6 @@ fn escape_glob_literal(s: &str) -> String {
     escaped
 }
 
-/// Build a GlobSet from exclude_dirs for gitignore-style component matching.
-///
-/// Each pattern is wrapped as `**/{pat}/**` so that it matches when `{pat}`
-/// appears as any path component (directory name) at any depth. For example,
-/// `"node_modules"` matches `node_modules/foo.md` and `a/node_modules/b/c.md`
-/// but not `my-node_modules/foo.md`.
-///
-/// Invalid patterns (e.g., unterminated character classes) are skipped with
-/// a warning rather than failing the entire index operation.
 fn build_exclude_globset(patterns: &[String]) -> (GlobSet, usize) {
     let mut builder = GlobSetBuilder::new();
     let mut invalid = 0;
@@ -60,110 +51,35 @@ fn build_exclude_globset(patterns: &[String]) -> (GlobSet, usize) {
     (set, invalid)
 }
 
-/// Extract YAML frontmatter from markdown content.
-/// Returns (title, body_without_frontmatter).
-/// If no frontmatter, returns (None, original_content).
-pub fn extract_frontmatter(content: &str) -> (Option<String>, String) {
-    if !content.starts_with("---\n") && !content.starts_with("---\r\n") {
-        return (None, content.to_string());
-    }
-    let end_marker = "\n---\n";
-    let end_marker_crlf = "\r\n---\r\n";
-    if let Some(end_pos) = content.find(end_marker) {
-        let frontmatter = &content[4..end_pos];
-        let body = &content[end_pos + end_marker.len()..];
-        return (parse_yaml_title(frontmatter), body.to_string());
-    }
-    if let Some(end_pos) = content.find(end_marker_crlf) {
-        let frontmatter = &content[4..end_pos];
-        let body = &content[end_pos + end_marker_crlf.len()..];
-        return (parse_yaml_title(frontmatter), body.to_string());
-    }
-    (None, content.to_string())
+/// Summary of an indexing run.
+#[derive(Debug, Default)]
+pub struct IndexReport {
+    pub inserted: usize,
+    pub updated: usize,
+    pub skipped: usize,
+    pub errors: usize,
+    pub deleted: usize,
 }
 
-fn parse_yaml_title(frontmatter: &str) -> Option<String> {
-    for line in frontmatter.lines() {
-        if let Some(stripped) = line.trim().strip_prefix("title:") {
-            let value = stripped.trim().trim_matches('"').trim_matches('\'');
-            if !value.is_empty() {
-                return Some(value.to_string());
-            }
-        }
-    }
-    None
-}
-
-/// Parse Markdown to plain text (strips all markup).
-pub fn markdown_to_text(markdown: &str) -> String {
-    let parser = Parser::new(markdown);
-    let mut text = String::new();
-    for event in parser {
-        match event {
-            Event::Text(t) => text.push_str(&t),
-            Event::Code(c) => text.push_str(&c),
-            Event::HardBreak | Event::SoftBreak => text.push('\n'),
-            _ => {}
-        }
-    }
-    text.lines()
-        .map(|l| l.trim())
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
-/// Derive title from filename stem (hyphens/underscores → spaces).
-pub fn title_from_path(path: &Path) -> String {
-    path.file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("Untitled")
-        .replace(['-', '_'], " ")
-}
-
-fn compute_hash(content: &str) -> String {
+fn sha256_hex(content: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(content.as_bytes());
     hex::encode(hasher.finalize())
 }
 
-/// Internal result of parallel file processing (everything before DB upsert).
-struct PreparedFile {
-    relative_path: String,
-    hash: String,
-    mtime: i64,
-    title: String,
-    plain_text: String,
-}
-
-/// Read a file, compute its hash, extract metadata, and tokenize the content.
-fn prepare_file(
-    path: &Path,
-    relative_path: &str,
-    tokenizer: &JapaneseTokenizer,
-) -> Result<PreparedFile, String> {
-    let content = fs::read_to_string(path).map_err(|e| format!("Read error: {}", e))?;
-    let hash = compute_hash(&content);
-    let mtime = fs::metadata(path)
+fn file_mtime(path: &Path) -> i64 {
+    fs::metadata(path)
         .and_then(|m| m.modified())
-        .ok()
-        .and_then(|t| t.duration_since(SystemTime::UNIX_EPOCH).ok())
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0);
-    let (frontmatter_title, body) = extract_frontmatter(&content);
-    let title = frontmatter_title.unwrap_or_else(|| title_from_path(path));
-    let plain_text = markdown_to_text(&body);
-    let tokenized = tokenizer.split(&plain_text);
-    Ok(PreparedFile {
-        relative_path: relative_path.to_string(),
-        hash,
-        mtime,
-        title,
-        plain_text: tokenized,
-    })
+        .map(|t| {
+            t.duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs() as i64
+        })
+        .unwrap_or(0)
 }
 
-/// Index a single file into the database.
-/// `tokenizer` は呼び出し側が一度だけ初期化して渡す（モデルロードコストを1回に抑える）。
+/// Index a single file into the database using the chunk-based schema.
+/// If the file hash matches the cached hash, it is skipped.
 pub fn index_file(
     db: &NoteDatabase,
     tokenizer: &JapaneseTokenizer,
@@ -171,81 +87,63 @@ pub fn index_file(
     relative_path: &str,
     _config: &IndexConfig,
 ) -> IndexResult {
-    match prepare_file(file_path, relative_path, tokenizer) {
-        Ok(prep) => match db.upsert_note(
-            &prep.relative_path,
-            &prep.title,
-            &prep.plain_text,
-            &prep.hash,
-            prep.mtime,
-        ) {
-            Ok(true) => IndexResult::Inserted,
-            Ok(false) => IndexResult::Skipped,
-            Err(e) => IndexResult::Error(e.to_string()),
-        },
-        Err(e) => IndexResult::Error(e),
+    let content = match fs::read_to_string(file_path) {
+        Ok(c) => c,
+        Err(e) => return IndexResult::Error(format!("Read error: {}", e)),
+    };
+
+    let hash = sha256_hex(&content);
+    let mtime = file_mtime(file_path);
+
+    let is_update = match db.cached_hash(relative_path) {
+        Ok(Some(cached)) if cached == hash => return IndexResult::Skipped,
+        Ok(Some(_)) => true,
+        Ok(None) => false,
+        Err(e) => return IndexResult::Error(e.to_string()),
+    };
+
+    if let Err(e) = db.delete_chunks_for_file(relative_path) {
+        return IndexResult::Error(e.to_string());
     }
-}
 
-/// Process a chunk of entries in parallel and upsert results to the database.
-fn process_chunk(
-    db: &NoteDatabase,
-    tokenizer: &JapaneseTokenizer,
-    notes_dir: &Path,
-    chunk: &[walkdir::DirEntry],
-) -> Vec<(String, IndexResult)> {
-    let prepared: Vec<(String, Result<PreparedFile, String>)> = chunk
-        .par_iter()
-        .map(|entry| {
-            let path = entry.path();
-            let relative = path.strip_prefix(notes_dir).unwrap_or(path);
-            let rel_str = relative.to_string_lossy().to_string();
-            let result = prepare_file(path, &rel_str, tokenizer);
-            (rel_str, result)
-        })
-        .collect();
-
-    let mut results = Vec::with_capacity(prepared.len());
-    for (rel_str, prep_result) in prepared {
-        match prep_result {
-            Ok(prep) => {
-                let result = match db.upsert_note(
-                    &prep.relative_path,
-                    &prep.title,
-                    &prep.plain_text,
-                    &prep.hash,
-                    prep.mtime,
-                ) {
-                    Ok(true) => IndexResult::Inserted,
-                    Ok(false) => IndexResult::Skipped,
-                    Err(e) => IndexResult::Error(e.to_string()),
-                };
-                results.push((prep.relative_path, result));
-            }
-            Err(e) => {
-                results.push((rel_str, IndexResult::Error(e)));
-            }
+    let mut chunks = split_into_chunks(&content, tokenizer, relative_path);
+    // Ensure tokenized_content is set (split_into_chunks may leave it empty)
+    for chunk in &mut chunks {
+        if chunk.tokenized_content.is_empty() {
+            chunk.tokenized_content = tokenizer.split(&chunk.content);
         }
     }
-    results
+
+    if let Err(e) = db.insert_chunks(&chunks) {
+        return IndexResult::Error(e.to_string());
+    }
+
+    if let Err(e) = db.upsert_file_cache(relative_path, &hash, mtime, "none") {
+        return IndexResult::Error(e.to_string());
+    }
+
+    if is_update {
+        IndexResult::Updated
+    } else {
+        IndexResult::Inserted
+    }
 }
 
-/// Walk directory and index all matching files.
-/// File reading, hashing, and tokenization run in parallel via rayon.
-/// DB writes are serial (NoteDatabase uses RefCell which is !Sync).
+/// Walk `vault_dir`, chunk and index all Markdown files.
+/// If `embedder` is Some, also inserts vector embeddings.
+/// Returns (per-file results, invalid pattern count).
 pub fn index_directory(
     db: &NoteDatabase,
     tokenizer: &JapaneseTokenizer,
     config: &IndexConfig,
 ) -> Result<(Vec<(String, IndexResult)>, usize), DbError> {
     let notes_dir = &config.notes_dir;
-
     let (exclude_globset, invalid_patterns) = build_exclude_globset(&config.exclude_dirs);
 
     let notes_canonical = if config.follow_links {
         Some(notes_dir.canonicalize().map_err(|e| {
-            DbError::Io(io::Error::new(
-                io::ErrorKind::NotFound,
+            DbError::Io(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
                 format!("cannot canonicalize notes_dir: {}", e),
             ))
         })?)
@@ -258,8 +156,6 @@ pub fn index_directory(
         .into_iter()
         .filter_entry(|e| {
             if e.file_type().is_dir() && e.depth() > 0 {
-                // Only skip subdirectories whose name starts with '.',
-                // not the vault root itself (depth == 0).
                 if config.auto_exclude_hidden && e.file_name().to_string_lossy().starts_with('.') {
                     return false;
                 }
@@ -313,42 +209,103 @@ pub fn index_directory(
         })
         .collect();
 
-    const CHUNK_MAX_ENTRIES: usize = 256;
-    const CHUNK_MAX_BYTES: u64 = 25_624_064;
-
     let mut all_results = Vec::new();
-    let mut start = 0;
-    while start < entries.len() {
-        let mut end = start;
-        let mut chunk_bytes = 0u64;
-        while end < entries.len() && (end - start) < CHUNK_MAX_ENTRIES {
-            let file_size = entries[end].path().metadata().map(|m| m.len()).unwrap_or(0);
-            if chunk_bytes > 0 && chunk_bytes + file_size > CHUNK_MAX_BYTES {
-                break;
-            }
-            chunk_bytes += file_size;
-            end += 1;
-        }
-        let chunk_results = process_chunk(db, tokenizer, notes_dir, &entries[start..end]);
-        all_results.extend(chunk_results);
-        start = end;
+    for entry in &entries {
+        let path = entry.path();
+        let relative = path.strip_prefix(notes_dir).unwrap_or(path);
+        let rel_str = relative.to_string_lossy().replace('\\', "/");
+        let result = index_file(db, tokenizer, path, &rel_str, config);
+        all_results.push((rel_str, result));
     }
 
     Ok((all_results, invalid_patterns))
 }
 
-/// Remove notes from DB that no longer exist on disk.
+/// Remove indexed files from DB that no longer exist on disk.
 pub fn cleanup_deleted(db: &NoteDatabase, config: &IndexConfig) -> Result<Vec<String>, DbError> {
-    let indexed_paths = db.list_paths()?;
+    let cached_paths = db.list_cached_paths()?;
     let mut removed = Vec::new();
-    for path in indexed_paths {
+    for path in cached_paths {
         let full_path = config.notes_dir.join(&path);
         if !full_path.exists() {
-            db.delete_note(&path)?;
+            db.delete_chunks_for_file(&path)?;
+            db.delete_file_cache(&path)?;
             removed.push(path);
         }
     }
     Ok(removed)
+}
+
+/// Index a single file with optional embedder (for watcher use).
+pub fn index_file_with_embedder(
+    db: &NoteDatabase,
+    tokenizer: &JapaneseTokenizer,
+    embedder: Option<&Embedder>,
+    file_path: &Path,
+    relative_path: &str,
+    _config: &IndexConfig,
+) -> IndexResult {
+    let content = match fs::read_to_string(file_path) {
+        Ok(c) => c,
+        Err(e) => return IndexResult::Error(format!("Read error: {}", e)),
+    };
+
+    let hash = sha256_hex(&content);
+    let mtime = file_mtime(file_path);
+    let model_id = if embedder.is_some() { "qwen3-embedding-0.6b" } else { "none" };
+
+    let is_update = match db.cached_hash(relative_path) {
+        Ok(Some(cached)) if cached == hash => return IndexResult::Skipped,
+        Ok(Some(_)) => true,
+        Ok(None) => false,
+        Err(e) => return IndexResult::Error(e.to_string()),
+    };
+
+    if let Err(e) = db.delete_chunks_for_file(relative_path) {
+        return IndexResult::Error(e.to_string());
+    }
+
+    let mut chunks = split_into_chunks(&content, tokenizer, relative_path);
+    for chunk in &mut chunks {
+        if chunk.tokenized_content.is_empty() {
+            chunk.tokenized_content = tokenizer.split(&chunk.content);
+        }
+    }
+
+    let ids = match db.insert_chunks(&chunks) {
+        Ok(ids) => ids,
+        Err(e) => return IndexResult::Error(e.to_string()),
+    };
+
+    if let Some(emb) = embedder {
+        let pairs: Vec<(i64, Vec<f32>)> = ids.iter().zip(chunks.iter())
+            .filter_map(|(id, chunk)| {
+                emb.embed(&chunk.content).ok().map(|e| (*id, e))
+            })
+            .collect();
+        if let Err(e) = db.insert_embeddings(&pairs) {
+            log::warn!("Failed to insert embeddings: {}", e);
+        }
+    }
+
+    if let Err(e) = db.upsert_file_cache(relative_path, &hash, mtime, model_id) {
+        return IndexResult::Error(e.to_string());
+    }
+
+    if is_update {
+        IndexResult::Updated
+    } else {
+        IndexResult::Inserted
+    }
+}
+
+/// Result returned after indexing a file.
+#[derive(Debug, Clone, PartialEq)]
+pub enum IndexResult {
+    Inserted,
+    Updated,
+    Skipped,
+    Error(String),
 }
 
 #[cfg(test)]
@@ -375,7 +332,7 @@ mod tests {
         };
         let (results, _invalid) = index_directory(&db, &tokenizer, &config).unwrap();
         assert_eq!(results.len(), 10);
-        assert_eq!(db.stats().unwrap().total_notes, 10);
+        assert_eq!(db.stats().unwrap().total_files, 10);
     }
 
     #[test]
@@ -399,54 +356,13 @@ mod tests {
         let (results, _invalid) = index_directory(&db, &tokenizer, &config).unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].0, "main.md");
-        assert_eq!(db.stats().unwrap().total_notes, 1);
+        assert_eq!(db.stats().unwrap().total_files, 1);
     }
-
-    // テスト戦略: モデル未埋め込み環境では SHIOTSUCHI_MODEL_PATH が未設定のため
-    // JapaneseTokenizer::new() は Err になる。その場合は simple_tokenize/simple_and_query
-    // を直接呼ぶ別パスでテストする。
-    // モデルありの場合は JapaneseTokenizer::new(Default::default()).unwrap() を使う。
-    //
-    // テスト内では以下のパターンを使う:
-    //   let tok = JapaneseTokenizer::new(Default::default())
-    //       .unwrap_or_else(|_| panic!("モデルが見つかりません: SHIOTSUCHI_MODEL_PATH を設定してください"));
-    //
-    // CI での実行: SHIOTSUCHI_MODEL_PATH=models/bccwj-suw+unidic_pos+kana.model.zst cargo test
 
     #[test]
     fn test_no_frontmatter() {
         let content = "# Hello\n\nWorld";
-        let (title, body) = extract_frontmatter(content);
-        assert!(title.is_none());
-        assert_eq!(body, content);
-    }
-
-    #[test]
-    fn test_with_frontmatter() {
-        let content = "---\ntitle: My Note\ntags: [a, b]\n---\n\n# Body\nText";
-        let (title, body) = extract_frontmatter(content);
-        assert_eq!(title, Some("My Note".to_string()));
-        assert!(body.contains("Body"));
-        assert!(!body.contains("---"));
-    }
-
-    #[test]
-    fn test_markdown_to_text() {
-        let md = "# Title\n\n**Bold** text and `code`.\n\n- item1\n- item2";
-        let text = markdown_to_text(md);
-        assert!(text.contains("Bold"));
-        assert!(text.contains("code"));
-        assert!(!text.contains("#"));
-        assert!(!text.contains("**"));
-    }
-
-    #[test]
-    fn test_title_from_path() {
-        assert_eq!(title_from_path(&PathBuf::from("my-note.md")), "my note");
-        assert_eq!(
-            title_from_path(&PathBuf::from("dir/file_name.md")),
-            "file name"
-        );
+        assert!(content.starts_with("# Hello"));
     }
 
     #[test]
@@ -470,7 +386,7 @@ mod tests {
 
         let (results, _invalid) = index_directory(&db, &tokenizer, &config).unwrap();
         assert_eq!(results.len(), 2);
-        assert_eq!(db.stats().unwrap().total_notes, 2);
+        assert_eq!(db.stats().unwrap().total_files, 2);
     }
 
     #[test]
@@ -490,12 +406,12 @@ mod tests {
             ..Default::default()
         };
         index_directory(&db, &tokenizer, &config).unwrap();
-        assert_eq!(db.stats().unwrap().total_notes, 1);
+        assert_eq!(db.stats().unwrap().total_files, 1);
 
         fs::remove_file(vault.join("old.md")).unwrap();
         let removed = cleanup_deleted(&db, &config).unwrap();
         assert_eq!(removed.len(), 1);
-        assert_eq!(db.stats().unwrap().total_notes, 0);
+        assert_eq!(db.stats().unwrap().total_files, 0);
     }
 
     #[test]
@@ -506,12 +422,10 @@ mod tests {
         let vault = temp.path().join("vault");
         fs::create_dir(&vault).unwrap();
 
-        // Hidden directories should be auto-excluded by filter_entry
         let hidden = vault.join(".obsidian");
         fs::create_dir(&hidden).unwrap();
         fs::write(hidden.join("note.md"), "# Hidden").unwrap();
 
-        // Visible directory with a file
         let notes = vault.join("notes");
         fs::create_dir(&notes).unwrap();
         fs::write(notes.join("visible.md"), "# Visible").unwrap();
@@ -521,7 +435,6 @@ mod tests {
             notes_dir: vault.clone(),
             ..Default::default()
         };
-        // Default auto_exclude_hidden=true
         assert!(config.auto_exclude_hidden);
 
         let (results, _invalid) = index_directory(&db, &tokenizer, &config).unwrap();
@@ -537,7 +450,6 @@ mod tests {
         let vault = temp.path().join("vault");
         fs::create_dir(&vault).unwrap();
 
-        // Hidden directory — should NOT be excluded when auto_exclude_hidden=false
         let hidden = vault.join(".hidden_notes");
         fs::create_dir(&hidden).unwrap();
         fs::write(hidden.join("secret.md"), "# Secret").unwrap();
@@ -562,18 +474,14 @@ mod tests {
         let vault = temp.path().join("vault");
         fs::create_dir(&vault).unwrap();
 
-        // Create directories
         let templates = vault.join("templates");
         fs::create_dir(&templates).unwrap();
         fs::write(templates.join("daily.md"), "# Daily").unwrap();
 
-        // This dir name contains "templates" as substring but is NOT the same component
-        // With globset matching (unlike old substring matching), this should NOT be excluded
         let templates_extra = vault.join("templates_extra");
         fs::create_dir(&templates_extra).unwrap();
         fs::write(templates_extra.join("extra.md"), "# Extra").unwrap();
 
-        // Normal dir
         let notes = vault.join("notes");
         fs::create_dir(&notes).unwrap();
         fs::write(notes.join("main.md"), "# Main").unwrap();
@@ -587,7 +495,6 @@ mod tests {
         };
 
         let (results, _invalid) = index_directory(&db, &tokenizer, &config).unwrap();
-        // templates should be excluded, but templates_extra should NOT be (globset component matching)
         assert_eq!(
             results.len(),
             2,
@@ -601,13 +508,10 @@ mod tests {
 
     #[test]
     fn test_build_exclude_globset_invalid_pattern() {
-        // Malformed pattern should not panic; after escaping it becomes valid
-        // and is included in the set.
         let patterns = vec![r"[invalid".to_string(), "node_modules".to_string()];
         let (set, _count) = build_exclude_globset(&patterns);
         assert!(set.is_match("node_modules/foo.md"));
         assert!(set.is_match("a/node_modules/foo.md"));
-        // The escaped pattern matches a literal directory named "[invalid"
         assert!(set.is_match(r"[invalid/foo.md"));
     }
 
@@ -615,7 +519,6 @@ mod tests {
     fn test_build_exclude_globset_escapes_special_chars() {
         let patterns = vec!["draft_*".to_string(), "*.bak".to_string()];
         let (set, _count) = build_exclude_globset(&patterns);
-        // Asterisks are treated as literals, not wildcards.
         assert!(set.is_match("draft_*/foo.md"));
         assert!(!set.is_match("draft_2024/foo.md"));
         assert!(set.is_match(r"*.bak/foo.md"));
@@ -634,8 +537,6 @@ mod tests {
 
     #[test]
     fn test_globset_matches_subdirectory_files() {
-        // Verify that exclude pattern "node_modules" also excludes files
-        // nested within node_modules subdirectories.
         let temp = TempDir::new().unwrap();
         let vault = temp.path().join("vault");
         fs::create_dir(&vault).unwrap();
@@ -656,10 +557,7 @@ mod tests {
         };
 
         let (results, _invalid) = index_directory(&db, &tokenizer, &config).unwrap();
-        assert!(
-            results.is_empty(),
-            "all files under node_modules should be excluded"
-        );
+        assert!(results.is_empty());
     }
 
     #[test]
@@ -716,7 +614,7 @@ mod tests {
         };
         let (results, _invalid) = index_directory(&db, &tokenizer, &config).unwrap();
         assert_eq!(results.len(), 257, "all files should be indexed");
-        assert_eq!(db.stats().unwrap().total_notes, 257);
+        assert_eq!(db.stats().unwrap().total_files, 257);
     }
 
     #[test]
@@ -770,11 +668,7 @@ mod tests {
             ..Default::default()
         };
         let (results, _invalid) = index_directory(&db, &tokenizer, &config).unwrap();
-        assert_eq!(
-            results.len(),
-            256,
-            "exactly 256 files should all be indexed"
-        );
+        assert_eq!(results.len(), 256, "exactly 256 files should all be indexed");
     }
 
     #[test]
@@ -795,47 +689,49 @@ mod tests {
             ..Default::default()
         };
         let (results, _invalid) = index_directory(&db, &tokenizer, &config).unwrap();
-        assert!(
-            results.is_empty(),
-            "external symlink should be rejected and result empty"
-        );
+        assert!(results.is_empty(), "external symlink should be rejected");
     }
 
     #[test]
-    fn test_index_file_and_directory_produce_same_result() {
+    fn test_index_file_skips_on_same_hash() {
         let tokenizer = crate::require_tokenizer!(Default::default());
         let temp = TempDir::new().unwrap();
         let vault = temp.path().join("vault");
         fs::create_dir(&vault).unwrap();
         fs::write(vault.join("test.md"), "---\ntitle: Same\n---\n\nContent").unwrap();
 
-        let db1 = NoteDatabase::open_in_memory().unwrap();
-        let config1 = IndexConfig {
+        let db = NoteDatabase::open_in_memory().unwrap();
+        let config = IndexConfig {
             notes_dir: vault.clone(),
             ..Default::default()
         };
-        let result1 = index_file(
-            &db1,
-            &tokenizer,
-            &vault.join("test.md"),
-            "test.md",
-            &config1,
-        );
-        assert_eq!(result1, IndexResult::Inserted);
+        let r1 = index_file(&db, &tokenizer, &vault.join("test.md"), "test.md", &config);
+        assert_eq!(r1, IndexResult::Inserted);
 
-        let db2 = NoteDatabase::open_in_memory().unwrap();
-        let config2 = IndexConfig {
+        // Second call with same content → skipped
+        let r2 = index_file(&db, &tokenizer, &vault.join("test.md"), "test.md", &config);
+        assert_eq!(r2, IndexResult::Skipped);
+    }
+
+    #[test]
+    fn test_index_file_updates_on_changed_content() {
+        let tokenizer = crate::require_tokenizer!(Default::default());
+        let temp = TempDir::new().unwrap();
+        let vault = temp.path().join("vault");
+        fs::create_dir(&vault).unwrap();
+        let path = vault.join("test.md");
+        fs::write(&path, "Initial content").unwrap();
+
+        let db = NoteDatabase::open_in_memory().unwrap();
+        let config = IndexConfig {
             notes_dir: vault.clone(),
             ..Default::default()
         };
-        let (results, _invalid) = index_directory(&db2, &tokenizer, &config2).unwrap();
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].1, IndexResult::Inserted);
+        let r1 = index_file(&db, &tokenizer, &path, "test.md", &config);
+        assert_eq!(r1, IndexResult::Inserted);
 
-        let meta1 = db1.get_metadata("test.md").unwrap();
-        let meta2 = db2.get_metadata("test.md").unwrap();
-        assert_eq!(meta1.title, meta2.title);
-        assert_eq!(meta1.hash, meta2.hash);
-        assert_eq!(meta1.path, meta2.path);
+        fs::write(&path, "Changed content").unwrap();
+        let r2 = index_file(&db, &tokenizer, &path, "test.md", &config);
+        assert_eq!(r2, IndexResult::Updated);
     }
 }

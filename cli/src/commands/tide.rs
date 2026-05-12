@@ -7,7 +7,8 @@ pub fn run_tide(db_path: &Path) -> Result<VaultStats, Box<dyn std::error::Error>
 }
 
 pub fn print_stats(stats: &VaultStats) {
-    println!("Total notes : {}", stats.total_notes);
+    println!("Total files : {}", stats.total_files);
+    println!("Total chunks: {}", stats.total_chunks);
     println!("DB size     : {} bytes", stats.total_size_bytes);
     if let Some(ts) = stats.last_indexed_at {
         println!(
@@ -29,6 +30,6 @@ mod tests {
         let temp = TempDir::new().unwrap();
         let db_file = temp.path().join("test.db");
         let stats = run_tide(&db_file).unwrap();
-        assert_eq!(stats.total_notes, 0);
+        assert_eq!(stats.total_files, 0);
     }
 }

@@ -33,7 +33,8 @@ pub fn run_delete(
     }
 
     let db = NoteDatabase::open(db_path)?;
-    db.delete_note(&args.path)?;
-    println!("Deleted note: {}", args.path);
+    db.delete_chunks_for_file(&args.path)?;
+    db.delete_file_cache(&args.path)?;
+    println!("Deleted: {}", args.path);
     Ok(())
 }

@@ -3,20 +3,20 @@ use std::path::Path;
 
 pub fn run_log(db_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let db = NoteDatabase::open(db_path)?;
-    let entries = db.list_all_metadata()?;
+    let paths = db.list_cached_paths()?;
 
-    if entries.is_empty() {
-        println!("No notes indexed yet. Run `shiotsuchi chart` first.");
+    if paths.is_empty() {
+        println!("No files indexed yet. Run `shiotsuchi chart` first.");
         return Ok(());
     }
 
-    println!("{:<40} {:<20} Title", "Path", "Indexed at");
+    println!("{:<60} Path", "File");
     println!("{}", "-".repeat(80));
-    for entry in &entries {
-        let ts = format_timestamp(entry.indexed_at);
-        println!("{:<40} {:<20} {}", entry.path, ts, entry.title);
+    for path in &paths {
+        println!("{}", path);
     }
-    println!("\nTotal: {} notes", entries.len());
+    println!("\nTotal: {} files", paths.len());
+    // kept for callers that expect "Total: N" pattern
 
     Ok(())
 }

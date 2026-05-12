@@ -62,32 +62,6 @@ pub struct NoteMetadata {
     pub title: String,
 }
 
-/// Result returned after indexing a file.
-#[derive(Debug, Clone, PartialEq)]
-pub enum IndexResult {
-    /// File was newly inserted.
-    Inserted,
-    /// File content changed and was updated.
-    Updated,
-    /// File unchanged (hash matched), skipped.
-    Skipped,
-    /// Error occurred during indexing.
-    Error(String),
-}
-
-/// Single search result entry (legacy, will be superseded by ChunkSearchResult).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct SearchResult {
-    /// Relative path of the note.
-    pub path: String,
-    /// Title of the note.
-    pub title: String,
-    /// 3-line snippet around the first match.
-    pub snippet: String,
-    /// BM25 relevance score (lower is more relevant in SQLite FTS5 default rank).
-    pub score: f64,
-}
-
 /// Statistics about the indexed vault.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VaultStats {

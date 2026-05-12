@@ -1,5 +1,10 @@
 use serde_json::Value;
-use shiotsuchi_core::{db::NoteDatabase, search::search, tokenizer::get_tokenizer};
+use shiotsuchi_core::{
+    db::NoteDatabase,
+    models::SearchMode,
+    search::search,
+    tokenizer::get_tokenizer,
+};
 use std::{fs, path::Path};
 
 fn text_content(text: impl Into<String>) -> Value {
@@ -17,7 +22,8 @@ pub fn call_tool(
             let query = args["query"].as_str().unwrap_or("");
             let db = NoteDatabase::open(db_path)?;
             let tokenizer = get_tokenizer()?;
-            let results = search(&db, &tokenizer, notes_dir, query, 20, None)?;
+            // FTS-only (no embedder available in MCP without model file)
+            let results = search(&db, &tokenizer, query, 20, SearchMode::Fts, None)?;
             let text = serde_json::to_string_pretty(&results)?;
             Ok(text_content(text))
         }
@@ -39,8 +45,9 @@ pub fn call_tool(
             let db = NoteDatabase::open(db_path)?;
             let stats = db.stats()?;
             let text = format!(
-                "Total notes: {}\nDB size: {} bytes\nLast indexed: {}",
-                stats.total_notes,
+                "Total files: {}\nTotal chunks: {}\nDB size: {} bytes\nLast indexed: {}",
+                stats.total_files,
+                stats.total_chunks,
                 stats.total_size_bytes,
                 stats
                     .last_indexed_at

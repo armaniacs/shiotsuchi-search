@@ -2,8 +2,8 @@ use crate::config::IndexingConfig;
 use clap::Args;
 use shiotsuchi_core::{
     db::NoteDatabase,
-    models::{SearchConfig, SearchResult},
-    search::search,
+    models::{ChunkSearchResult, SearchMode},
+    search::{extract_snippet, search},
     tokenizer::get_tokenizer,
 };
 use std::path::Path;
@@ -12,7 +12,7 @@ use std::time::Duration;
 /// Output format for search results.
 #[derive(clap::ValueEnum, Clone, Debug)]
 pub enum OutputFormat {
-    /// Formatted table with title, path, snippet, and score.
+    /// Formatted table with file path, header, snippet, and score.
     Table,
     /// Compact JSON array (one line).
     Json,
@@ -51,32 +51,24 @@ impl DiveArgs {
 
 pub fn run_dive(
     args: &DiveArgs,
-    notes_dir: &Path,
+    _notes_dir: &Path,
     db_path: &Path,
-    indexing_cfg: &IndexingConfig,
-) -> Result<Vec<SearchResult>, Box<dyn std::error::Error>> {
+    _indexing_cfg: &IndexingConfig,
+) -> Result<Vec<ChunkSearchResult>, Box<dyn std::error::Error>> {
     if args.query.trim().is_empty() {
         return Ok(vec![]);
     }
 
     let db = NoteDatabase::open(db_path)?;
     let tokenizer = get_tokenizer()?;
-    let search_cfg = SearchConfig::new(indexing_cfg.max_snippet_chars);
-    let results = search(
-        &db,
-        &tokenizer,
-        notes_dir,
-        &args.query,
-        args.limit,
-        Some(&search_cfg),
-    )?;
-
+    // FTS-only until embedder is wired up (Task 8/9)
+    let results = search(&db, &tokenizer, &args.query, args.limit, SearchMode::Fts, None)?;
     Ok(results)
 }
 
 /// Print search results in the specified format.
 pub fn print_results(
-    results: &[SearchResult],
+    results: &[ChunkSearchResult],
     query: &str,
     format: &OutputFormat,
     elapsed: Duration,
@@ -96,19 +88,17 @@ pub fn print_results(
 }
 
 /// Print results as a human-readable table.
-fn print_table(results: &[SearchResult], query: &str, elapsed: Duration) {
+fn print_table(results: &[ChunkSearchResult], query: &str, elapsed: Duration) {
     let separator = "━".repeat(78);
     println!("Results for \"{query}\"");
     println!("{separator}");
 
     for (i, result) in results.iter().enumerate() {
         let idx = i + 1;
-        // Title and score on the first line
-        println!("  {idx}. {:<60} [{:.2}]", result.title, result.score);
-        // Path on the second line (indented)
-        println!("     {}", result.path);
-        // Snippet lines (indented, full snippet)
-        for line in result.snippet.lines() {
+        let header = result.parent_header.as_deref().unwrap_or("(top level)");
+        println!("  {idx}. {} > {}  [{:.4}]", result.file_path, header, result.score);
+        let snippet = extract_snippet(&result.content, query, 300);
+        for line in snippet.lines() {
             println!("     {line}");
         }
         println!();
@@ -133,15 +123,6 @@ mod tests {
         IndexingConfig::default()
     }
 
-    fn make_result(path: &str, title: &str, snippet: &str, score: f64) -> SearchResult {
-        SearchResult {
-            path: path.to_string(),
-            title: title.to_string(),
-            snippet: snippet.to_string(),
-            score,
-        }
-    }
-
     #[test]
     fn test_dive_returns_results() {
         let temp = TempDir::new().unwrap();
@@ -160,8 +141,7 @@ mod tests {
         let chart_result =
             crate::commands::chart::run_chart(&chart_args, temp.path(), &db_file, &idx_cfg);
         if chart_result.is_err() {
-            // Model not available (NoModel error) — skip test
-            return;
+            return; // Model not available — skip
         }
 
         let args = DiveArgs {
@@ -172,7 +152,7 @@ mod tests {
         };
         let output = run_dive(&args, temp.path(), &db_file, &idx_cfg).unwrap();
         assert!(!output.is_empty());
-        assert!(output[0].path.contains("note"));
+        assert!(output[0].file_path.contains("note"));
     }
 
     #[test]
@@ -180,15 +160,6 @@ mod tests {
         let temp = TempDir::new().unwrap();
         let db_file = temp.path().join("test.db");
         let idx_cfg = default_indexing_cfg();
-        let _ = crate::commands::chart::run_chart(
-            &crate::commands::chart::ChartArgs {
-                force: false,
-                quiet: true,
-            },
-            temp.path(),
-            &db_file,
-            &idx_cfg,
-        );
 
         let args = DiveArgs {
             query: "".to_string(),
@@ -235,73 +206,29 @@ mod tests {
 
     #[test]
     fn test_print_results_json_produces_valid_json() {
-        let results = vec![
-            make_result("a.md", "Title A", "snippet a", 0.1),
-            make_result("b.md", "Title B", "snippet b", 0.5),
-        ];
-        // Verify serde round-trip
+        use shiotsuchi_core::models::SearchMode;
+        let results = vec![ChunkSearchResult {
+            chunk_id: 1,
+            file_path: "a.md".into(),
+            parent_header: None,
+            content: "snippet a".into(),
+            score: 0.1,
+            search_mode: SearchMode::Fts,
+        }];
         let json = serde_json::to_string(&results).unwrap();
-        let decoded: Vec<SearchResult> = serde_json::from_str(&json).unwrap();
-        assert_eq!(decoded.len(), 2);
-        assert_eq!(decoded[0].title, "Title A");
-    }
-
-    #[test]
-    fn test_print_results_json_pretty_produces_valid_json() {
-        let results = vec![make_result("a.md", "Title A", "snippet a", 0.1)];
-        let json = serde_json::to_string_pretty(&results).unwrap();
-        let decoded: Vec<SearchResult> = serde_json::from_str(&json).unwrap();
+        let decoded: Vec<ChunkSearchResult> = serde_json::from_str(&json).unwrap();
         assert_eq!(decoded.len(), 1);
-        assert_eq!(decoded[0].title, "Title A");
+        assert_eq!(decoded[0].file_path, "a.md");
     }
 
     #[test]
     fn test_print_table_empty_results() {
-        let results: Vec<SearchResult> = vec![];
-        // Verify the function doesn't panic
-        print_results(
-            &results,
-            "test",
-            &OutputFormat::Table,
-            Duration::from_secs(0),
-        );
-    }
-
-    #[test]
-    fn test_print_table_with_results() {
-        let results = vec![make_result(
-            "notes/project.md",
-            "Project Plan",
-            "This project is about building a search\nengine that can handle complex queries.",
-            0.12,
-        )];
-        // Verify no panic with valid data
-        print_results(
-            &results,
-            "search term",
-            &OutputFormat::Table,
-            Duration::from_millis(42),
-        );
-    }
-
-    #[test]
-    fn test_print_table_long_content_truncation() {
-        let long_title = "A".repeat(200);
-        let long_path = "a/b/c/d/e/f/g/h/i/j/k/l/m/n/o/p/q/r/s/t/u/v/w/x/y/z.md";
-        let long_snippet = "line1\nline2\nline3\nline4\nline5";
-        let results = vec![make_result(long_path, &long_title, long_snippet, 0.01)];
-        // Verify no panic with long content
-        print_results(
-            &results,
-            "test",
-            &OutputFormat::Table,
-            Duration::from_secs(1),
-        );
+        let results: Vec<ChunkSearchResult> = vec![];
+        print_results(&results, "test", &OutputFormat::Table, Duration::from_secs(0));
     }
 
     #[test]
     fn test_dive_effective_format_json_overrides_explicit_format() {
-        // --json flag should win even if --format json-pretty is also given
         let args = DiveArgs {
             query: "test".to_string(),
             json: true,

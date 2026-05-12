@@ -1,7 +1,7 @@
 use crate::{
     db::NoteDatabase,
-    indexer::index_file,
-    models::{IndexConfig, IndexResult},
+    indexer::{index_file, IndexResult},
+    models::IndexConfig,
     tokenizer::JapaneseTokenizer,
 };
 use log;
@@ -103,13 +103,13 @@ impl VaultWatcher {
             EventKind::Remove(_) => {
                 for path in &event.paths {
                     if let Ok(rel) = path.strip_prefix(&self.config.notes_dir) {
+                        let rel_str = rel.to_string_lossy();
                         let db = self.db.lock().unwrap();
-                        if let Err(e) = db.delete_note(&rel.to_string_lossy()) {
-                            log::warn!(
-                                "watcher: failed to delete {}: {}",
-                                rel.to_string_lossy(),
-                                e
-                            );
+                        if let Err(e) = db.delete_chunks_for_file(&rel_str) {
+                            log::warn!("watcher: failed to delete chunks for {}: {}", rel_str, e);
+                        }
+                        if let Err(e) = db.delete_file_cache(&rel_str) {
+                            log::warn!("watcher: failed to delete cache for {}: {}", rel_str, e);
                         }
                     }
                 }
@@ -121,14 +121,12 @@ impl VaultWatcher {
                     // Only delete old path if it resolved within the vault
                     if self.is_path_within_vault(old) {
                         if let Ok(old_rel) = old.strip_prefix(&self.config.notes_dir) {
+                            let rel_str = old_rel.to_string_lossy();
                             let db = self.db.lock().unwrap();
-                            if let Err(e) = db.delete_note(&old_rel.to_string_lossy()) {
-                                log::warn!(
-                                    "watcher: failed to delete old path {}: {}",
-                                    old_rel.to_string_lossy(),
-                                    e
-                                );
+                            if let Err(e) = db.delete_chunks_for_file(&rel_str) {
+                                log::warn!("watcher: failed to delete old path {}: {}", rel_str, e);
                             }
+                            let _ = db.delete_file_cache(&rel_str);
                         }
                     }
                     // Symlink-safe vault check for the new path before indexing

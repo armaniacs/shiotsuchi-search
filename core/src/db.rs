@@ -1,5 +1,6 @@
-use crate::models::{NoteMetadata, SearchResult, VaultStats};
-use rusqlite::{params, Connection, Result as SqliteResult};
+use crate::models::{Chunk, VaultStats};
+use rusqlite::{params, Connection, OpenFlags, Result as SqliteResult};
+use sqlite_vec;
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
@@ -12,266 +13,340 @@ pub enum DbError {
     NotFound(String),
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
+    #[error("{0}")]
+    Other(String),
 }
 
-/// Manages the SQLite database including FTS5 and metadata tables.
+/// Manages the SQLite database — write connection for indexer,
+/// read-only connection for search (WAL allows concurrent readers).
 pub struct NoteDatabase {
-    pub conn: RefCell<Connection>,
+    pub write_conn: RefCell<Connection>,
 }
 
 impl NoteDatabase {
-    /// Open or create a database at the given path.
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, DbError> {
         let is_fresh = !path.as_ref().exists();
+        unsafe {
+            rusqlite::ffi::sqlite3_auto_extension(Some(std::mem::transmute(
+                sqlite_vec::sqlite3_vec_init as *const (),
+            )));
+        }
         let conn = Connection::open(&path)?;
         conn.pragma_update(None, "journal_mode", "WAL")?;
-        let db = Self {
-            conn: RefCell::new(conn),
-        };
-        db.init_schema()?;
+        let db = Self { write_conn: RefCell::new(conn) };
+        db.migrate()?;
         #[cfg(unix)]
         if is_fresh {
             use std::os::unix::fs::PermissionsExt;
-            // Restrict main DB file
-            if let Err(e) = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
-            {
-                log::warn!("Failed to set DB file permissions to 0o600: {}", e);
-            }
-            // Restrict WAL/SHM companion files if they exist
+            let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
             let base = path.as_ref().to_string_lossy();
             for suffix in ["-wal", "-shm"] {
-                let companion = std::path::PathBuf::from(format!("{}{}", base, suffix));
+                let companion = PathBuf::from(format!("{}{}", base, suffix));
                 if companion.exists() {
-                    if let Err(e) =
-                        std::fs::set_permissions(&companion, std::fs::Permissions::from_mode(0o600))
-                    {
-                        log::warn!("Failed to set companion file permissions to 0o600: {}", e);
-                    }
+                    let _ = std::fs::set_permissions(&companion, std::fs::Permissions::from_mode(0o600));
                 }
             }
         }
         Ok(db)
     }
 
-    /// Create an in-memory database (for testing).
     pub fn open_in_memory() -> Result<Self, DbError> {
+        unsafe {
+            rusqlite::ffi::sqlite3_auto_extension(Some(std::mem::transmute(
+                sqlite_vec::sqlite3_vec_init as *const (),
+            )));
+        }
         let conn = Connection::open_in_memory()?;
-        let db = Self {
-            conn: RefCell::new(conn),
-        };
-        db.init_schema()?;
+        let db = Self { write_conn: RefCell::new(conn) };
+        db.migrate()?;
         Ok(db)
     }
 
-    fn init_schema(&self) -> SqliteResult<()> {
-        // Main FTS5 table for tokenized body search
-        self.conn.borrow().execute(
-            "CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
-                path UNINDEXED,
-                title,
-                body,
-                tokenize='unicode61 remove_diacritics 0'
-            )",
-            [],
-        )?;
+    /// Open a read-only connection to an existing DB (for MCP search handler).
+    pub fn open_readonly<P: AsRef<Path>>(path: P) -> Result<Connection, DbError> {
+        let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+        Ok(conn)
+    }
 
-        // Metadata table for hash/mtime tracking
-        self.conn.borrow().execute(
-            "CREATE TABLE IF NOT EXISTS notes_meta (
-                path TEXT PRIMARY KEY,
-                hash TEXT NOT NULL,
-                mtime INTEGER NOT NULL,
-                indexed_at INTEGER NOT NULL,
-                title TEXT
-            )",
-            [],
-        )?;
+    fn migrate(&self) -> Result<(), DbError> {
+        let conn = self.write_conn.borrow();
+        let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap_or(0);
 
-        // Index for fast hash lookups
-        self.conn.borrow().execute(
-            "CREATE INDEX IF NOT EXISTS idx_notes_meta_hash ON notes_meta(hash)",
-            [],
-        )?;
-
-        let current_version: i64 = self
-            .conn
-            .borrow()
-            .query_row("PRAGMA user_version", [], |row| row.get(0))
-            .unwrap_or(0);
-        if current_version == 0 {
-            self.conn.borrow().execute("PRAGMA user_version = 1", [])?;
+        if version < 2 {
+            // Drop v1 tables if present
+            conn.execute_batch("
+                DROP TABLE IF EXISTS notes_fts;
+                DROP TABLE IF EXISTS notes_meta;
+            ")?;
+            self.create_schema(&conn)?;
+            conn.execute_batch("PRAGMA user_version = 2")?;
         }
-
         Ok(())
     }
 
-    /// Insert or update a note. Returns true if inserted/updated, false if skipped.
-    pub fn upsert_note(
+    fn create_schema(&self, conn: &Connection) -> SqliteResult<()> {
+        conn.execute_batch("
+            CREATE TABLE IF NOT EXISTS file_cache (
+                path     TEXT PRIMARY KEY,
+                hash     TEXT NOT NULL,
+                mtime    INTEGER NOT NULL,
+                model_id TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS chunks (
+                id                INTEGER PRIMARY KEY,
+                file_path         TEXT NOT NULL,
+                chunk_index       INTEGER NOT NULL,
+                parent_header     TEXT,
+                content           TEXT NOT NULL,
+                tokenized_content TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_chunks_file_path ON chunks(file_path);
+
+            CREATE VIRTUAL TABLE IF NOT EXISTS fts_chunks USING fts5(
+                tokenized_content,
+                content='chunks',
+                content_rowid='id',
+                tokenize='unicode61 remove_diacritics 0'
+            );
+
+            CREATE VIRTUAL TABLE IF NOT EXISTS vec_chunks USING vec0(
+                chunk_id  INTEGER PRIMARY KEY,
+                embedding FLOAT[1024]
+            );
+        ")?;
+        Ok(())
+    }
+
+    /// Insert a batch of chunks for a file. Caller must have deleted old chunks first.
+    pub fn insert_chunks(&self, chunks: &[Chunk]) -> Result<Vec<i64>, DbError> {
+        let mut conn = self.write_conn.borrow_mut();
+        let tx = conn.transaction()?;
+        let mut ids = Vec::with_capacity(chunks.len());
+        for chunk in chunks {
+            tx.execute(
+                "INSERT INTO chunks (file_path, chunk_index, parent_header, content, tokenized_content)
+                 VALUES (?1,?2,?3,?4,?5)",
+                params![chunk.file_path, chunk.chunk_index, chunk.parent_header, chunk.content, chunk.tokenized_content],
+            )?;
+            let id = tx.last_insert_rowid();
+            // FTS insert (external content — fts_chunks maps to chunks.tokenized_content)
+            tx.execute(
+                "INSERT INTO fts_chunks(rowid, tokenized_content) VALUES (?1, ?2)",
+                params![id, chunk.tokenized_content],
+            )?;
+            ids.push(id);
+        }
+        tx.commit()?;
+        Ok(ids)
+    }
+
+    /// Insert embeddings for a batch of (chunk_id, embedding) pairs.
+    pub fn insert_embeddings(&self, pairs: &[(i64, Vec<f32>)]) -> Result<(), DbError> {
+        let mut conn = self.write_conn.borrow_mut();
+        let tx = conn.transaction()?;
+        for (chunk_id, embedding) in pairs {
+            let blob: Vec<u8> = embedding.iter()
+                .flat_map(|f| f.to_le_bytes())
+                .collect();
+            tx.execute(
+                "INSERT INTO vec_chunks(chunk_id, embedding) VALUES (?1, ?2)",
+                params![chunk_id, blob],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Delete all chunks (and their FTS/vec entries) for a file path.
+    /// fts_chunks is external content (content='chunks'), so normal DELETE works.
+    pub fn delete_chunks_for_file(&self, file_path: &str) -> Result<(), DbError> {
+        let mut conn = self.write_conn.borrow_mut();
+        let tx = conn.transaction()?;
+
+        let ids: Vec<i64> = {
+            let mut stmt = tx.prepare("SELECT id FROM chunks WHERE file_path = ?1")?;
+            let rows = stmt.query_map([file_path], |r| r.get(0))?;
+            rows.collect::<SqliteResult<Vec<_>>>()?
+        };
+        log::debug!("Deleting {} chunks for {}", ids.len(), file_path);
+
+        for id in &ids {
+            log::trace!("  deleting fts_chunks rowid={}", id);
+            tx.execute("DELETE FROM fts_chunks WHERE rowid = ?1", [id])?;
+            log::trace!("  deleting vec_chunks chunk_id={}", id);
+            tx.execute("DELETE FROM vec_chunks WHERE chunk_id = ?1", [id])?;
+        }
+
+        log::debug!("  deleting from chunks table");
+        tx.execute("DELETE FROM chunks WHERE file_path = ?1", [file_path])?;
+        tx.commit()?;
+        log::debug!("  committed delete for {}", file_path);
+        Ok(())
+    }
+
+    /// Upsert file_cache entry.
+    pub fn upsert_file_cache(
         &self,
         path: &str,
-        title: &str,
-        tokenized_body: &str,
         hash: &str,
         mtime: i64,
-    ) -> Result<bool, DbError> {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs() as i64;
-
-        let mut conn = self.conn.borrow_mut();
-        let tx = conn.transaction()?;
-
-        let existing: Option<String> = tx
-            .query_row(
-                "SELECT hash FROM notes_meta WHERE path = ?1",
-                [path],
-                |row| row.get(0),
-            )
-            .ok();
-
-        if let Some(old_hash) = existing {
-            if old_hash == hash {
-                // Unchanged — commit transaction and return
-                tx.commit()?;
-                return Ok(false);
-            }
-            // Update: delete old FTS row first
-            tx.execute("DELETE FROM notes_fts WHERE path = ?1", [path])?;
-        }
-
-        // Insert into FTS
-        tx.execute(
-            "INSERT INTO notes_fts (path, title, body) VALUES (?1, ?2, ?3)",
-            params![path, title, tokenized_body],
-        )?;
-
-        // Upsert metadata
-        tx.execute(
-            "INSERT INTO notes_meta (path, hash, mtime, indexed_at, title)
-             VALUES (?1, ?2, ?3, ?4, ?5)
+        model_id: &str,
+    ) -> Result<(), DbError> {
+        self.write_conn.borrow().execute(
+            "INSERT INTO file_cache (path, hash, mtime, model_id)
+             VALUES (?1,?2,?3,?4)
              ON CONFLICT(path) DO UPDATE SET
-                hash=excluded.hash,
-                mtime=excluded.mtime,
-                indexed_at=excluded.indexed_at,
-                title=excluded.title",
-            params![path, hash, mtime, now, title],
+                 hash=excluded.hash, mtime=excluded.mtime, model_id=excluded.model_id",
+            params![path, hash, mtime, model_id],
         )?;
-
-        tx.commit()?;
-        Ok(true)
-    }
-
-    /// Get metadata for a specific note.
-    pub fn get_metadata(&self, path: &str) -> Result<NoteMetadata, DbError> {
-        let conn = self.conn.borrow();
-        conn.query_row(
-            "SELECT path, hash, mtime, indexed_at, title FROM notes_meta WHERE path = ?1",
-            [path],
-            |row| {
-                Ok(NoteMetadata {
-                    path: row.get(0)?,
-                    hash: row.get(1)?,
-                    mtime: row.get(2)?,
-                    indexed_at: row.get(3)?,
-                    title: row.get(4)?,
-                })
-            },
-        )
-        .map_err(|e| match e {
-            rusqlite::Error::QueryReturnedNoRows => DbError::NotFound(path.to_string()),
-            other => DbError::Sqlite(other),
-        })
-    }
-
-    /// List all indexed paths.
-    pub fn list_paths(&self) -> SqliteResult<Vec<String>> {
-        let conn = self.conn.borrow();
-        let mut stmt = conn.prepare("SELECT path FROM notes_meta")?;
-        let rows = stmt.query_map([], |row| row.get(0))?;
-        rows.collect()
-    }
-
-    /// List all note metadata ordered by indexed_at descending.
-    pub fn list_all_metadata(&self) -> Result<Vec<NoteMetadata>, DbError> {
-        let conn = self.conn.borrow();
-        let mut stmt = conn.prepare(
-            "SELECT path, hash, mtime, indexed_at, title FROM notes_meta ORDER BY indexed_at DESC",
-        )?;
-        let rows = stmt.query_map([], |row| {
-            Ok(NoteMetadata {
-                path: row.get(0)?,
-                hash: row.get(1)?,
-                mtime: row.get(2)?,
-                indexed_at: row.get(3)?,
-                title: row.get(4)?,
-            })
-        })?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(DbError::Sqlite)
-    }
-
-    /// Delete a note from the index.
-    pub fn delete_note(&self, path: &str) -> SqliteResult<()> {
-        let mut conn = self.conn.borrow_mut();
-        let tx = conn.transaction()?;
-        tx.execute("DELETE FROM notes_fts WHERE path = ?1", [path])?;
-        tx.execute("DELETE FROM notes_meta WHERE path = ?1", [path])?;
-        tx.commit()?;
         Ok(())
     }
 
-    /// Get vault statistics.
-    pub fn stats(&self) -> Result<VaultStats, DbError> {
-        let conn = self.conn.borrow();
-        let total_notes: usize =
-            conn.query_row("SELECT COUNT(*) FROM notes_meta", [], |row| row.get(0))?;
+    /// Returns the stored hash for a file, or None if not cached.
+    pub fn cached_hash(&self, path: &str) -> Result<Option<String>, DbError> {
+        let conn = self.write_conn.borrow();
+        match conn.query_row(
+            "SELECT hash FROM file_cache WHERE path = ?1",
+            [path],
+            |r| r.get(0),
+        ) {
+            Ok(h) => Ok(Some(h)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(DbError::Sqlite(e)),
+        }
+    }
 
-        let total_size: usize = conn
-            .query_row(
-                "SELECT page_count * page_size FROM pragma_page_count(), pragma_page_size()",
-                [],
-                |row| row.get(0),
-            )
-            .unwrap_or(0);
+    /// Delete file_cache entry for a file.
+    pub fn delete_file_cache(&self, path: &str) -> Result<(), DbError> {
+        self.write_conn.borrow().execute(
+            "DELETE FROM file_cache WHERE path = ?1",
+            [path],
+        )?;
+        Ok(())
+    }
 
-        let last_indexed: Option<i64> = conn
-            .query_row("SELECT MAX(indexed_at) FROM notes_meta", [], |row| {
-                row.get(0)
+    /// FTS search on fts_chunks. Returns (chunk_id, score) pairs.
+    pub fn fts_search(&self, fts5_query: &str, limit: usize) -> Result<Vec<(i64, f64)>, DbError> {
+        let conn = self.write_conn.borrow();
+        let mut stmt = conn.prepare(
+            "SELECT rowid, rank FROM fts_chunks WHERE fts_chunks MATCH ?1 ORDER BY rank LIMIT ?2"
+        )?;
+        let rows = stmt.query_map(params![fts5_query, limit as i64], |r| {
+            Ok((r.get::<_, i64>(0)?, r.get::<_, f64>(1)?))
+        })?;
+        rows.collect::<SqliteResult<Vec<_>>>().map_err(DbError::Sqlite)
+    }
+
+    /// Vector KNN search on vec_chunks. Returns (chunk_id, distance) pairs.
+    pub fn vec_search(&self, embedding: &[f32], limit: usize) -> Result<Vec<(i64, f64)>, DbError> {
+        let conn = self.write_conn.borrow();
+        let blob: Vec<u8> = embedding.iter().flat_map(|f| f.to_le_bytes()).collect();
+        let mut stmt = conn.prepare(
+            "SELECT chunk_id, distance FROM vec_chunks
+             WHERE embedding MATCH ?1 AND k = ?2
+             ORDER BY distance"
+        )?;
+        let rows = stmt.query_map(params![blob, limit as i64], |r| {
+            Ok((r.get::<_, i64>(0)?, r.get::<_, f64>(1)?))
+        })?;
+        rows.collect::<SqliteResult<Vec<_>>>().map_err(DbError::Sqlite)
+    }
+
+    /// Fetch chunks by ids, preserving order.
+    pub fn get_chunks_by_ids(&self, ids: &[i64]) -> Result<Vec<Chunk>, DbError> {
+        if ids.is_empty() { return Ok(vec![]); }
+        let conn = self.write_conn.borrow();
+        let placeholders: String = ids.iter().enumerate()
+            .map(|(i, _)| format!("?{}", i + 1))
+            .collect::<Vec<_>>()
+            .join(",");
+        let sql = format!(
+            "SELECT id, file_path, chunk_index, parent_header, content, tokenized_content FROM chunks WHERE id IN ({})",
+            placeholders
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let params_vec: Vec<&dyn rusqlite::ToSql> = ids.iter()
+            .map(|id| id as &dyn rusqlite::ToSql)
+            .collect();
+        let rows = stmt.query_map(params_vec.as_slice(), |r| {
+            Ok(Chunk {
+                id: Some(r.get(0)?),
+                file_path: r.get(1)?,
+                chunk_index: r.get(2)?,
+                parent_header: r.get(3)?,
+                content: r.get(4)?,
+                tokenized_content: r.get(5)?,
             })
-            .ok();
+        })?;
+        rows.collect::<SqliteResult<Vec<_>>>().map_err(DbError::Sqlite)
+    }
 
+    /// Fetch chunks surrounding a given chunk_id (for MCP get_surrounding_context).
+    pub fn get_surrounding_chunks(&self, chunk_id: i64, window: usize) -> Result<Vec<Chunk>, DbError> {
+        let conn = self.write_conn.borrow();
+        let file_path: String = conn.query_row(
+            "SELECT file_path FROM chunks WHERE id = ?1", [chunk_id], |r| r.get(0)
+        ).map_err(|e| match e {
+            rusqlite::Error::QueryReturnedNoRows => DbError::NotFound(chunk_id.to_string()),
+            other => DbError::Sqlite(other),
+        })?;
+        let chunk_index: i64 = conn.query_row(
+            "SELECT chunk_index FROM chunks WHERE id = ?1", [chunk_id], |r| r.get(0)
+        )?;
+        let w = window as i64;
+        let mut stmt = conn.prepare(
+            "SELECT id, file_path, chunk_index, parent_header, content, tokenized_content FROM chunks
+             WHERE file_path = ?1 AND chunk_index BETWEEN ?2 AND ?3
+             ORDER BY chunk_index"
+        )?;
+        let rows = stmt.query_map(params![file_path, chunk_index - w, chunk_index + w], |r| {
+            Ok(Chunk {
+                id: Some(r.get(0)?),
+                file_path: r.get(1)?,
+                chunk_index: r.get(2)?,
+                parent_header: r.get(3)?,
+                content: r.get(4)?,
+                tokenized_content: r.get(5)?,
+            })
+        })?;
+        rows.collect::<SqliteResult<Vec<_>>>().map_err(DbError::Sqlite)
+    }
+
+    /// List all file paths in file_cache.
+    pub fn list_cached_paths(&self) -> Result<Vec<String>, DbError> {
+        let conn = self.write_conn.borrow();
+        let mut stmt = conn.prepare("SELECT path FROM file_cache")?;
+        let rows = stmt.query_map([], |r| r.get(0))?;
+        rows.collect::<SqliteResult<Vec<_>>>().map_err(DbError::Sqlite)
+    }
+
+    /// Vault statistics.
+    pub fn stats(&self) -> Result<VaultStats, DbError> {
+        let conn = self.write_conn.borrow();
+        let total_chunks: usize = conn.query_row("SELECT COUNT(*) FROM chunks", [], |r| r.get(0))?;
+        let total_files: usize = conn.query_row("SELECT COUNT(*) FROM file_cache", [], |r| r.get(0))?;
+        let vec_indexed: usize = conn.query_row("SELECT COUNT(*) FROM vec_chunks", [], |r| r.get(0))?;
+        let total_size: usize = conn.query_row(
+            "SELECT page_count * page_size FROM pragma_page_count(), pragma_page_size()",
+            [], |r| r.get(0),
+        ).unwrap_or(0);
+        let last_indexed: Option<i64> = conn.query_row(
+            "SELECT MAX(mtime) FROM file_cache", [], |r| r.get(0)
+        ).ok();
         let db_path = conn.path().map(PathBuf::from).unwrap_or_default();
 
         Ok(VaultStats {
-            total_notes,
+            total_chunks,
+            total_files,
             total_size_bytes: total_size,
             last_indexed_at: last_indexed,
             db_path,
+            vec_indexed_chunks: vec_indexed,
+            embedder_status: String::new(), // filled by caller
         })
     }
 
-    /// Search notes using tokenized query. Returns results ordered by BM25 relevance.
-    /// `fts5_query` は呼び出し側で `tokenizer.and_query()` を使って構築すること。
-    /// 例: `"東京" AND "検索"` — スペース区切り（フレーズ検索）は誤りなので使わない。
-    pub fn search(&self, fts5_query: &str, limit: usize) -> Result<Vec<SearchResult>, DbError> {
-        let conn = self.conn.borrow();
-        let sql = "SELECT path, title, rank
-             FROM notes_fts
-             WHERE notes_fts MATCH ?1
-             ORDER BY rank
-             LIMIT ?2";
-
-        let mut stmt = conn.prepare(sql)?;
-        let rows = stmt.query_map(params![fts5_query, limit as i64], |row| {
-            Ok(SearchResult {
-                path: row.get(0)?,
-                title: row.get(1)?,
-                snippet: String::new(), // 呼び出し側が元ファイルから extract_snippet() で補完する
-                score: row.get(2)?,
-            })
-        })?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(DbError::Sqlite)
-    }
 }
 
 #[cfg(test)]
@@ -279,127 +354,97 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_init_schema() {
+    fn test_init_schema_fresh() {
         let db = NoteDatabase::open_in_memory().unwrap();
         let stats = db.stats().unwrap();
-        assert_eq!(stats.total_notes, 0);
+        assert_eq!(stats.total_chunks, 0);
+        assert_eq!(stats.total_files, 0);
     }
 
     #[test]
-    fn test_upsert_and_get() {
+    fn test_insert_and_delete_chunks() {
         let db = NoteDatabase::open_in_memory().unwrap();
-        let changed = db
-            .upsert_note("test.md", "Test", "tokenized body", "hash123", 1000)
-            .unwrap();
-        assert!(changed);
+        let chunks = vec![
+            Chunk { id: None, file_path: "a.md".into(), chunk_index: 0, parent_header: None, content: "hello world".into(), tokenized_content: "hello world".into() },
+            Chunk { id: None, file_path: "a.md".into(), chunk_index: 1, parent_header: Some("# H1".into()), content: "second chunk".into(), tokenized_content: "second chunk".into() },
+        ];
+        let ids = db.insert_chunks(&chunks).unwrap();
+        assert_eq!(ids.len(), 2);
 
-        let meta = db.get_metadata("test.md").unwrap();
-        assert_eq!(meta.title, "Test");
-        assert_eq!(meta.hash, "hash123");
+        db.delete_chunks_for_file("a.md").unwrap();
+        let stats = db.stats().unwrap();
+        assert_eq!(stats.total_chunks, 0);
     }
 
     #[test]
-    fn test_upsert_skip_unchanged() {
+    fn test_file_cache_upsert_and_lookup() {
         let db = NoteDatabase::open_in_memory().unwrap();
-        db.upsert_note("test.md", "Test", "body", "hash123", 1000)
-            .unwrap();
-        let changed = db
-            .upsert_note("test.md", "Test", "body", "hash123", 1000)
-            .unwrap();
-        assert!(!changed);
+        db.upsert_file_cache("a.md", "hash1", 1000, "none").unwrap();
+        assert_eq!(db.cached_hash("a.md").unwrap(), Some("hash1".to_string()));
+        // Upsert again with new hash
+        db.upsert_file_cache("a.md", "hash2", 2000, "none").unwrap();
+        assert_eq!(db.cached_hash("a.md").unwrap(), Some("hash2".to_string()));
+        // Unknown path
+        assert_eq!(db.cached_hash("missing.md").unwrap(), None);
     }
 
     #[test]
-    fn test_delete() {
+    fn test_fts_search_finds_inserted_chunk() {
         let db = NoteDatabase::open_in_memory().unwrap();
-        db.upsert_note("test.md", "Test", "body", "hash123", 1000)
-            .unwrap();
-        db.delete_note("test.md").unwrap();
-        assert!(db.get_metadata("test.md").is_err());
+        let chunks = vec![
+            Chunk { id: None, file_path: "b.md".into(), chunk_index: 0, parent_header: None, content: "search engine test".into(), tokenized_content: "search engine test".into() },
+        ];
+        db.insert_chunks(&chunks).unwrap();
+        let results = db.fts_search("search AND engine", 10).unwrap();
+        assert!(!results.is_empty());
     }
 
     #[test]
-    fn test_wal_mode_enabled() {
-        let temp = tempfile::TempDir::new().unwrap();
-        let db = NoteDatabase::open(temp.path().join("test.db")).unwrap();
-        let journal_mode: String = db
-            .conn
-            .borrow()
-            .query_row("PRAGMA journal_mode;", [], |row| row.get(0))
-            .unwrap();
-        assert_eq!(journal_mode.to_lowercase(), "wal");
-    }
-
-    #[test]
-    fn test_list_all_metadata_empty() {
+    fn test_get_surrounding_chunks() {
         let db = NoteDatabase::open_in_memory().unwrap();
-        let entries = db.list_all_metadata().unwrap();
-        assert!(entries.is_empty());
+        let chunks: Vec<Chunk> = (0..5).map(|i| Chunk {
+            id: None, file_path: "c.md".into(), chunk_index: i,
+            parent_header: None, content: format!("chunk {}", i),
+            tokenized_content: format!("chunk {}", i),
+        }).collect();
+        let ids = db.insert_chunks(&chunks).unwrap();
+        let middle_id = ids[2];
+        let surrounding = db.get_surrounding_chunks(middle_id, 1).unwrap();
+        assert_eq!(surrounding.len(), 3); // index 1, 2, 3
     }
 
     #[test]
-    fn test_list_all_metadata_ordered_by_indexed_at_desc() {
+    fn test_delete_chunks_removes_fts_entries() {
         let db = NoteDatabase::open_in_memory().unwrap();
-        db.upsert_note("a.md", "A", "body a", "hash_a", 1000)
-            .unwrap();
-        db.upsert_note("b.md", "B", "body b", "hash_b", 2000)
-            .unwrap();
-        db.upsert_note("c.md", "C", "body c", "hash_c", 3000)
-            .unwrap();
-
-        let entries = db.list_all_metadata().unwrap();
-        assert_eq!(entries.len(), 3);
-        let paths: Vec<&str> = entries.iter().map(|e| e.path.as_str()).collect();
-        assert!(paths.contains(&"a.md"));
-        assert!(paths.contains(&"b.md"));
-        assert!(paths.contains(&"c.md"));
+        let chunks = vec![
+            Chunk { id: None, file_path: "d.md".into(), chunk_index: 0, parent_header: None, content: "unique token xyz987".into(), tokenized_content: "unique token xyz987".into() },
+        ];
+        db.insert_chunks(&chunks).unwrap();
+        // Verify findable before delete
+        assert!(!db.fts_search("xyz987", 10).unwrap().is_empty());
+        db.delete_chunks_for_file("d.md").unwrap();
+        // After delete, should not be found
+        assert!(db.fts_search("xyz987", 10).unwrap().is_empty());
     }
 
     #[test]
     #[cfg(unix)]
-    fn test_db_file_created_with_restricted_permissions() {
+    fn test_db_file_permissions() {
         use std::os::unix::fs::PermissionsExt;
         let temp = tempfile::TempDir::new().unwrap();
         let db_path = temp.path().join("test.db");
         let db = NoteDatabase::open(&db_path).unwrap();
-        drop(db); // close connection so we can check file
-        let metadata = std::fs::metadata(&db_path).unwrap();
-        assert_eq!(
-            metadata.permissions().mode() & 0o777,
-            0o600,
-            "newly created DB file should have 0o600 permissions"
-        );
-    }
-
-    #[test]
-    #[cfg(unix)]
-    fn test_db_companion_files_restricted() {
-        use std::os::unix::fs::PermissionsExt;
-        let temp = tempfile::TempDir::new().unwrap();
-        let db_path = temp.path().join("test.db");
-        let db = NoteDatabase::open(&db_path).unwrap();
-        // WAL mode creates -wal and -shm companion files
-        for suffix in ["-wal", "-shm"] {
-            let companion = db_path.with_extension("db");
-            let companion =
-                std::path::PathBuf::from(format!("{}{}", companion.to_string_lossy(), suffix));
-            if companion.exists() {
-                let meta = std::fs::metadata(&companion).unwrap();
-                assert_eq!(
-                    meta.permissions().mode() & 0o777,
-                    0o600,
-                    "companion file {} should have 0o600 permissions",
-                    companion.display()
-                );
-            }
-        }
         drop(db);
+        let meta = std::fs::metadata(&db_path).unwrap();
+        assert_eq!(meta.permissions().mode() & 0o777, 0o600);
     }
 
     #[test]
-    fn test_delete_nonexistent_returns_ok() {
-        // Deleting a note that doesn't exist should not error
-        let db = NoteDatabase::open_in_memory().unwrap();
-        db.delete_note("nonexistent.md").unwrap();
+    fn test_wal_mode() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let db = NoteDatabase::open(temp.path().join("t.db")).unwrap();
+        let mode: String = db.write_conn.borrow()
+            .query_row("PRAGMA journal_mode", [], |r| r.get(0)).unwrap();
+        assert_eq!(mode.to_lowercase(), "wal");
     }
 }

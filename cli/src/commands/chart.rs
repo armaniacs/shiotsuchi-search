@@ -2,8 +2,8 @@ use crate::config::IndexingConfig;
 use clap::Args;
 use shiotsuchi_core::{
     db::NoteDatabase,
-    indexer::index_directory,
-    models::{IndexConfig, IndexResult},
+    indexer::{index_directory, IndexResult},
+    models::IndexConfig,
     tokenizer::get_tokenizer,
 };
 use std::path::Path;

@@ -1,8 +1,8 @@
 use shiotsuchi_core::{
     db::NoteDatabase,
     indexer::{cleanup_deleted, index_directory},
-    models::IndexConfig,
-    search::extract_snippet,
+    models::{IndexConfig, SearchMode},
+    search::{extract_snippet, search},
     tokenizer::TokenizerConfig,
 };
 use std::fs;
@@ -34,7 +34,7 @@ fn test_end_to_end_index_and_search() {
     )
     .unwrap();
 
-    // Index: tokenizer を index_directory に渡す
+    // Index
     let db = NoteDatabase::open_in_memory().unwrap();
     let config = IndexConfig {
         notes_dir: vault.clone(),
@@ -43,31 +43,29 @@ fn test_end_to_end_index_and_search() {
     let (results, _invalid) = index_directory(&db, &tokenizer, &config).unwrap();
     assert_eq!(results.len(), 3);
 
-    // Search: tokenizer.and_query() で FTS5 AND クエリを構築してから db.search() に渡す
-    let fts5_query = tokenizer.and_query("search engine");
-    let search_results = db.search(&fts5_query, 10).unwrap();
+    // FTS search
+    let search_results = search(&db, &tokenizer, "search engine", 10, SearchMode::Fts, None).unwrap();
     assert!(!search_results.is_empty());
-    assert!(search_results[0].path.contains("project"));
+    assert!(search_results[0].file_path.contains("project"));
 
-    // Search 日本語: 同様に and_query() を経由する
-    let ja_query = tokenizer.and_query("形態素");
-    let ja_results = db.search(&ja_query, 10).unwrap();
+    // Japanese FTS search
+    let ja_results = search(&db, &tokenizer, "形態素", 10, SearchMode::Fts, None).unwrap();
     assert!(!ja_results.is_empty());
 
     // Stats
     let stats = db.stats().unwrap();
-    assert_eq!(stats.total_notes, 3);
+    assert_eq!(stats.total_files, 3);
 
     // Cleanup
     fs::remove_file(vault.join("meeting.md")).unwrap();
     let removed = cleanup_deleted(&db, &config).unwrap();
     assert_eq!(removed.len(), 1);
-    assert_eq!(db.stats().unwrap().total_notes, 2);
+    assert_eq!(db.stats().unwrap().total_files, 2);
 }
 
 #[test]
 fn test_snippet_extraction() {
     let text = "First paragraph\n\nSecond paragraph with keyword\n\nThird paragraph";
-    let snippet = extract_snippet(text, "keyword", 1, 1000);
+    let snippet = extract_snippet(text, "keyword", 1000);
     assert!(snippet.contains("keyword"));
 }

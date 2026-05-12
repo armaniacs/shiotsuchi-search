@@ -2,8 +2,9 @@ use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use shiotsuchi_core::{
     db::NoteDatabase,
     indexer::index_directory,
-    models::IndexConfig,
-    tokenizer::{simple_and_query, JapaneseTokenizer, TokenizerConfig},
+    models::{IndexConfig, SearchMode},
+    search::search,
+    tokenizer::{JapaneseTokenizer, TokenizerConfig},
 };
 use std::fs;
 use tempfile::TempDir;
@@ -56,11 +57,12 @@ fn bench_indexing(c: &mut Criterion) {
 
 fn bench_search(c: &mut Criterion) {
     let (_temp, db_path) = setup_vault(1000);
+    let tok = JapaneseTokenizer::new(TokenizerConfig::default())
+        .expect("SHIOTSUCHI_MODEL_PATH required for benchmarks");
     c.bench_function("search_1000_notes", |b| {
         b.iter(|| {
             let db = NoteDatabase::open(&db_path).unwrap();
-            let q = simple_and_query("test content");
-            black_box(db.search(black_box(&q), 20).unwrap())
+            black_box(search(black_box(&db), black_box(&tok), "test content", 20, SearchMode::Fts, None).unwrap())
         })
     });
 }

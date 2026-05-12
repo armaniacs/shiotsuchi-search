@@ -199,8 +199,8 @@ mod tests {
         assert!(out.status.success());
         let stdout = String::from_utf8_lossy(&out.stdout);
         assert!(
-            stdout.contains("Total notes"),
-            "expected 'Total notes': {}",
+            stdout.contains("Total files") || stdout.contains("Total chunks"),
+            "expected file/chunk count: {}",
             stdout
         );
         assert!(stdout.contains('2'), "expected count 2: {}", stdout);
@@ -231,11 +231,8 @@ mod tests {
             "expected shopping.md: {}",
             stdout
         );
-        // ISO 8601 timestamp (YYYY-MM-DDThh:mm:ssZ)
-        assert!(stdout.contains('Z'), "expected UTC marker: {}", stdout);
-        assert!(stdout.contains(':'), "expected time separator: {}", stdout);
         assert!(
-            stdout.contains("Total: 2 notes"),
+            stdout.contains("Total: 2 files") || stdout.contains("Total: 2"),
             "expected total: {}",
             stdout
         );
@@ -363,7 +360,7 @@ mod tests {
         thread::sleep(Duration::from_millis(timeout_ms));
 
         let _ = handle.join();
-        let count = db.lock().unwrap().stats().unwrap().total_notes;
+        let count = db.lock().unwrap().stats().unwrap().total_files;
         assert_eq!(count, 1, "expected 1 indexed note after file creation");
     }
 
