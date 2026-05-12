@@ -28,18 +28,28 @@ hex = "0.4"
 globset = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+tokenizers = { version = "0.19", default-features = false, features = ["onig"] }
 thiserror = "1"
+# ort's "download-binaries" feature removed — ONNX Runtime binaries are installed manually
+# via `shiotsuchi setup` (see cli/src/commands/setup.rs). Set ORT_LIB_LOCATION env var.
+ort = { version = "2.0.0-rc.12", default-features = false }
+indicatif = "0.17"
 notify = { version = "6", optional = true }
 log = "0.4"
 dirs = "5"
+ndarray = "0.15"
+sqlite-vec = "0.1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "sync", "time"], optional = true }
 
 [features]
 default = ["watcher"]
 watcher = ["dep:notify"]
+async-index = ["dep:tokio"]
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
 tempfile = "3"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 
 [[bench]]
 name = "search_bench"
