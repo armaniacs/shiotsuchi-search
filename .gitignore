@@ -25,3 +25,5 @@ Thumbs.db
 
 # Runtime artifacts (coverage audits, etc.)
 .hex-skills/
+plans/archive
+plans/archive-old
