@@ -2,6 +2,7 @@ use crate::config::IndexingConfig;
 use clap::Args;
 use shiotsuchi_core::{
     db::NoteDatabase,
+    embedder::{resolve_model_path, Embedder},
     models::{ChunkSearchResult, SearchMode},
     search::{extract_snippet, search},
     tokenizer::get_tokenizer,
@@ -20,6 +21,28 @@ pub enum OutputFormat {
     JsonPretty,
 }
 
+/// CLI-side wrapper for SearchMode so core remains clap-independent.
+#[derive(clap::ValueEnum, Clone, Debug, Default)]
+pub enum CliSearchMode {
+    /// Keyword search via FTS5 (always available).
+    Fts,
+    /// Semantic vector search (requires model).
+    Vec,
+    /// Hybrid FTS + vector with RRF fusion (default; falls back to FTS when no model).
+    #[default]
+    Hybrid,
+}
+
+impl From<CliSearchMode> for SearchMode {
+    fn from(mode: CliSearchMode) -> Self {
+        match mode {
+            CliSearchMode::Fts => SearchMode::Fts,
+            CliSearchMode::Vec => SearchMode::Vec,
+            CliSearchMode::Hybrid => SearchMode::Hybrid,
+        }
+    }
+}
+
 #[derive(Args, Debug)]
 pub struct DiveArgs {
     /// Search query string.
@@ -36,6 +59,14 @@ pub struct DiveArgs {
     /// Output format (default: table, unless --json is set).
     #[arg(long, value_enum, default_value_t = OutputFormat::Table)]
     pub format: OutputFormat,
+
+    /// Search mode: fts (keyword), vec (semantic), hybrid (default).
+    #[arg(long, value_enum, default_value_t = CliSearchMode::Hybrid)]
+    pub mode: CliSearchMode,
+
+    /// Path to ONNX embedding model file (overrides SHIOTSUCHI_EMBED_MODEL_PATH and XDG default).
+    #[arg(long)]
+    pub model_path: Option<std::path::PathBuf>,
 }
 
 impl DiveArgs {
@@ -61,8 +92,34 @@ pub fn run_dive(
 
     let db = NoteDatabase::open(db_path)?;
     let tokenizer = get_tokenizer()?;
-    // FTS-only until embedder is wired up (Task 8/9)
-    let results = search(&db, &tokenizer, &args.query, args.limit, SearchMode::Fts, None)?;
+
+    let search_mode: SearchMode = args.mode.clone().into();
+
+    let embedder = match resolve_model_path(args.model_path.as_deref()) {
+        Some(p) => match Embedder::load(&p) {
+            Ok(e) => Some(e),
+            Err(e) => {
+                eprintln!("[warn] Could not load embedder: {}. Using FTS only.", e);
+                None
+            }
+        },
+        None => {
+            if matches!(search_mode, SearchMode::Vec | SearchMode::Hybrid) {
+                eprintln!(
+                    "[warn] モデルファイルが見つかりません。ベクトル検索は無効です。\n\
+                     キーワード検索（FTS5）のみで動作します。"
+                );
+            }
+            None
+        }
+    };
+
+    // Vec mode with no embedder is a hard error; Hybrid gracefully falls back to FTS
+    if embedder.is_none() && matches!(search_mode, SearchMode::Vec) {
+        return Err("Vector search requires a model. Set SHIOTSUCHI_EMBED_MODEL_PATH or use --model-path.".into());
+    }
+
+    let results = search(&db, &tokenizer, &args.query, args.limit, search_mode, embedder.as_ref())?;
     Ok(results)
 }
 
@@ -149,6 +206,8 @@ mod tests {
             json: false,
             limit: 10,
             format: OutputFormat::Json,
+            mode: CliSearchMode::Fts,
+            model_path: None,
         };
         let output = run_dive(&args, temp.path(), &db_file, &idx_cfg).unwrap();
         assert!(!output.is_empty());
@@ -166,6 +225,8 @@ mod tests {
             json: false,
             limit: 10,
             format: OutputFormat::Json,
+            mode: CliSearchMode::Fts,
+            model_path: None,
         };
         let output = run_dive(&args, temp.path(), &db_file, &idx_cfg).unwrap();
         assert!(output.is_empty());
@@ -178,6 +239,8 @@ mod tests {
             json: true,
             limit: 10,
             format: OutputFormat::Table,
+            mode: CliSearchMode::Fts,
+            model_path: None,
         };
         assert!(matches!(args.effective_format(), OutputFormat::Json));
     }
@@ -189,6 +252,8 @@ mod tests {
             json: false,
             limit: 10,
             format: OutputFormat::Table,
+            mode: CliSearchMode::Fts,
+            model_path: None,
         };
         assert!(matches!(args.effective_format(), OutputFormat::Table));
     }
@@ -200,6 +265,8 @@ mod tests {
             json: false,
             limit: 10,
             format: OutputFormat::JsonPretty,
+            mode: CliSearchMode::Fts,
+            model_path: None,
         };
         assert!(matches!(args.effective_format(), OutputFormat::JsonPretty));
     }
@@ -234,7 +301,46 @@ mod tests {
             json: true,
             limit: 10,
             format: OutputFormat::JsonPretty,
+            mode: CliSearchMode::Fts,
+            model_path: None,
         };
         assert!(matches!(args.effective_format(), OutputFormat::Json));
+    }
+
+    #[test]
+    fn test_cli_search_mode_converts_to_core() {
+        assert!(matches!(
+            SearchMode::from(CliSearchMode::Fts),
+            SearchMode::Fts
+        ));
+        assert!(matches!(
+            SearchMode::from(CliSearchMode::Vec),
+            SearchMode::Vec
+        ));
+        assert!(matches!(
+            SearchMode::from(CliSearchMode::Hybrid),
+            SearchMode::Hybrid
+        ));
+    }
+
+    #[test]
+    fn test_dive_vec_mode_fails_without_model() {
+        let temp = TempDir::new().unwrap();
+        let db_file = temp.path().join("test.db");
+        let idx_cfg = default_indexing_cfg();
+
+        // Create an empty DB so open() succeeds
+        shiotsuchi_core::db::NoteDatabase::open(&db_file).unwrap();
+
+        let args = DiveArgs {
+            query: "test".to_string(),
+            json: false,
+            limit: 10,
+            format: OutputFormat::Table,
+            mode: CliSearchMode::Vec,
+            model_path: None,
+        };
+        let result = run_dive(&args, temp.path(), &db_file, &idx_cfg);
+        assert!(result.is_err());
     }
 }
