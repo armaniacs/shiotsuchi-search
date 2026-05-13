@@ -180,7 +180,11 @@ model.save('/tmp/qwen3-onnx')
 
 mkdir -p ~/.local/share/shiotsuchi
 cp /tmp/qwen3-onnx/model.onnx ~/.local/share/shiotsuchi/model.onnx
+cp /tmp/qwen3-onnx/model.onnx_data ~/.local/share/shiotsuchi/ 2>/dev/null || true
 cp /tmp/qwen3-embed/tokenizer.json ~/.local/share/shiotsuchi/
+
+# Fix tokenizer merges format (Qwen3 uses [[a,b]], tokenizers crate expects ["a b"])
+python3 -c "import json; d=json.load(open('$HOME/.local/share/shiotsuchi/tokenizer.json')); d['model']['merges']=[' '.join(m) for m in d['model']['merges']]; json.dump(d, open('$HOME/.local/share/shiotsuchi/tokenizer.json','w'), ensure_ascii=False)"
 ```
 
 **Option B — `make onnx`**

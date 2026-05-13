@@ -48,6 +48,7 @@ async-index = ["dep:tokio"]
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
+serde = "1"
 tempfile = "3"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 

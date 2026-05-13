@@ -41,7 +41,13 @@ show_manual_instructions() {
     echo ""
     echo "  3. Copy files:"
     echo "     cp /tmp/qwen3-onnx/model.onnx $DEST"
+    if [ -f /tmp/qwen3-onnx/model.onnx_data ]; then
+        echo "     cp /tmp/qwen3-onnx/model.onnx_data $(dirname \"$DEST\")/"
+    fi
     echo "     cp /tmp/qwen3/tokenizer.json $(dirname \"$DEST\")/"
+    echo ""
+    echo "  4. Fix tokenizer merges format (Qwen3 stores merges as [[a,b]] but tokenizers crate expects [\"a b\"]):"
+    echo "     python3 -c \"import json; d=json.load(open('$(dirname \"$DEST\")/tokenizer.json')); d['model']['merges']=[' '.join(m) for m in d['model']['merges']]; json.dump(d, open('$(dirname \"$DEST\")/tokenizer.json','w'), ensure_ascii=False)\""
     echo ""
     echo "Documentation: https://huggingface.co/docs/optimum/exporters/onnx/quantization"
     echo "================================================================================"
@@ -86,3 +92,6 @@ rm -rf "$TEMP_DIR"
 show_manual_instructions
 echo ""
 echo "After converting, run 'make onnx' again or place the file at: $DEST"
+echo ""
+echo "After placing the model, fix the tokenizer merges format with:"
+echo "  python3 -c \"import json; d=json.load(open('$(dirname \"$DEST\")/tokenizer.json')); d['model']['merges']=[' '.join(m) for m in d['model']['merges']]; json.dump(d, open('$(dirname \"$DEST\")/tokenizer.json','w'), ensure_ascii=False)\""

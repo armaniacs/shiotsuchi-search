@@ -80,6 +80,8 @@ pub fn run_setup(args: &SetupArgs) -> Result<(), Box<dyn std::error::Error>> {
     println!("  2. Download a compatible ONNX embedding model (e.g. Qwen3-Embedding-0.6B)");
     println!("     and save it as:");
     println!("       {}", model_path.display());
+    println!("     If the model uses external data (model.onnx_data), copy it too:");
+    println!("       {}", model_dir.join("model.onnx_data").display());
     if !EXPECTED_MODEL_SHA256.is_empty() {
         println!();
         println!("     Expected SHA-256: {}", EXPECTED_MODEL_SHA256);
