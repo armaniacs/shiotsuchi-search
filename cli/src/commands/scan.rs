@@ -1,6 +1,10 @@
 use clap::Args;
 use shiotsuchi_core::{
-    db::NoteDatabase, models::IndexConfig, tokenizer::get_tokenizer, watcher::VaultWatcher,
+    db::NoteDatabase,
+    embedder::resolve_model_path,
+    models::IndexConfig,
+    tokenizer::get_tokenizer,
+    watcher::VaultWatcher,
 };
 use std::{
     path::Path,
@@ -30,6 +34,14 @@ pub fn run_scan(
         std::fs::create_dir_all(parent)?;
     }
     crate::util::secure_parent_dir(db_path);
+
+    if resolve_model_path(None).is_none() {
+        eprintln!(
+            "[info] Embedder model not found — vector indexing skipped. \
+             Run `shiotsuchi setup` to enable semantic search."
+        );
+    }
+
     let db = Arc::new(Mutex::new(NoteDatabase::open(db_path)?));
     let tokenizer = get_tokenizer()?;
     let config = IndexConfig {

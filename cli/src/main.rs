@@ -32,9 +32,11 @@ enum Commands {
     Config(commands::config::ConfigArgs),
     Delete(commands::delete::DeleteArgs),
     Dive(commands::dive::DiveArgs),
+    Dredge(commands::dredge::DredgeArgs),
     Init(commands::init::InitArgs),
     Log,
     Scan(commands::scan::ScanArgs),
+    Setup(commands::setup::SetupArgs),
     Tide,
 }
 
@@ -100,7 +102,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 &cfg.indexing,
             )?;
         }
+        Commands::Dredge(args) => {
+            commands::dredge::run_dredge(
+                &args,
+                &cfg.vault.notes_dir,
+                &cfg.vault.db_path,
+                &cfg.indexing,
+            )?;
+        }
         Commands::Log => commands::log::run_log(&cfg.vault.db_path)?,
+        Commands::Setup(args) => {
+            commands::setup::run_setup(&args)?;
+        }
         Commands::Delete(args) => {
             commands::delete::run_delete(&args, &cfg.vault.notes_dir, &cfg.vault.db_path)?;
         }
@@ -184,8 +197,8 @@ mod tests {
 
     #[test]
     fn test_global_flags_accepted_on_all_subcommands() {
-        // Subcommands with no required positionals: chart, init, log, scan, tide
-        for cmd in &["chart", "init", "log", "scan", "tide"] {
+        // Subcommands with no required positionals: chart, dredge, init, log, scan, setup, tide
+        for cmd in &["chart", "dredge", "init", "log", "scan", "setup", "tide"] {
             let args: Vec<&str> = vec!["shiotsuchi", cmd, "--verbose"];
             let r = Cli::try_parse_from(args);
             assert!(r.is_ok(), "{} --verbose should be accepted", cmd);

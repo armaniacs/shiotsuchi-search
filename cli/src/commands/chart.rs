@@ -2,6 +2,7 @@ use crate::config::IndexingConfig;
 use clap::Args;
 use shiotsuchi_core::{
     db::NoteDatabase,
+    embedder::resolve_model_path,
     indexer::{index_directory, IndexResult},
     models::IndexConfig,
     tokenizer::get_tokenizer,
@@ -62,6 +63,13 @@ pub fn run_chart(
             IndexResult::Skipped => summary.skipped += 1,
             IndexResult::Error(_) => summary.errors += 1,
         }
+    }
+
+    if !args.quiet && resolve_model_path(None).is_none() {
+        eprintln!(
+            "[info] Embedder model not found — vector indexing skipped. \
+             Run `shiotsuchi setup` to enable semantic search."
+        );
     }
 
     if !args.quiet {
