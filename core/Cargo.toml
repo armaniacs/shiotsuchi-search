@@ -30,9 +30,9 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokenizers = { version = "0.19", default-features = false, features = ["onig"] }
 thiserror = "1"
-# ort's "download-binaries" feature removed — ONNX Runtime binaries are installed manually
-# via `shiotsuchi setup` (see cli/src/commands/setup.rs). Set ORT_LIB_LOCATION env var.
-ort = { version = "2.0.0-rc.12", default-features = false }
+# ONNX Runtime binaries are downloaded at build time via the `download-binaries` feature.
+# For production, set ORT_LIB_LOCATION env var to use system-installed ONNX Runtime instead.
+ort = { version = "2.0.0-rc.12", default-features = false, features = ["std", "download-binaries", "tls-rustls"] }
 indicatif = "0.17"
 notify = { version = "6", optional = true }
 log = "0.4"
