@@ -27,3 +27,5 @@ Thumbs.db
 .hex-skills/
 plans/archive
 plans/archive-old
+
+.claude/
