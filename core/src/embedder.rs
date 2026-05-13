@@ -336,6 +336,35 @@ pub fn resolve_model_path(explicit: Option<&Path>) -> Option<PathBuf> {
     None
 }
 
+// ── model hash verification ──────────────────────────────────────────
+
+/// Verify the SHA-256 hash of a model file against the expected constant.
+///
+/// Returns `Ok(true)` if the hash matches, `Ok(false)` if it does not match,
+/// and `Err` on I/O errors.  If [`EXPECTED_MODEL_SHA256`] is empty,
+/// verification is skipped and `Ok(true)` is returned (the file still must exist).
+///
+/// Use this in `setup --check` to validate the downloaded model.
+pub fn verify_model_hash(model_path: &Path) -> Result<bool, std::io::Error> {
+    use crate::constants::EXPECTED_MODEL_SHA256;
+
+    if !model_path.exists() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            format!("model file not found: {}", model_path.display()),
+        ));
+    }
+
+    if EXPECTED_MODEL_SHA256.is_empty() {
+        return Ok(true);
+    }
+
+    use sha2::{Digest, Sha256};
+    let data = std::fs::read(model_path)?;
+    let hash = hex::encode(Sha256::digest(&data));
+    Ok(hash.eq_ignore_ascii_case(EXPECTED_MODEL_SHA256))
+}
+
 // ── errors ──────────────────────────────────────────────────────────
 
 #[derive(Debug, Error)]
@@ -427,6 +456,22 @@ mod tests {
         let attention_mask = vec![0i64; 3];
         let result = mean_pool_l2_normalize(&flat, 0, seq_len, hidden, max_len, &attention_mask);
         assert_eq!(result, vec![0.0; 4]);
+    }
+
+    #[test]
+    fn test_verify_model_hash_skipped_when_constant_empty() {
+        // When EXPECTED_MODEL_SHA256 is "", verification is skipped.
+        let dir = tempfile::TempDir::new().unwrap();
+        let model = dir.path().join("model.onnx");
+        std::fs::write(&model, b"fake model bytes").unwrap();
+        let result = verify_model_hash(&model).unwrap();
+        assert!(result);
+    }
+
+    #[test]
+    fn test_verify_model_hash_io_error_on_missing() {
+        let result = verify_model_hash(Path::new("/nonexistent/model.onnx"));
+        assert!(result.is_err());
     }
 
     #[test]

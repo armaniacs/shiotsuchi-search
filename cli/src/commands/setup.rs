@@ -1,5 +1,8 @@
 use clap::Args;
-use shiotsuchi_core::embedder::resolve_model_path;
+use shiotsuchi_core::{
+    constants::EXPECTED_MODEL_SHA256,
+    embedder::{resolve_model_path, verify_model_hash},
+};
 use std::path::PathBuf;
 
 #[derive(Args, Debug)]
@@ -28,7 +31,28 @@ pub fn run_setup(args: &SetupArgs) -> Result<(), Box<dyn std::error::Error>> {
     let model_path = model_dir.join("model.onnx");
 
     if let Some(found) = resolve_model_path(None) {
+        let found_metadata = std::fs::metadata(&found)?;
+        let size_mb = found_metadata.len() as f64 / 1_048_576.0;
         println!("Embedder model found: {}", found.display());
+        println!("  Size: {:.1} MB", size_mb);
+
+        if !EXPECTED_MODEL_SHA256.is_empty() {
+            match verify_model_hash(&found) {
+                Ok(true) => println!("  Checksum: OK (SHA-256 matches expected value)"),
+                Ok(false) => {
+                    eprintln!(
+                        "  Checksum: MISMATCH — the model file may be corrupted or from a different source."
+                    );
+                    eprintln!("  Expected SHA-256: {}", EXPECTED_MODEL_SHA256);
+                }
+                Err(e) => {
+                    eprintln!("  Checksum: error computing hash: {}", e);
+                }
+            }
+        } else {
+            println!("  Checksum: skipped (no expected hash configured)");
+        }
+
         println!("Semantic search is available.");
         return Ok(());
     }
@@ -56,6 +80,10 @@ pub fn run_setup(args: &SetupArgs) -> Result<(), Box<dyn std::error::Error>> {
     println!("  2. Download a compatible ONNX embedding model (e.g. Qwen3-Embedding-0.6B)");
     println!("     and save it as:");
     println!("       {}", model_path.display());
+    if !EXPECTED_MODEL_SHA256.is_empty() {
+        println!();
+        println!("     Expected SHA-256: {}", EXPECTED_MODEL_SHA256);
+    }
     println!();
     println!("  3. Verify the setup:");
     println!("     shiotsuchi setup --check");
