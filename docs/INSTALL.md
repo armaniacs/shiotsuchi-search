@@ -145,26 +145,59 @@ To use `dive --mode vec` or `--mode hybrid`, you need to place an ONNX embedding
 
 ### Download and placement
 
-**Option A — `huggingface-cli` (recommended)**
+**Prerequisites for ONNX model**
+
+The `hf` CLI tool (from `huggingface-hub`) is required for downloading the model. Install it first:
 
 ```sh
-pip install huggingface-hub
-huggingface-cli download Qwen/Qwen3-Embedding-0.6B \
-    --include "*.onnx" \
-    --local-dir /tmp/qwen3-embed
-
-mkdir -p ~/.local/share/shiotsuchi
-cp /tmp/qwen3-embed/model.onnx ~/.local/share/shiotsuchi/model.onnx
+pip install huggingface-hub "optimum[onnxruntime]" sentence-transformers
 ```
 
-**Option B — `curl`**
+After installation, log in to HuggingFace (optional but recommended for gated models):
 
 ```sh
-mkdir -p ~/.local/share/shiotsuchi
-curl -L \
-  "https://huggingface.co/Qwen/Qwen3-Embedding-0.6B/resolve/main/onnx/model.onnx" \
-  -o ~/.local/share/shiotsuchi/model.onnx
+hf auth login
 ```
+
+**Option A — Manual download and conversion (recommended)**
+
+The Qwen3-Embedding-0.6B model on HuggingFace provides `model.safetensors` and `tokenizer.json`, but not a pre-built ONNX file. You'll need to convert it:
+
+```sh
+hf download Qwen/Qwen3-Embedding-0.6B model.safetensors --local-dir /tmp/qwen3-embed
+hf download Qwen/Qwen3-Embedding-0.6B tokenizer.json --local-dir /tmp/qwen3-embed
+
+# Convert to ONNX using optimum-cli
+optimum-cli export onnx -m Qwen/Qwen3-Embedding-0.6B /tmp/qwen3-onnx --task sentence-similarity --library-name sentence_transformers
+
+# OR using sentence-transformers:
+pip install sentence-transformers
+python -c "
+from sentence_transformers import SentenceTransformer
+model = SentenceTransformer('Qwen/Qwen3-Embedding-0.6B')
+model.save('/tmp/qwen3-onnx')
+"
+
+mkdir -p ~/.local/share/shiotsuchi
+cp /tmp/qwen3-onnx/model.onnx ~/.local/share/shiotsuchi/model.onnx
+cp /tmp/qwen3-embed/tokenizer.json ~/.local/share/shiotsuchi/
+```
+
+**Option B — `make onnx`**
+
+```sh
+make onnx   # Downloads model files and prints conversion instructions if no pre-built ONNX exists
+```
+
+**Option C — `make prepare`**
+
+Download both models at once (ONNX requires `huggingface-hub`):
+
+```sh
+make prepare  # Downloads tokenizer + ONNX files
+```
+
+**Note:** The ONNX embedding model must be converted from safetensors. The `make onnx` script will attempt to find a pre-built ONNX file in the HuggingFace repository; if none exists, it downloads `model.safetensors` and prints conversion instructions.
 
 ### Model path resolution order
 

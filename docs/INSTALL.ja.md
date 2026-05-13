@@ -145,26 +145,59 @@ Vaporetto モデル（`bccwj-suw+unidic_pos+kana`）はビルド時にバイナ�
 
 ### ダウンロードと配置
 
-**方法 A — `huggingface-cli` を使う（推奨）**
+**ONNX モデルの前提条件**
+
+`hf` CLI ツール（`huggingface-hub` に含まれます）が必要です。まずインストールしてください：
 
 ```sh
-pip install huggingface-hub
-huggingface-cli download Qwen/Qwen3-Embedding-0.6B \
-    --include "*.onnx" \
-    --local-dir /tmp/qwen3-embed
-
-mkdir -p ~/.local/share/shiotsuchi
-cp /tmp/qwen3-embed/model.onnx ~/.local/share/shiotsuchi/model.onnx
+pip install huggingface-hub "optimum[onnxruntime]" sentence-transformers
 ```
 
-**方法 B — `curl` で直接ダウンロード**
+HuggingFace にログイン（ゲート化モデルの場合は推奨）：
 
 ```sh
-mkdir -p ~/.local/share/shiotsuchi
-curl -L \
-  "https://huggingface.co/Qwen/Qwen3-Embedding-0.6B/resolve/main/onnx/model.onnx" \
-  -o ~/.local/share/shiotsuchi/model.onnx
+hf auth login
 ```
+
+**方法 A — 手動ダウンロードと変換（推奨）**
+
+HuggingFace の Qwen3-Embedding-0.6B モデルは `model.safetensors` と `tokenizer.json` を提供していますが、事前ビルドの ONNX ファイルは含まれていません。変換が必要です：
+
+```sh
+hf download Qwen/Qwen3-Embedding-0.6B model.safetensors --local-dir /tmp/qwen3-embed
+hf download Qwen/Qwen3-Embedding-0.6B tokenizer.json --local-dir /tmp/qwen3-embed
+
+# ONNX に変換（optimum-cli を使用）
+optimum-cli export onnx -m Qwen/Qwen3-Embedding-0.6B /tmp/qwen3-onnx --task sentence-similarity --library-name sentence_transformers
+
+# OR sentence-transformers を使用:
+pip install sentence-transformers
+python -c "
+from sentence_transformers import SentenceTransformer
+model = SentenceTransformer('Qwen/Qwen3-Embedding-0.6B')
+model.save('/tmp/qwen3-onnx')
+"
+
+mkdir -p ~/.local/share/shiotsuchi
+cp /tmp/qwen3-onnx/model.onnx ~/.local/share/shiotsuchi/model.onnx
+cp /tmp/qwen3-embed/tokenizer.json ~/.local/share/shiotsuchi/
+```
+
+**方法 B — `make onnx`**
+
+```sh
+make onnx   # モデルをダウンロードし、ONNX がなければ変換手順を表示
+```
+
+**方法 C — `make prepare`**
+
+両方のモデルを一度にダウンロード（ONNX には huggingface-hub が必要）：
+
+```sh
+make prepare  # トークナイザー + ONNX ファイルをダウンロード
+```
+
+**注意:** ONNX 埋め込みモデルは safetensors から変換する必要があります。`make onnx` スクリプトは HuggingFace リポジトリに事前ビルドの ONNX ファイルがあるか試み、見つからない場合は `model.safetensors` をダウンロードして変換手順を表示します。
 
 ### モデルパスの解決順序
 

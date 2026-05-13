@@ -10,6 +10,19 @@ $(MODEL_FILE):
 
 model: $(MODEL_FILE)
 
+onnx:
+	./scripts/download-onnx-model.sh
+
+prepare:
+	./scripts/download-model.sh
+	@if command -v huggingface-cli >/dev/null 2>&1; then \
+		./scripts/download-onnx-model.sh; \
+	else \
+		echo "Skipping ONNX model: huggingface-cli not found."; \
+		echo "Install with: pip install huggingface-hub"; \
+		echo "Then run: make onnx"; \
+	fi
+
 build: $(MODEL_FILE)
 	SHIOTSUCHI_EMBED_MODEL=$(CURDIR)/$(MODEL_FILE) cargo build --release
 
@@ -101,7 +114,9 @@ help:
 	@echo "  install          Install binaries to ~/.local/bin (or ~/.cargo/bin if exists) when not root, otherwise to $(PREFIX)/bin [default: /usr/local/bin]"
 	@echo "  uninstall        Remove installed binaries"
 	@echo "  model            Download tokenizer model"
+	@echo "  onnx             Download ONNX embedding model (requires hf/huggingface-cli)"
+	@echo "  prepare          Download tokenizer model + ONNX if hf installed"
 	@echo "  clean            Remove build artifacts"
 	@echo "  help             Show this help"
 
-.PHONY: build build-dev test test-e2e bench install uninstall clean help model integration-test test-all local-ci
+.PHONY: build build-dev test test-e2e bench install uninstall clean help model onnx prepare integration-test test-all local-ci doc doc-full doc-clean

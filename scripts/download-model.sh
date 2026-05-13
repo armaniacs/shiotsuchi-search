@@ -10,6 +10,6 @@ if [ ! -f "$DEST" ]; then
     echo "Downloading Vaporetto model..."
     curl -sL \
       "https://github.com/daac-tools/vaporetto-models/releases/download/${MODEL_VERSION}/${MODEL_NAME}.tar.xz" \
-      | tar -xJ --to-stdout "${MODEL_NAME}/${MODEL_FILE}" > "$DEST"
+      | tar -xJf - -C models --strip-components=1 "${MODEL_NAME}/${MODEL_FILE}"
     echo "Saved: $DEST"
 fi

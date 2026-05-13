@@ -109,8 +109,15 @@ mod tests {
 
     #[test]
     fn test_resolve_model_path_explicit_nonexistent() {
+        // Use a temp directory to ensure no model exists at the fallback path
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        std::env::set_var("XDG_DATA_HOME", temp_dir.path());
+        
         let result = resolve_model_path(Some(Path::new("/nonexistent/model.onnx")));
         assert!(result.is_none());
+        
+        // Clean up
+        std::env::remove_var("XDG_DATA_HOME");
     }
 
     #[test]
