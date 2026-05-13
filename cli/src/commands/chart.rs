@@ -2,7 +2,7 @@ use crate::config::IndexingConfig;
 use clap::Args;
 use shiotsuchi_core::{
     db::NoteDatabase,
-    embedder::resolve_model_path,
+    embedder::{resolve_model_path, Embedder},
     indexer::{index_directory, IndexResult},
     models::IndexConfig,
     tokenizer::get_tokenizer,
@@ -49,7 +49,22 @@ pub fn run_chart(
         dynamic_threshold: indexing_cfg.dynamic_threshold,
     };
 
-    let (results, invalid_patterns) = index_directory(&db, &tokenizer, &config)?;
+    let embedder = resolve_model_path(None).and_then(|p| match Embedder::load(&p) {
+        Ok(e) => {
+            if !args.quiet {
+                eprintln!("[info] Embedder model loaded — vector indexing enabled.");
+            }
+            Some(e)
+        }
+        Err(e) => {
+            if !args.quiet {
+                eprintln!("[warn] Could not load embedder: {}.", e);
+            }
+            None
+        }
+    });
+
+    let (results, invalid_patterns) = index_directory(&db, &tokenizer, &config, embedder.as_ref())?;
 
     let mut summary = ChartSummary {
         indexed: 0,
@@ -65,7 +80,7 @@ pub fn run_chart(
         }
     }
 
-    if !args.quiet && resolve_model_path(None).is_none() {
+    if embedder.is_none() && !args.quiet {
         eprintln!(
             "[info] Embedder model not found — vector indexing skipped. \
              Run `shiotsuchi setup` to enable semantic search."

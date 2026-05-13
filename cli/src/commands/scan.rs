@@ -1,7 +1,7 @@
 use clap::Args;
 use shiotsuchi_core::{
     db::NoteDatabase,
-    embedder::resolve_model_path,
+    embedder::{resolve_model_path, Embedder},
     models::IndexConfig,
     tokenizer::get_tokenizer,
     watcher::VaultWatcher,
@@ -35,7 +35,18 @@ pub fn run_scan(
     }
     crate::util::secure_parent_dir(db_path);
 
-    if resolve_model_path(None).is_none() {
+    let embedder = resolve_model_path(None).and_then(|p| match Embedder::load(&p) {
+        Ok(e) => {
+            eprintln!("[info] Embedder model loaded — vector indexing enabled.");
+            Some(e)
+        }
+        Err(e) => {
+            eprintln!("[warn] Could not load embedder: {}.", e);
+            None
+        }
+    });
+
+    if embedder.is_none() {
         eprintln!(
             "[info] Embedder model not found — vector indexing skipped. \
              Run `shiotsuchi setup` to enable semantic search."
@@ -52,7 +63,7 @@ pub fn run_scan(
         follow_links: indexing_cfg.follow_links,
         dynamic_threshold: indexing_cfg.dynamic_threshold,
     };
-    let watcher = VaultWatcher::new(db, tokenizer, config);
+    let watcher = VaultWatcher::new(db, tokenizer, config, embedder);
     watcher.watch()
 }
 
@@ -81,7 +92,7 @@ mod tests {
             notes_dir: vault,
             ..Default::default()
         };
-        let _watcher = VaultWatcher::new(db, tokenizer, config);
+        let _watcher = VaultWatcher::new(db, tokenizer, config, None);
     }
 
     #[test]

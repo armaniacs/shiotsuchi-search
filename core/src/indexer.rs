@@ -132,10 +132,11 @@ pub fn index_file(
 /// Walk `vault_dir`, chunk and index all Markdown files.
 /// If `embedder` is Some, also inserts vector embeddings.
 /// Returns (per-file results, invalid pattern count).
-pub fn index_directory(
+pub fn index_directory<'a>(
     db: &NoteDatabase,
     tokenizer: &JapaneseTokenizer,
     config: &IndexConfig,
+    embedder: Option<&'a Embedder>,
 ) -> Result<(Vec<(String, IndexResult)>, usize), DbError> {
     let notes_dir = &config.notes_dir;
     let (exclude_globset, invalid_patterns) = build_exclude_globset(&config.exclude_dirs);
@@ -214,7 +215,7 @@ pub fn index_directory(
         let path = entry.path();
         let relative = path.strip_prefix(notes_dir).unwrap_or(path);
         let rel_str = relative.to_string_lossy().replace('\\', "/");
-        let result = index_file(db, tokenizer, path, &rel_str, config);
+        let result = index_file_with_embedder(db, tokenizer, embedder, path, &rel_str, config);
         all_results.push((rel_str, result));
     }
 
@@ -330,7 +331,7 @@ mod tests {
             notes_dir: vault.clone(),
             ..Default::default()
         };
-        let (results, _invalid) = index_directory(&db, &tokenizer, &config).unwrap();
+        let (results, _invalid) = index_directory(&db, &tokenizer, &config, None).unwrap();
         assert_eq!(results.len(), 10);
         assert_eq!(db.stats().unwrap().total_files, 10);
     }
@@ -353,7 +354,7 @@ mod tests {
             exclude_dirs: vec!["templates".to_string()],
             ..Default::default()
         };
-        let (results, _invalid) = index_directory(&db, &tokenizer, &config).unwrap();
+        let (results, _invalid) = index_directory(&db, &tokenizer, &config, None).unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].0, "main.md");
         assert_eq!(db.stats().unwrap().total_files, 1);
@@ -384,7 +385,7 @@ mod tests {
             ..Default::default()
         };
 
-        let (results, _invalid) = index_directory(&db, &tokenizer, &config).unwrap();
+        let (results, _invalid) = index_directory(&db, &tokenizer, &config, None).unwrap();
         assert_eq!(results.len(), 2);
         assert_eq!(db.stats().unwrap().total_files, 2);
     }
@@ -405,7 +406,7 @@ mod tests {
             notes_dir: vault.clone(),
             ..Default::default()
         };
-        index_directory(&db, &tokenizer, &config).unwrap();
+        index_directory(&db, &tokenizer, &config, None).unwrap();
         assert_eq!(db.stats().unwrap().total_files, 1);
 
         fs::remove_file(vault.join("old.md")).unwrap();
@@ -437,7 +438,7 @@ mod tests {
         };
         assert!(config.auto_exclude_hidden);
 
-        let (results, _invalid) = index_directory(&db, &tokenizer, &config).unwrap();
+        let (results, _invalid) = index_directory(&db, &tokenizer, &config, None).unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].0, "notes/visible.md");
     }
@@ -461,7 +462,7 @@ mod tests {
             ..Default::default()
         };
 
-        let (results, _invalid) = index_directory(&db, &tokenizer, &config).unwrap();
+        let (results, _invalid) = index_directory(&db, &tokenizer, &config, None).unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].0, ".hidden_notes/secret.md");
     }
@@ -494,7 +495,7 @@ mod tests {
             ..Default::default()
         };
 
-        let (results, _invalid) = index_directory(&db, &tokenizer, &config).unwrap();
+        let (results, _invalid) = index_directory(&db, &tokenizer, &config, None).unwrap();
         assert_eq!(
             results.len(),
             2,
@@ -556,7 +557,7 @@ mod tests {
             ..Default::default()
         };
 
-        let (results, _invalid) = index_directory(&db, &tokenizer, &config).unwrap();
+        let (results, _invalid) = index_directory(&db, &tokenizer, &config, None).unwrap();
         assert!(results.is_empty());
     }
 
@@ -574,7 +575,7 @@ mod tests {
             notes_dir: vault.clone(),
             ..Default::default()
         };
-        let (results, _invalid) = index_directory(&db, &tokenizer, &config).unwrap();
+        let (results, _invalid) = index_directory(&db, &tokenizer, &config, None).unwrap();
         assert_eq!(results.len(), 300);
         let mut paths: Vec<&str> = results.iter().map(|(p, _)| p.as_str()).collect();
         paths.sort();
@@ -593,7 +594,7 @@ mod tests {
             notes_dir: vault.clone(),
             ..Default::default()
         };
-        let (results, _invalid) = index_directory(&db, &tokenizer, &config).unwrap();
+        let (results, _invalid) = index_directory(&db, &tokenizer, &config, None).unwrap();
         assert!(results.is_empty());
     }
 
@@ -612,7 +613,7 @@ mod tests {
             notes_dir: vault.clone(),
             ..Default::default()
         };
-        let (results, _invalid) = index_directory(&db, &tokenizer, &config).unwrap();
+        let (results, _invalid) = index_directory(&db, &tokenizer, &config, None).unwrap();
         assert_eq!(results.len(), 257, "all files should be indexed");
         assert_eq!(db.stats().unwrap().total_files, 257);
     }
@@ -631,7 +632,7 @@ mod tests {
             notes_dir: vault.clone(),
             ..Default::default()
         };
-        let (results, _invalid) = index_directory(&db, &tokenizer, &config).unwrap();
+        let (results, _invalid) = index_directory(&db, &tokenizer, &config, None).unwrap();
         assert_eq!(results.len(), 2, "both large files should be indexed");
     }
 
@@ -649,7 +650,7 @@ mod tests {
             notes_dir: vault.clone(),
             ..Default::default()
         };
-        let (results, _invalid) = index_directory(&db, &tokenizer, &config).unwrap();
+        let (results, _invalid) = index_directory(&db, &tokenizer, &config, None).unwrap();
         assert_eq!(results.len(), 100, "all 100 small files should be indexed");
     }
 
@@ -667,7 +668,7 @@ mod tests {
             notes_dir: vault.clone(),
             ..Default::default()
         };
-        let (results, _invalid) = index_directory(&db, &tokenizer, &config).unwrap();
+        let (results, _invalid) = index_directory(&db, &tokenizer, &config, None).unwrap();
         assert_eq!(results.len(), 256, "exactly 256 files should all be indexed");
     }
 
@@ -688,7 +689,7 @@ mod tests {
             follow_links: true,
             ..Default::default()
         };
-        let (results, _invalid) = index_directory(&db, &tokenizer, &config).unwrap();
+        let (results, _invalid) = index_directory(&db, &tokenizer, &config, None).unwrap();
         assert!(results.is_empty(), "external symlink should be rejected");
     }
 

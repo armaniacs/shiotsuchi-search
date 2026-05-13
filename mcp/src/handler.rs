@@ -84,7 +84,7 @@ mod tests {
             notes_dir: temp.path().to_path_buf(),
             ..Default::default()
         };
-        index_directory(&ndb, &tok, &cfg).unwrap();
+        index_directory(&ndb, &tok, &cfg, None).unwrap();
         Some((temp, db))
     }
 

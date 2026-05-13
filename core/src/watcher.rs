@@ -1,6 +1,7 @@
 use crate::{
     db::NoteDatabase,
-    indexer::{index_file, IndexResult},
+    embedder::Embedder,
+    indexer::{index_file_with_embedder, IndexResult},
     models::IndexConfig,
     tokenizer::JapaneseTokenizer,
 };
@@ -16,6 +17,7 @@ pub struct VaultWatcher {
     db: Arc<Mutex<NoteDatabase>>,
     tokenizer: Arc<JapaneseTokenizer>,
     config: IndexConfig,
+    embedder: Option<Embedder>,
 }
 
 impl VaultWatcher {
@@ -23,11 +25,13 @@ impl VaultWatcher {
         db: Arc<Mutex<NoteDatabase>>,
         tokenizer: Arc<JapaneseTokenizer>,
         config: IndexConfig,
+        embedder: Option<Embedder>,
     ) -> Self {
         Self {
             db,
             tokenizer,
             config,
+            embedder,
         }
     }
 
@@ -93,7 +97,7 @@ impl VaultWatcher {
                         let rel_str = rel.to_string_lossy();
                         let db = self.db.lock().unwrap();
                         if let IndexResult::Error(e) =
-                            index_file(&db, &self.tokenizer, path, &rel_str, &self.config)
+                            index_file_with_embedder(&db, &self.tokenizer, self.embedder.as_ref(), path, &rel_str, &self.config)
                         {
                             log::warn!("watcher: failed to index {}: {}", rel_str, e);
                         }
@@ -133,9 +137,10 @@ impl VaultWatcher {
                     if self.is_path_within_vault(new) {
                         if let Ok(new_rel) = new.strip_prefix(&self.config.notes_dir) {
                             let db = self.db.lock().unwrap();
-                            if let IndexResult::Error(e) = index_file(
+                            if let IndexResult::Error(e) = index_file_with_embedder(
                                 &db,
                                 &self.tokenizer,
+                                self.embedder.as_ref(),
                                 new,
                                 &new_rel.to_string_lossy(),
                                 &self.config,
@@ -180,7 +185,7 @@ mod tests {
             notes_dir: temp.path().to_path_buf(),
             ..Default::default()
         };
-        let _watcher = VaultWatcher::new(db, tokenizer, config);
+        let _watcher = VaultWatcher::new(db, tokenizer, config, None);
     }
 
     #[test]
@@ -197,7 +202,7 @@ mod tests {
             notes_dir: vault,
             ..Default::default()
         };
-        let watcher = VaultWatcher::new(Arc::clone(&db), Arc::clone(&tokenizer), config);
+        let watcher = VaultWatcher::new(Arc::clone(&db), Arc::clone(&tokenizer), config, None);
         let outside_dir = TempDir::new().unwrap();
         let outside_file = outside_dir.path().join("outside.md");
         std::fs::write(&outside_file, "content").unwrap();
@@ -223,7 +228,7 @@ mod tests {
             notes_dir: vault.clone(),
             ..Default::default()
         };
-        let watcher = VaultWatcher::new(db, Arc::clone(&tokenizer), config);
+        let watcher = VaultWatcher::new(db, Arc::clone(&tokenizer), config, None);
         let outside = vault.parent().unwrap().join("secret.txt");
         std::fs::write(&outside, "outside").unwrap();
         let link = vault.join("evil_link.md");
@@ -249,7 +254,7 @@ mod tests {
             notes_dir: vault.clone(),
             ..Default::default()
         };
-        let watcher = VaultWatcher::new(db, tokenizer, config);
+        let watcher = VaultWatcher::new(db, tokenizer, config, None);
         let real_file = vault.join("real.md");
         std::fs::write(&real_file, "content").unwrap();
         let link = vault.join("alias.md");
@@ -275,7 +280,7 @@ mod tests {
             notes_dir: vault.clone(),
             ..Default::default()
         };
-        let watcher = VaultWatcher::new(db, tokenizer, config);
+        let watcher = VaultWatcher::new(db, tokenizer, config, None);
         let nonexistent = vault.join("nonexistent.md");
         assert!(!watcher.is_path_within_vault(&nonexistent));
     }
