@@ -133,6 +133,56 @@ shiotsuchi scan --notes-dir ~/Notes
 
 Vaporetto モデル（`bccwj-suw+unidic_pos+kana`）はビルド時にバイナリへ埋め込まれるため、実行時に別途モデルファイルは不要です。モデルだけを先にダウンロードしたい場合は `make model` を使います。
 
+## ベクトル検索（セマンティック検索）モデルについて
+
+`dive --mode vec` / `--mode hybrid` によるセマンティック検索を使うには、別途 ONNX Embedding モデルを配置する必要があります。
+
+### 対応モデル
+
+| モデル | 次元数 | 備考 |
+|--------|--------|------|
+| [Qwen/Qwen3-Embedding-0.6B](https://huggingface.co/Qwen/Qwen3-Embedding-0.6B) | 1024 | 推奨。多言語対応、軽量 |
+
+### ダウンロードと配置
+
+**方法 A — `huggingface-cli` を使う（推奨）**
+
+```sh
+pip install huggingface-hub
+huggingface-cli download Qwen/Qwen3-Embedding-0.6B \
+    --include "*.onnx" \
+    --local-dir /tmp/qwen3-embed
+
+mkdir -p ~/.local/share/shiotsuchi
+cp /tmp/qwen3-embed/model.onnx ~/.local/share/shiotsuchi/model.onnx
+```
+
+**方法 B — `curl` で直接ダウンロード**
+
+```sh
+mkdir -p ~/.local/share/shiotsuchi
+curl -L \
+  "https://huggingface.co/Qwen/Qwen3-Embedding-0.6B/resolve/main/onnx/model.onnx" \
+  -o ~/.local/share/shiotsuchi/model.onnx
+```
+
+### モデルパスの解決順序
+
+以下の順で検索し、最初に見つかったファイルが使われます：
+
+1. `--model-path /path/to/model.onnx`（CLI フラグ、最優先）
+2. 環境変数 `SHIOTSUCHI_EMBED_MODEL_PATH`
+3. `~/.local/share/shiotsuchi/model.onnx`（XDG デフォルト）
+
+### 動作確認
+
+```sh
+shiotsuchi setup --check
+shiotsuchi dive --mode hybrid "検索クエリ"
+```
+
+モデルが見つからない場合、`dive` は自動的に FTS モード（キーワード検索）にフォールバックします（`--mode vec` を明示した場合はエラー）。
+
 ## トラブルシューティング
 
 | 症状 | 対処 |
