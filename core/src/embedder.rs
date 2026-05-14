@@ -5,6 +5,11 @@ use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 use tokenizers::Tokenizer;
+use std::fs::File;
+use std::io::Read;
+use hex;
+use sha2::{Digest, Sha256};
+use log;
 
 /// Maximum sequence length for the embedding model (Qwen3-Embedding supports up to 32K,
 /// but 512 is a practical default for note chunks).
@@ -22,6 +27,23 @@ const MAX_SEQ_LEN: usize = 512;
 pub struct Embedder {
     session: RefCell<Session>,
     tokenizer: Tokenizer,
+    model_id: String,
+}
+
+
+/// Compute the SHA-256 hash of a file for model version tracking.
+fn compute_model_id(path: &Path) -> std::io::Result<String> {
+    let mut file = File::open(path)?;
+    let mut hasher = Sha256::new();
+    let mut buffer = [0; 8192];
+    loop {
+        let bytes = file.read(&mut buffer)?;
+        if bytes == 0 {
+            break;
+        }
+        hasher.update(&buffer[..bytes]);
+    }
+    Ok(hex::encode(hasher.finalize()))
 }
 
 impl Embedder {
@@ -44,6 +66,15 @@ impl Embedder {
         let tokenizer = Tokenizer::from_file(&tokenizer_path)
             .map_err(|e| EmbedderError::Load(format!("Failed to load tokenizer: {}", e)))?;
 
+        // Compute model identifier (SHA-256 hash) for version tracking
+        let model_id = match compute_model_id(model_path) {
+            Ok(id) => id,
+            Err(e) => {
+                log::warn!("Failed to compute model hash: {}", e);
+                "unknown".to_string()
+            }
+        };
+
         let session = Session::builder()
             .map_err(|e| EmbedderError::Load(format!("ORT init error: {}", e)))?
             .commit_from_file(model_path)
@@ -52,6 +83,7 @@ impl Embedder {
         Ok(Self {
             session: RefCell::new(session),
             tokenizer,
+            model_id,
         })
     }
 
@@ -85,6 +117,11 @@ impl Embedder {
     /// Get current embedder status.
     pub fn status(&self) -> EmbedderStatus {
         EmbedderStatus::Ready
+    }
+
+    /// Returns a unique identifier for the loaded model (SHA-256 hash of model file).
+    pub fn model_id(&self) -> &str {
+        &self.model_id
     }
 
     // ── internal helpers ──────────────────────────────────────────────

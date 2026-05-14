@@ -1,4 +1,3 @@
-use crate::config::IndexingConfig;
 use clap::Args;
 use shiotsuchi_core::{
     db::NoteDatabase,
@@ -82,9 +81,7 @@ impl DiveArgs {
 
 pub fn run_dive(
     args: &DiveArgs,
-    _notes_dir: &Path,
     db_path: &Path,
-    _indexing_cfg: &IndexingConfig,
 ) -> Result<Vec<ChunkSearchResult>, Box<dyn std::error::Error>> {
     if args.query.trim().is_empty() {
         return Ok(vec![]);
@@ -171,8 +168,8 @@ fn print_table(results: &[ChunkSearchResult], query: &str, elapsed: Duration) {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::config::IndexingConfig;
+    use super::*;
     use std::fs;
     use tempfile::TempDir;
 
@@ -209,7 +206,7 @@ mod tests {
             mode: CliSearchMode::Fts,
             model_path: None,
         };
-        let output = run_dive(&args, temp.path(), &db_file, &idx_cfg).unwrap();
+        let output = run_dive(&args, &db_file).unwrap();
         assert!(!output.is_empty());
         assert!(output[0].file_path.contains("note"));
     }
@@ -218,7 +215,6 @@ mod tests {
     fn test_dive_empty_query_returns_empty() {
         let temp = TempDir::new().unwrap();
         let db_file = temp.path().join("test.db");
-        let idx_cfg = default_indexing_cfg();
 
         let args = DiveArgs {
             query: "".to_string(),
@@ -228,7 +224,7 @@ mod tests {
             mode: CliSearchMode::Fts,
             model_path: None,
         };
-        let output = run_dive(&args, temp.path(), &db_file, &idx_cfg).unwrap();
+        let output = run_dive(&args, &db_file).unwrap();
         assert!(output.is_empty());
     }
 
@@ -329,8 +325,10 @@ mod tests {
         std::env::set_var("SHIOTSUCHI_EMBED_MODEL_PATH", "/nonexistent/model.onnx");
 
         let temp = TempDir::new().unwrap();
+        // Isolate XDG fallback so a real model in ~/.local/share is never picked up
+        std::env::set_var("XDG_DATA_HOME", temp.path());
+
         let db_file = temp.path().join("test.db");
-        let idx_cfg = default_indexing_cfg();
 
         // Create an empty DB so open() succeeds
         shiotsuchi_core::db::NoteDatabase::open(&db_file).unwrap();
@@ -343,7 +341,11 @@ mod tests {
             mode: CliSearchMode::Vec,
             model_path: None,
         };
-        let result = run_dive(&args, temp.path(), &db_file, &idx_cfg);
+        let result = run_dive(&args, &db_file);
         assert!(result.is_err());
+
+        // Clean up env vars so they don't leak to other tests
+        std::env::remove_var("SHIOTSUCHI_EMBED_MODEL_PATH");
+        std::env::remove_var("XDG_DATA_HOME");
     }
 }

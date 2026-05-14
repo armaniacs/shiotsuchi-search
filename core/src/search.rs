@@ -27,8 +27,8 @@ pub fn search(
 
     match effective_mode {
         SearchMode::Fts => search_fts(db, tokenizer, query, limit),
-        SearchMode::Vec => search_vec(db, embedder.unwrap(), query, limit),
-        SearchMode::Hybrid => search_hybrid(db, tokenizer, embedder.unwrap(), query, limit),
+        SearchMode::Vec => search_vec(db, embedder.expect("Vec mode requires embedder"), query, limit),
+        SearchMode::Hybrid => search_hybrid(db, tokenizer, embedder.expect("Hybrid mode requires embedder"), query, limit),
     }
 }
 
@@ -60,7 +60,7 @@ fn search_fts(
     let mut results: Vec<ChunkSearchResult> = chunks
         .into_iter()
         .map(|c| {
-            let id = c.id.unwrap();
+            let id = c.id.expect("DB chunk missing id");
             let score = *score_map.get(&id).unwrap_or(&0.0);
             ChunkSearchResult {
                 chunk_id: id,
@@ -100,7 +100,7 @@ fn search_vec(
     let mut results: Vec<ChunkSearchResult> = chunks
         .into_iter()
         .map(|c| {
-            let id = c.id.unwrap();
+            let id = c.id.expect("DB chunk missing id");
             let score = *score_map.get(&id).unwrap_or(&f64::MAX);
             ChunkSearchResult {
                 chunk_id: id,
@@ -172,7 +172,7 @@ fn search_hybrid(
     let chunks = db.get_chunks_by_ids(&ids)?;
 
     // Build a lookup so we can re-order by score
-    let mut chunk_map: HashMap<i64, _> = chunks.into_iter().map(|c| (c.id.unwrap(), c)).collect();
+    let mut chunk_map: HashMap<i64, _> = chunks.into_iter().map(|c| (c.id.expect("DB chunk missing id"), c)).collect();
     let mut results: Vec<ChunkSearchResult> = ids
         .iter()
         .filter_map(|id| {

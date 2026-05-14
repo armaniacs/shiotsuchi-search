@@ -1,15 +1,26 @@
-use shiotsuchi_core::{db::NoteDatabase, models::VaultStats};
+use shiotsuchi_core::{
+    db::NoteDatabase,
+    embedder::resolve_model_path,
+    models::VaultStats,
+};
 use std::path::Path;
 
 pub fn run_tide(db_path: &Path) -> Result<VaultStats, Box<dyn std::error::Error>> {
     let db = NoteDatabase::open(db_path)?;
-    Ok(db.stats()?)
+    let mut stats = db.stats()?;
+    stats.embedder_status = if resolve_model_path(None).is_some() {
+        "ready".to_string()
+    } else {
+        "unavailable (model not found)".to_string()
+    };
+    Ok(stats)
 }
 
 pub fn print_stats(stats: &VaultStats) {
     println!("Total files : {}", stats.total_files);
     println!("Total chunks: {}", stats.total_chunks);
     println!("DB size     : {} bytes", stats.total_size_bytes);
+    println!("Embedder    : {}", stats.embedder_status);
     if let Some(ts) = stats.last_indexed_at {
         println!(
             "Last indexed: {}",

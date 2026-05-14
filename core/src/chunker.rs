@@ -161,17 +161,39 @@ fn header_level(line: &str) -> Option<usize> {
     }
 }
 
-/// Split text on blank lines (paragraph boundaries).
+/// Split text on blank lines (paragraph boundaries), respecting fenced code blocks.
 ///
 /// Consecutive blank lines are collapsed.  Whitespace-only lines are treated as
-/// blank lines.
+/// blank lines.  Blank lines inside fenced code blocks (``` or ~~~) are not
+/// considered paragraph separators.
 fn split_on_blank_lines(text: &str) -> Vec<String> {
     let mut result = Vec::new();
     let mut current = String::new();
+    let mut in_code_block = false;
 
     for line in text.lines() {
-        if line.trim().is_empty() && !current.trim().is_empty() {
-            result.push(std::mem::take(&mut current));
+        // Detect fenced code block delimiter (allow leading whitespace)
+        let trimmed_start = line.trim_start();
+        if trimmed_start.starts_with("```") || trimmed_start.starts_with("~~~") {
+            in_code_block = !in_code_block;
+            current.push_str(line);
+            current.push('\n');
+            continue;
+        }
+
+        if in_code_block {
+            // Inside code block: accumulate without splitting on blank lines
+            current.push_str(line);
+            current.push('\n');
+            continue;
+        }
+
+        // Outside code block
+        if line.trim().is_empty() {
+            if !current.trim().is_empty() {
+                result.push(std::mem::take(&mut current));
+            }
+            // skip consecutive blank lines
         } else {
             current.push_str(line);
             current.push('\n');

@@ -106,13 +106,7 @@ pub fn index_file(
         return IndexResult::Error(e.to_string());
     }
 
-    let mut chunks = split_into_chunks(&content, tokenizer, relative_path);
-    // Ensure tokenized_content is set (split_into_chunks may leave it empty)
-    for chunk in &mut chunks {
-        if chunk.tokenized_content.is_empty() {
-            chunk.tokenized_content = tokenizer.split(&chunk.content);
-        }
-    }
+    let chunks = split_into_chunks(&content, tokenizer, relative_path);
 
     if let Err(e) = db.insert_chunks(&chunks) {
         return IndexResult::Error(e.to_string());
@@ -253,7 +247,7 @@ pub fn index_file_with_embedder(
 
     let hash = sha256_hex(&content);
     let mtime = file_mtime(file_path);
-    let model_id = if embedder.is_some() { "qwen3-embedding-0.6b" } else { "none" };
+    let model_id = embedder.map_or("none", |e| e.model_id());
 
     let is_update = match db.cached_hash(relative_path) {
         Ok(Some(cached)) if cached == hash => return IndexResult::Skipped,
@@ -266,12 +260,7 @@ pub fn index_file_with_embedder(
         return IndexResult::Error(e.to_string());
     }
 
-    let mut chunks = split_into_chunks(&content, tokenizer, relative_path);
-    for chunk in &mut chunks {
-        if chunk.tokenized_content.is_empty() {
-            chunk.tokenized_content = tokenizer.split(&chunk.content);
-        }
-    }
+    let chunks = split_into_chunks(&content, tokenizer, relative_path);
 
     let ids = match db.insert_chunks(&chunks) {
         Ok(ids) => ids,

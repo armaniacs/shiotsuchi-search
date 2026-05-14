@@ -172,7 +172,7 @@ mod tests {
 
         cmd(&["chart", "--quiet"], &temp.path(), &db);
         let out = cmd(
-            &["dive", "xyzzy-no-match-query", "--json"],
+            &["dive", "xyzzy-no-match-query", "--json", "--mode", "fts"],
             &temp.path(),
             &db,
         );
