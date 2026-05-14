@@ -325,6 +325,9 @@ mod tests {
 
     #[test]
     fn test_dive_vec_mode_fails_without_model() {
+        // Ensure no model file is found regardless of the local environment
+        std::env::set_var("SHIOTSUCHI_EMBED_MODEL_PATH", "/nonexistent/model.onnx");
+
         let temp = TempDir::new().unwrap();
         let db_file = temp.path().join("test.db");
         let idx_cfg = default_indexing_cfg();
