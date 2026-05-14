@@ -28,7 +28,7 @@ hex = "0.4"
 globset = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tokenizers = { version = "0.19", default-features = false, features = ["onig"] }
+tokenizers = { version = "0.23", default-features = false, features = ["onig"] }
 thiserror = "1"
 # ONNX Runtime binaries are downloaded at build time via the `download-binaries` feature.
 # For production, set ORT_LIB_LOCATION env var to use system-installed ONNX Runtime instead.
