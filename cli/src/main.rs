@@ -1,3 +1,4 @@
+mod build_info;
 mod commands;
 mod config;
 mod util;
@@ -37,11 +38,16 @@ enum Commands {
     Log,
     Scan(commands::scan::ScanArgs),
     Setup(commands::setup::SetupArgs),
+    Support(commands::support::SupportArgs),
     Tide,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let cli = Cli::parse();
+    let long_ver: &'static str = Box::leak(build_info::long_version().into_boxed_str());
+    let cmd = <Cli as clap::CommandFactory>::command()
+        .after_help(build_info::help_footer())
+        .long_version(long_ver);
+    let cli = <Cli as clap::FromArgMatches>::from_arg_matches(&cmd.get_matches())?;
 
     let env = env_logger::Env::default()
         .filter_or("RUST_LOG", if cli.verbose { "debug" } else { "warn" });
@@ -122,6 +128,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 cli.db_path.as_deref(),
             )?;
         }
+        Commands::Support(args) => {
+            commands::support::run_support(&args, &cfg)?;
+        }
         Commands::Config(args) => {
             commands::config::run_config(
                 &args,
@@ -147,6 +156,26 @@ mod tests {
 
     fn parse_cli(args: &[&str]) -> Cli {
         Cli::try_parse_from(args).unwrap()
+    }
+
+    #[test]
+    fn test_support_command_parses() {
+        let r = Cli::try_parse_from(["shiotsuchi", "support"]);
+        assert!(r.is_ok(), "support should parse");
+    }
+
+    #[test]
+    fn test_support_json_flag_parses() {
+        let r = Cli::try_parse_from(["shiotsuchi", "support", "--json"]);
+        assert!(r.is_ok(), "support --json should parse");
+    }
+
+    #[test]
+    fn test_help_includes_build_footer() {
+        let mut cmd =
+            <Cli as clap::CommandFactory>::command().after_help(crate::build_info::help_footer());
+        let help = format!("{}", cmd.render_help());
+        assert!(help.contains("Build features:"));
     }
 
     #[test]
