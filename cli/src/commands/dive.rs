@@ -3,6 +3,7 @@ use shiotsuchi_core::{
     db::NoteDatabase,
     embedder::{resolve_model_path, Embedder},
     models::{ChunkSearchResult, SearchMode},
+    constants::DEFAULT_SNIPPET_LINES,
     search::{extract_snippet, search},
     tokenizer::get_tokenizer,
 };
@@ -151,7 +152,7 @@ fn print_table(results: &[ChunkSearchResult], query: &str, elapsed: Duration) {
         let idx = i + 1;
         let header = result.parent_header.as_deref().unwrap_or("(top level)");
         println!("  {idx}. {} > {}  [{:.4}]", result.file_path, header, result.score);
-        let snippet = extract_snippet(&result.content, query, 300);
+        let snippet = extract_snippet(&result.content, query, DEFAULT_SNIPPET_LINES, 300);
         for line in snippet.lines() {
             println!("     {line}");
         }

@@ -78,8 +78,9 @@ fn file_mtime(path: &Path) -> i64 {
         .unwrap_or(0)
 }
 
-/// Index a single file into the database using the chunk-based schema.
+/// Index a single file using FTS-only mode (no embedding).
 /// If the file hash matches the cached hash, it is skipped.
+/// This is a convenience wrapper around `index_file_with_embedder` with `embedder=None`.
 pub fn index_file(
     db: &NoteDatabase,
     tokenizer: &JapaneseTokenizer,
@@ -87,40 +88,7 @@ pub fn index_file(
     relative_path: &str,
     _config: &IndexConfig,
 ) -> IndexResult {
-    let content = match fs::read_to_string(file_path) {
-        Ok(c) => c,
-        Err(e) => return IndexResult::Error(format!("Read error: {}", e)),
-    };
-
-    let hash = sha256_hex(&content);
-    let mtime = file_mtime(file_path);
-
-    let is_update = match db.cached_hash(relative_path) {
-        Ok(Some(cached)) if cached == hash => return IndexResult::Skipped,
-        Ok(Some(_)) => true,
-        Ok(None) => false,
-        Err(e) => return IndexResult::Error(e.to_string()),
-    };
-
-    if let Err(e) = db.delete_chunks_for_file(relative_path) {
-        return IndexResult::Error(e.to_string());
-    }
-
-    let chunks = split_into_chunks(&content, tokenizer, relative_path);
-
-    if let Err(e) = db.insert_chunks(&chunks) {
-        return IndexResult::Error(e.to_string());
-    }
-
-    if let Err(e) = db.upsert_file_cache(relative_path, &hash, mtime, "none") {
-        return IndexResult::Error(e.to_string());
-    }
-
-    if is_update {
-        IndexResult::Updated
-    } else {
-        IndexResult::Inserted
-    }
+    index_file_with_embedder(db, tokenizer, None, file_path, relative_path, _config)
 }
 
 /// Walk `vault_dir`, chunk and index all Markdown files.
@@ -302,7 +270,7 @@ pub enum IndexResult {
 mod tests {
     use super::*;
     use crate::db::NoteDatabase;
-    use std::{io::Write, path::PathBuf};
+    use std::io::Write;
     use tempfile::TempDir;
 
     #[test]

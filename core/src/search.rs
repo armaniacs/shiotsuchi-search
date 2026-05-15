@@ -4,6 +4,7 @@ use crate::{
     tokenizer::{simple_and_query, JapaneseTokenizer},
 };
 use std::collections::HashMap;
+use log;
 
 /// Main search entry point. Dispatches to FTS, vec, or hybrid (RRF) mode.
 /// When `embedder` is None and mode is Hybrid, falls back to Fts.
@@ -27,8 +28,14 @@ pub fn search(
 
     match effective_mode {
         SearchMode::Fts => search_fts(db, tokenizer, query, limit),
-        SearchMode::Vec => search_vec(db, embedder.expect("Vec mode requires embedder"), query, limit),
-        SearchMode::Hybrid => search_hybrid(db, tokenizer, embedder.expect("Hybrid mode requires embedder"), query, limit),
+        SearchMode::Vec => {
+            let emb = embedder.ok_or_else(|| DbError::Other("Vec mode requires embedder — model not loaded".into()))?;
+            search_vec(db, emb, query, limit)
+        }
+        SearchMode::Hybrid => {
+            let emb = embedder.ok_or_else(|| DbError::Other("Hybrid mode requires embedder — model not loaded".into()))?;
+            search_hybrid(db, tokenizer, emb, query, limit)
+        }
     }
 }
 
@@ -59,17 +66,23 @@ fn search_fts(
 
     let mut results: Vec<ChunkSearchResult> = chunks
         .into_iter()
-        .map(|c| {
-            let id = c.id.expect("DB chunk missing id");
+        .filter_map(|c| {
+            let id = match c.id {
+                Some(id) => id,
+                None => {
+                    log::warn!("FTS search: chunk from DB has no id, skipping");
+                    return None;
+                }
+            };
             let score = *score_map.get(&id).unwrap_or(&0.0);
-            ChunkSearchResult {
+            Some(ChunkSearchResult {
                 chunk_id: id,
                 file_path: c.file_path,
                 parent_header: c.parent_header,
                 content: c.content,
                 score,
                 search_mode: SearchMode::Fts,
-            }
+            })
         })
         .collect();
 
@@ -99,17 +112,23 @@ fn search_vec(
 
     let mut results: Vec<ChunkSearchResult> = chunks
         .into_iter()
-        .map(|c| {
-            let id = c.id.expect("DB chunk missing id");
+        .filter_map(|c| {
+            let id = match c.id {
+                Some(id) => id,
+                None => {
+                    log::warn!("Vec search: chunk from DB has no id, skipping");
+                    return None;
+                }
+            };
             let score = *score_map.get(&id).unwrap_or(&f64::MAX);
-            ChunkSearchResult {
+            Some(ChunkSearchResult {
                 chunk_id: id,
                 file_path: c.file_path,
                 parent_header: c.parent_header,
                 content: c.content,
                 score,
                 search_mode: SearchMode::Vec,
-            }
+            })
         })
         .collect();
 
@@ -172,7 +191,19 @@ fn search_hybrid(
     let chunks = db.get_chunks_by_ids(&ids)?;
 
     // Build a lookup so we can re-order by score
-    let mut chunk_map: HashMap<i64, _> = chunks.into_iter().map(|c| (c.id.expect("DB chunk missing id"), c)).collect();
+    let mut chunk_map: HashMap<i64, _> = chunks
+        .into_iter()
+        .filter_map(|c| {
+            let id = match c.id {
+                Some(id) => id,
+                None => {
+                    log::warn!("Hybrid search: chunk from DB has no id, skipping");
+                    return None;
+                }
+            };
+            Some((id, c))
+        })
+        .collect();
     let mut results: Vec<ChunkSearchResult> = ids
         .iter()
         .filter_map(|id| {
@@ -195,10 +226,14 @@ fn search_hybrid(
 }
 
 /// Extract a snippet around the first query token match.
-pub fn extract_snippet(text: &str, query: &str, max_chars: usize) -> String {
+///
+/// `max_lines` controls how many lines of context to include before and after
+/// the matched line (total window = 2 * max_lines + 1 lines).  `max_chars`
+/// caps the final snippet length at the character level.
+pub fn extract_snippet(text: &str, query: &str, max_lines: usize, max_chars: usize) -> String {
     let tokens: Vec<&str> = query.split_whitespace().collect();
     if tokens.is_empty() {
-        return text.chars().take(max_chars).collect::<String>() + "…";
+        return text.chars().take(max_chars).collect::<String>() + "\u{2026}";
     }
 
     let lower_text = text.to_lowercase();
@@ -211,7 +246,7 @@ pub fn extract_snippet(text: &str, query: &str, max_chars: usize) -> String {
 
     let pos = match best_pos {
         Some(p) => p,
-        None => return text.chars().take(max_chars).collect::<String>() + "…",
+        None => return text.chars().take(max_chars).collect::<String>() + "\u{2026}",
     };
 
     // Walk back to find the start of the line containing pos
@@ -219,10 +254,15 @@ pub fn extract_snippet(text: &str, query: &str, max_chars: usize) -> String {
     let start = before.rfind('\n').map(|i| i + 1).unwrap_or(0);
 
     let snippet_text = &text[start..];
-    let result: String = snippet_text.lines().take(5).collect::<Vec<_>>().join("\n");
+    let window = max_lines * 2 + 1;
+    let result: String = snippet_text
+        .lines()
+        .take(window)
+        .collect::<Vec<_>>()
+        .join("\n");
 
     if result.chars().count() > max_chars {
-        result.chars().take(max_chars).collect::<String>() + "…"
+        result.chars().take(max_chars).collect::<String>() + "\u{2026}"
     } else {
         result
     }
@@ -237,29 +277,29 @@ mod tests {
     #[test]
     fn test_extract_snippet_found() {
         let text = "Line one\nLine two\nLine three\nLine four\nLine five";
-        let snippet = extract_snippet(text, "three", 1000);
+        let snippet = extract_snippet(text, "three", 1, 1000);
         assert!(snippet.contains("three"));
     }
 
     #[test]
     fn test_extract_snippet_fallback_on_no_match() {
         let text = "some content here";
-        let snippet = extract_snippet(text, "nonexistent", 200);
-        assert!(snippet.ends_with("…"));
+        let snippet = extract_snippet(text, "nonexistent", 3, 200);
+        assert!(snippet.ends_with("\u{2026}"));
     }
 
     #[test]
     fn test_extract_snippet_empty_query() {
         let text = "Some content without tokens";
-        let snippet = extract_snippet(text, "", 200);
-        assert!(snippet.ends_with("…"));
+        let snippet = extract_snippet(text, "", 3, 200);
+        assert!(snippet.ends_with("\u{2026}"));
     }
 
     #[test]
     fn test_extract_snippet_respects_max_chars() {
         let text = "A very long line that exceeds the max_chars limit set for snippet extraction";
-        let snippet = extract_snippet(text, "exceeds", 20);
-        assert!(snippet.ends_with("…"));
+        let snippet = extract_snippet(text, "exceeds", 3, 20);
+        assert!(snippet.ends_with("\u{2026}"));
         assert!(snippet.chars().count() <= 21);
     }
 

@@ -3,7 +3,30 @@ use rusqlite::{params, Connection, OpenFlags, Result as SqliteResult};
 use sqlite_vec;
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
+use std::sync::Once;
 use thiserror::Error;
+
+/// Register the sqlite-vec extension once per process lifetime.
+///
+/// # Safety
+///
+/// `sqlite3_auto_extension` expects a C-ABI function pointer. The cast through
+/// `*const ()` follows sqlite-vec's documented registration pattern. The
+/// `Once` guard ensures the extension is registered exactly once even when
+/// both `open()` and `open_in_memory()` are called.
+unsafe fn register_vec_extension() {
+    static INIT: Once = Once::new();
+    INIT.call_once(|| {
+        // SAFETY: sqlite-vec's `sqlite3_vec_init` has the correct signature for
+        // `sqlite3_auto_extension` (it is `unsafe extern "C" fn(...)` matching
+        // the expected `int (*)(sqlite3*, char**, const sqlite3_api_routines*)`).
+        // The `transmute` through `*const ()` is the standard pattern from the
+        // sqlite-vec crate documentation.
+        rusqlite::ffi::sqlite3_auto_extension(Some(std::mem::transmute(
+            sqlite_vec::sqlite3_vec_init as *const (),
+        )));
+    });
+}
 
 #[derive(Error, Debug)]
 pub enum DbError {
@@ -26,11 +49,9 @@ pub struct NoteDatabase {
 impl NoteDatabase {
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, DbError> {
         let is_fresh = !path.as_ref().exists();
-        unsafe {
-            rusqlite::ffi::sqlite3_auto_extension(Some(std::mem::transmute(
-                sqlite_vec::sqlite3_vec_init as *const (),
-            )));
-        }
+        // SAFETY: sqlite-vec extension registration is safe under the Once guard
+        // (see register_vec_extension doc-comment).
+        unsafe { register_vec_extension(); }
         let conn = Connection::open(&path)?;
         conn.pragma_update(None, "journal_mode", "WAL")?;
         let db = Self { write_conn: RefCell::new(conn) };
@@ -51,11 +72,9 @@ impl NoteDatabase {
     }
 
     pub fn open_in_memory() -> Result<Self, DbError> {
-        unsafe {
-            rusqlite::ffi::sqlite3_auto_extension(Some(std::mem::transmute(
-                sqlite_vec::sqlite3_vec_init as *const (),
-            )));
-        }
+        // SAFETY: sqlite-vec extension registration is safe under the Once guard
+        // (see register_vec_extension doc-comment).
+        unsafe { register_vec_extension(); }
         let conn = Connection::open_in_memory()?;
         let db = Self { write_conn: RefCell::new(conn) };
         db.migrate()?;

@@ -60,7 +60,8 @@ pub fn run_setup(args: &SetupArgs) -> Result<(), Box<dyn std::error::Error>> {
     if args.check {
         println!("Embedder model not found.");
         println!("Expected location: {}", model_path.display());
-        println!("Run `shiotsuchi setup` (without --check) for setup instructions.");
+        println!("(Also checks the SHIOTSUCHI_EMBED_MODEL_PATH environment variable.");
+        println!(" Run `shiotsuchi setup` without --check for full setup instructions.)");
         return Ok(());
     }
 

@@ -66,6 +66,6 @@ fn test_end_to_end_index_and_search() {
 #[test]
 fn test_snippet_extraction() {
     let text = "First paragraph\n\nSecond paragraph with keyword\n\nThird paragraph";
-    let snippet = extract_snippet(text, "keyword", 1000);
+    let snippet = extract_snippet(text, "keyword", 3, 1000);
     assert!(snippet.contains("keyword"));
 }
