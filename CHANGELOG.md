@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.3] - 2026-05-16
+
+### Added
+
+- **RAG core implementation:** Complete RAG (Retrieval-Augmented Generation) feature with vector-based semantic search.
+  - `Chunker` module: Recursive Markdown splitter that segments notes into header/paragraph chunks with configurable `max_chars` (default 1000) and `overlap_chars` (default 100).
+  - `Embedder` module: ONNX inference pipeline using `ort` and `tokenizers` crates for local vector generation.
+  - `sqlite-vec` integration: Stores chunk embeddings in SQLite with `vec0` virtual table for efficient similarity search.
+  - `SearchMode` enum: `Keyword` (BM25) and `Semantic` (vector cosine similarity) search modes.
+  - `ChunkSearchResult` model: Extended result type with chunk metadata and similarity scores.
+- **`--mode` flag for `dive` command:** Choose between `keyword` (FTS5 BM25) and `semantic` (vector similarity) search. `keyword` is default for backward compatibility.
+- **`dredge` command:** Extract and index chunks from existing notes without re-embedding content. Useful for migrating pre-v0.3.3 vaults to chunked schema.
+- **`setup --check` command:** Verify ONNX model availability, tokenizer model, and config validity with SHA-256 hash verification.
+- **ONNX model download script:** `scripts/download-onnx-model.sh` fetches and verifies the ONNX embedding model.
+- **Vector search tests:** 12 new tests covering chunking, embedding, and semantic search functionality.
+
+### Changed
+
+- **`search()` signature:** Added `SearchMode` parameter. `Keyword` mode uses existing FTS5 BM25; `Semantic` mode uses vector similarity.
+- **`index_directory()`:** Now chunks files before indexing, storing both FTS5 and vector representations.
+- **`VaultStats` model:** Added `chunk_count` field to track indexed chunks.
+- **Config:** Added `[rag]` section with `max_chunk_chars`, `overlap_chars`, and `model_path` options.
+
+### Fixed
+
+- **Vector schema migration:** `index_directory` handles both new (chunked+vectors) and legacy (FTS5-only) vault states.
+- **`resolve_model_path`:** Falls back through config, env var, and embedded model paths.
+
+---
+
 ## [0.3.2] - 2026-05-10
 
 ### Added
@@ -309,8 +339,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `docs/MODEL_LICENSES.md` with BSD-3-Clause notice for the bundled tokenizer model
 - `README.md` (English) and `README.ja.md` (Japanese)
 
-[Unreleased]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.3.2...HEAD
-[0.3.2]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.3.1...v0.3.2
+[Unreleased]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.3.3...HEAD
+ [0.3.3]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.3.2...v0.3.3
+ [0.3.2]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.3.0...v0.3.1
 [0.2.8]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.2.7...v0.2.8
 [0.2.7]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.2.6...v0.2.7
