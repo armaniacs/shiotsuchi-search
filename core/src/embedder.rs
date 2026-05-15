@@ -306,8 +306,8 @@ fn mean_pool_l2_normalize(
         if mask_idx < attention_mask.len() && attention_mask[mask_idx] != 0 {
             let start = (batch_idx * seq_len + j) * hidden;
             if start + hidden <= flat.len() {
-                for k in 0..hidden {
-                    sum[k] += flat[start + k];
+                for (s, f) in sum.iter_mut().zip(flat[start..start + hidden].iter()) {
+                    *s += f;
                 }
                 count += 1;
             }
@@ -317,8 +317,8 @@ fn mean_pool_l2_normalize(
     // Mean
     if count > 0 {
         let inv_count = 1.0 / count as f32;
-        for k in 0..hidden {
-            sum[k] *= inv_count;
+        for s in sum.iter_mut() {
+            *s *= inv_count;
         }
     }
 
@@ -326,8 +326,8 @@ fn mean_pool_l2_normalize(
     let norm: f32 = sum.iter().map(|x| x * x).sum::<f32>().sqrt();
     if norm > 0.0 {
         let inv_norm = 1.0 / norm;
-        for k in 0..hidden {
-            sum[k] *= inv_norm;
+        for s in sum.iter_mut() {
+            *s *= inv_norm;
         }
     }
 

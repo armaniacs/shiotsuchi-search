@@ -22,9 +22,15 @@ unsafe fn register_vec_extension() {
         // the expected `int (*)(sqlite3*, char**, const sqlite3_api_routines*)`).
         // The `transmute` through `*const ()` is the standard pattern from the
         // sqlite-vec crate documentation.
-        rusqlite::ffi::sqlite3_auto_extension(Some(std::mem::transmute(
-            sqlite_vec::sqlite3_vec_init as *const (),
-        )));
+        // SAFETY: The transmute through `*const ()` is the standard pattern from
+        // the sqlite-vec crate documentation.
+        let func: unsafe extern "C" fn(
+            *mut rusqlite::ffi::sqlite3,
+            *mut *const std::os::raw::c_char,
+            *const rusqlite::ffi::sqlite3_api_routines,
+        ) -> std::os::raw::c_int =
+            std::mem::transmute::<*const (), _>(sqlite_vec::sqlite3_vec_init as *const ());
+        rusqlite::ffi::sqlite3_auto_extension(Some(func));
     });
 }
 
@@ -59,12 +65,17 @@ impl NoteDatabase {
         #[cfg(unix)]
         if is_fresh {
             use std::os::unix::fs::PermissionsExt;
-            let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+            if let Err(e) = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)) {
+                log::warn!("Failed to set DB file permissions to 0o600: {}", e);
+            }
             let base = path.as_ref().to_string_lossy();
             for suffix in ["-wal", "-shm"] {
                 let companion = PathBuf::from(format!("{}{}", base, suffix));
                 if companion.exists() {
-                    let _ = std::fs::set_permissions(&companion, std::fs::Permissions::from_mode(0o600));
+                    if let Err(e) = std::fs::set_permissions(&companion, std::fs::Permissions::from_mode(0o600))
+                    {
+                        log::warn!("Failed to set companion file permissions to 0o600: {}", e);
+                    }
                 }
             }
         }

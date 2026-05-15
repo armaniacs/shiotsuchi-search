@@ -249,17 +249,31 @@ pub fn extract_snippet(text: &str, query: &str, max_lines: usize, max_chars: usi
         None => return text.chars().take(max_chars).collect::<String>() + "\u{2026}",
     };
 
-    // Walk back to find the start of the line containing pos
+    // Walk back up to `max_lines` lines before the match to provide context
     let before = &text[..pos];
-    let start = before.rfind('\n').map(|i| i + 1).unwrap_or(0);
+    let start = if max_lines == 0 {
+        pos
+    } else {
+        let mut newlines = 0;
+        let mut idx = pos;
+        for (i, c) in before.char_indices().rev() {
+            if c == '\n' {
+                newlines += 1;
+                if newlines > max_lines {
+                    idx = i + 1;
+                    break;
+                }
+            }
+            if i == 0 {
+                idx = 0;
+            }
+        }
+        idx
+    };
 
     let snippet_text = &text[start..];
-    let window = max_lines * 2 + 1;
-    let result: String = snippet_text
-        .lines()
-        .take(window)
-        .collect::<Vec<_>>()
-        .join("\n");
+    let lines: Vec<&str> = snippet_text.lines().take(max_lines * 2 + 1).collect();
+    let result = lines.join("\n");
 
     if result.chars().count() > max_chars {
         result.chars().take(max_chars).collect::<String>() + "\u{2026}"

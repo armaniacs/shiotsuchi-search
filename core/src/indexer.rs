@@ -94,11 +94,11 @@ pub fn index_file(
 /// Walk `vault_dir`, chunk and index all Markdown files.
 /// If `embedder` is Some, also inserts vector embeddings.
 /// Returns (per-file results, invalid pattern count).
-pub fn index_directory<'a>(
+pub fn index_directory(
     db: &NoteDatabase,
     tokenizer: &JapaneseTokenizer,
     config: &IndexConfig,
-    embedder: Option<&'a Embedder>,
+    embedder: Option<&Embedder>,
 ) -> Result<(Vec<(String, IndexResult)>, usize), DbError> {
     let notes_dir = &config.notes_dir;
     let (exclude_globset, invalid_patterns) = build_exclude_globset(&config.exclude_dirs);
