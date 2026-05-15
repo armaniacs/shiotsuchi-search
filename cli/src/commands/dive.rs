@@ -1,9 +1,9 @@
 use clap::Args;
 use shiotsuchi_core::{
+    constants::DEFAULT_SNIPPET_LINES,
     db::NoteDatabase,
     embedder::{resolve_model_path, Embedder},
     models::{ChunkSearchResult, SearchMode},
-    constants::DEFAULT_SNIPPET_LINES,
     search::{extract_snippet, search},
     tokenizer::get_tokenizer,
 };
@@ -114,10 +114,20 @@ pub fn run_dive(
 
     // Vec mode with no embedder is a hard error; Hybrid gracefully falls back to FTS
     if embedder.is_none() && matches!(search_mode, SearchMode::Vec) {
-        return Err("Vector search requires a model. Set SHIOTSUCHI_EMBED_MODEL_PATH or use --model-path.".into());
+        return Err(
+            "Vector search requires a model. Set SHIOTSUCHI_EMBED_MODEL_PATH or use --model-path."
+                .into(),
+        );
     }
 
-    let results = search(&db, &tokenizer, &args.query, args.limit, search_mode, embedder.as_ref())?;
+    let results = search(
+        &db,
+        &tokenizer,
+        &args.query,
+        args.limit,
+        search_mode,
+        embedder.as_ref(),
+    )?;
     Ok(results)
 }
 
@@ -151,7 +161,10 @@ fn print_table(results: &[ChunkSearchResult], query: &str, elapsed: Duration) {
     for (i, result) in results.iter().enumerate() {
         let idx = i + 1;
         let header = result.parent_header.as_deref().unwrap_or("(top level)");
-        println!("  {idx}. {} > {}  [{:.4}]", result.file_path, header, result.score);
+        println!(
+            "  {idx}. {} > {}  [{:.4}]",
+            result.file_path, header, result.score
+        );
         let snippet = extract_snippet(&result.content, query, DEFAULT_SNIPPET_LINES, 300);
         for line in snippet.lines() {
             println!("     {line}");
@@ -169,8 +182,8 @@ fn print_table(results: &[ChunkSearchResult], query: &str, elapsed: Duration) {
 
 #[cfg(test)]
 mod tests {
-    use crate::config::IndexingConfig;
     use super::*;
+    use crate::config::IndexingConfig;
     use std::fs;
     use tempfile::TempDir;
 
@@ -288,7 +301,12 @@ mod tests {
     #[test]
     fn test_print_table_empty_results() {
         let results: Vec<ChunkSearchResult> = vec![];
-        print_results(&results, "test", &OutputFormat::Table, Duration::from_secs(0));
+        print_results(
+            &results,
+            "test",
+            &OutputFormat::Table,
+            Duration::from_secs(0),
+        );
     }
 
     #[test]

@@ -17,9 +17,7 @@ fn default_model_dir() -> PathBuf {
         .map(PathBuf::from)
         .unwrap_or_else(|| {
             dirs::home_dir()
-                .unwrap_or_else(|| {
-                    std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
-                })
+                .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
                 .join(".local")
                 .join("share")
         })

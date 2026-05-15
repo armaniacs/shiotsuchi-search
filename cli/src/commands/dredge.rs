@@ -72,7 +72,10 @@ mod tests {
         let db_file = temp.path().join("test.db");
         NoteDatabase::open(&db_file).unwrap();
 
-        let args = DredgeArgs { dry_run: false, vacuum: false };
+        let args = DredgeArgs {
+            dry_run: false,
+            vacuum: false,
+        };
         let idx_cfg = IndexingConfig::default();
         let result = run_dredge(&args, temp.path(), &db_file, &idx_cfg);
         assert!(result.is_ok());
@@ -84,7 +87,10 @@ mod tests {
         let db_file = temp.path().join("test.db");
         NoteDatabase::open(&db_file).unwrap();
 
-        let args = DredgeArgs { dry_run: true, vacuum: false };
+        let args = DredgeArgs {
+            dry_run: true,
+            vacuum: false,
+        };
         let idx_cfg = IndexingConfig::default();
         let result = run_dredge(&args, temp.path(), &db_file, &idx_cfg);
         assert!(result.is_ok());
@@ -98,7 +104,10 @@ mod tests {
         fs::write(temp.path().join("note.md"), "# Hello").unwrap();
         NoteDatabase::open(&db_file).unwrap();
 
-        let args = DredgeArgs { dry_run: false, vacuum: true };
+        let args = DredgeArgs {
+            dry_run: false,
+            vacuum: true,
+        };
         let idx_cfg = IndexingConfig::default();
         let result = run_dredge(&args, temp.path(), &db_file, &idx_cfg);
         assert!(result.is_ok());

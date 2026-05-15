@@ -1,8 +1,4 @@
-use shiotsuchi_core::{
-    db::NoteDatabase,
-    embedder::resolve_model_path,
-    models::VaultStats,
-};
+use shiotsuchi_core::{db::NoteDatabase, embedder::resolve_model_path, models::VaultStats};
 use std::path::Path;
 
 pub fn run_tide(db_path: &Path) -> Result<VaultStats, Box<dyn std::error::Error>> {
