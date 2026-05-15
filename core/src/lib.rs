@@ -1,3 +1,4 @@
+pub mod build_info;
 pub mod constants;
 pub mod db;
 pub mod chunker;
