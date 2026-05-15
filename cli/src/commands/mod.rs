@@ -8,4 +8,5 @@ pub mod log;
 pub mod noise;
 pub mod scan;
 pub mod setup;
+pub mod support;
 pub mod tide;
