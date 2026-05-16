@@ -65,6 +65,24 @@ impl McpNotification {
             params,
         }
     }
+
+    /// Build a `notifications/progress` notification per the MCP spec.
+    pub fn progress(progress_token: u64, progress: u64, total: Option<u64>) -> Self {
+        let mut params = serde_json::Map::new();
+        params.insert(
+            "progressToken".to_string(),
+            serde_json::json!(progress_token),
+        );
+        params.insert("progress".to_string(), serde_json::json!(progress));
+        if let Some(t) = total {
+            params.insert("total".to_string(), serde_json::json!(t));
+        }
+        Self {
+            jsonrpc: "2.0".to_string(),
+            method: "notifications/progress".to_string(),
+            params: Some(serde_json::Value::Object(params)),
+        }
+    }
 }
 
 #[cfg(test)]

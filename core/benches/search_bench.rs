@@ -29,7 +29,7 @@ fn setup_vault(size: usize) -> (TempDir, std::path::PathBuf) {
         notes_dir: temp.path().to_path_buf(),
         ..Default::default()
     };
-    index_directory(&ndb, &tok, &cfg, None).unwrap();
+    index_directory(&ndb, &tok, &cfg, None, None).unwrap();
     (temp, db_path)
 }
 
@@ -50,7 +50,7 @@ fn bench_indexing(c: &mut Criterion) {
                 notes_dir: temp.path().to_path_buf(),
                 ..Default::default()
             };
-            black_box(index_directory(&db, &tok, &cfg, None).unwrap())
+            black_box(index_directory(&db, &tok, &cfg, None, None).unwrap())
         })
     });
 }

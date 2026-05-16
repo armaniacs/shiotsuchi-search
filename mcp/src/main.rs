@@ -5,12 +5,16 @@ mod tools;
 use clap::Parser;
 use protocol::{McpNotification, McpRequest, McpResponse};
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use shiotsuchi_core::paths::default_db_path as core_default_db_path;
 use std::{
     ffi::OsString,
     io::{self, BufRead, Write},
     path::{Path, PathBuf},
+    sync::{Arc, Mutex},
 };
+
+// Re-import Write in inner blocks for stdout writes.
 
 /// Resolve a path from an environment variable with traversal validation.
 /// Falls back to `default` if the variable is unset or contains `..` traversal.
@@ -129,6 +133,101 @@ pub fn dispatch(req: McpRequest, notes_dir: &Path, db_path: &Path) -> McpRespons
     }
 }
 
+/// Spawn a background task that calls `shiotsuchi_core::indexer::index_directory`
+/// and sends MCP `notifications/progress` notifications on stdout.
+fn spawn_rebuild(
+    notes_dir: &Path,
+    db_path: &Path,
+    stdout: &Arc<Mutex<io::Stdout>>,
+    _args: &serde_json::Value,
+    progress_token: Option<u64>,
+) {
+    let n_dir = notes_dir.to_path_buf();
+    let d_path = db_path.to_path_buf();
+    let out = Arc::clone(stdout);
+
+    tokio::spawn(async move {
+        // Notify: rebuild started
+        if let Some(pt) = progress_token {
+            emit_progress(&out, pt, 0, None);
+        }
+
+        // Open the database
+        let db = match shiotsuchi_core::db::NoteDatabase::open(&d_path) {
+            Ok(db) => db,
+            Err(e) => {
+                log::error!("Rebuild: failed to open DB {}: {}", d_path.display(), e);
+                return;
+            }
+        };
+
+        // Get tokenizer
+        let tokenizer = match shiotsuchi_core::tokenizer::get_tokenizer() {
+            Ok(t) => t,
+            Err(_) => {
+                log::error!("Rebuild: no tokenizer model available — cannot index without one");
+                if let Some(pt) = progress_token {
+                    emit_progress(&out, pt, 0, Some(1));
+                }
+                return;
+            }
+        };
+
+        // Build IndexConfig (defaults: .md/.markdown, exclude node_modules, auto-exclude hidden)
+        let config = shiotsuchi_core::models::IndexConfig {
+            notes_dir: n_dir,
+            ..Default::default()
+        };
+
+        // Set up progress callback
+        let progress: Option<shiotsuchi_core::indexer::IndexProgress> = progress_token.map(|pt| {
+            Box::new(move |current: usize, total: usize| {
+                emit_progress(&out, pt, current as u64, Some(total as u64));
+            }) as shiotsuchi_core::indexer::IndexProgress
+        });
+
+        // Run the indexer (no embedder = FTS-only)
+        match shiotsuchi_core::indexer::index_directory(&db, &tokenizer, &config, None, progress) {
+            Ok((results, _invalid)) => {
+                let inserted = results
+                    .iter()
+                    .filter(|(_, r)| matches!(r, shiotsuchi_core::IndexResult::Inserted))
+                    .count();
+                let updated = results
+                    .iter()
+                    .filter(|(_, r)| matches!(r, shiotsuchi_core::IndexResult::Updated))
+                    .count();
+                let skipped = results
+                    .iter()
+                    .filter(|(_, r)| matches!(r, shiotsuchi_core::IndexResult::Skipped))
+                    .count();
+                let errors = results.len() - inserted - updated - skipped;
+                log::info!(
+                    "Rebuild complete: {} inserted, {} updated, {} skipped, {} errors",
+                    inserted,
+                    updated,
+                    skipped,
+                    errors
+                );
+            }
+            Err(e) => {
+                log::error!("Rebuild failed: {}", e);
+            }
+        }
+    });
+}
+
+/// Helper: serialize a progress notification and write it to stdout.
+fn emit_progress(stdout: &Arc<Mutex<io::Stdout>>, progress_token: u64, progress: u64, total: Option<u64>) {
+    let notif = McpNotification::progress(progress_token, progress, total);
+    if let Ok(line) = serde_json::to_string(&notif) {
+        if let Ok(mut locked) = stdout.lock() {
+            let _ = writeln!(&*locked, "{}", line);
+            let _ = locked.flush();
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() {
     env_logger::init();
@@ -150,24 +249,54 @@ async fn main() {
     }
 
     let stdin = io::stdin();
-    let stdout = io::stdout();
-    let mut out = io::BufWriter::new(stdout.lock());
+    let stdout = Arc::new(Mutex::new(io::stdout()));
 
-    let notif = McpNotification::new("notifications/initialized", serde_json::Value::Null);
-    writeln!(out, "{}", serde_json::to_string(&notif).unwrap()).ok();
-    out.flush().ok();
+    // Send notifications/initialized on startup
+    {
+        let notif = McpNotification::new("notifications/initialized", serde_json::Value::Null);
+        let mut locked = stdout.lock().unwrap();
+        writeln!(&*locked, "{}", serde_json::to_string(&notif).unwrap()).ok();
+        locked.flush().ok();
+    }
 
     for line in stdin.lock().lines() {
         let line = match line {
             Ok(l) if !l.is_empty() => l,
             _ => continue,
         };
+
         let resp = match serde_json::from_str::<McpRequest>(&line) {
-            Ok(req) => dispatch(req, &notes_dir, &db_path),
+            Ok(req) => {
+                // Special-case rebuild_index to spawn a background task
+                if req.method == "tools/call" {
+                    let params = req.params.clone().unwrap_or(serde_json::Value::Null);
+                    let name = params["name"].as_str().unwrap_or("");
+                    if name == "rebuild_index" {
+                        let args = &params["arguments"];
+                        let progress_token = params["_meta"]["progressToken"].as_u64();
+                        spawn_rebuild(&notes_dir, &db_path, &stdout, args, progress_token);
+                        McpResponse::success(
+                            req.id,
+                            json!({
+                                "content": [{
+                                    "type": "text",
+                                    "text": "Rebuild started. Progress notifications will be sent via the MCP progress protocol."
+                                }]
+                            }),
+                        )
+                    } else {
+                        dispatch(req, &notes_dir, &db_path)
+                    }
+                } else {
+                    dispatch(req, &notes_dir, &db_path)
+                }
+            }
             Err(_) => McpResponse::error(0, -32700, "Parse error"),
         };
-        writeln!(out, "{}", serde_json::to_string(&resp).unwrap()).ok();
-        out.flush().ok();
+
+        let mut locked = stdout.lock().unwrap();
+        writeln!(&*locked, "{}", serde_json::to_string(&resp).unwrap()).ok();
+        locked.flush().ok();
     }
 }
 

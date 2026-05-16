@@ -64,7 +64,7 @@ pub fn run_chart(
         }
     });
 
-    let (results, invalid_patterns) = index_directory(&db, &tokenizer, &config, embedder.as_ref())?;
+    let (results, invalid_patterns) = index_directory(&db, &tokenizer, &config, embedder.as_ref(), None)?;
 
     let mut summary = ChartSummary {
         indexed: 0,
