@@ -20,7 +20,7 @@ fn main() {
             let mut hasher = Sha256::new();
             hasher.update(&predictor_bytes);
             let hash = hasher.finalize();
-            let hash_hex = format!("{:x}", hash);
+            let hash_hex = hex::encode(hash);
 
             let predictor_path = out_dir.join("predictor.bin");
             fs::write(&predictor_path, &predictor_bytes).unwrap();

@@ -236,7 +236,7 @@ fn hash_of(path: &std::path::Path) -> Result<String, Box<dyn std::error::Error>>
         }
         hasher.update(&buf[..n]);
     }
-    Ok(format!("{:x}", hasher.finalize()))
+    Ok(hex::encode(hasher.finalize()))
 }
 
 #[cfg(test)]

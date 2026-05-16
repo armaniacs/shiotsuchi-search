@@ -22,7 +22,7 @@ vaporetto_rules = { version = "0.6", default-features = false }
 ruzstd = "0.8"  # sqlite-vaporetto と同じ。.model.zst の zstd 解凍に使用。
 walkdir = "2"
 rayon = "1"
-sha2 = "0.10"
+sha2 = "0.11"
 hex = "0.4"
 globset = "0.4"
 serde = { version = "1", features = ["derive"] }
@@ -63,4 +63,5 @@ vaporetto = { version = "0.6", default-features = false, features = [
     "charwise-pma",
 ] }
 ruzstd = "0.8"
-sha2 = "0.10"
+sha2 = "0.11"
+hex = "0.4"

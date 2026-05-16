@@ -65,7 +65,7 @@ impl JapaneseTokenizer {
             // Verify integrity via SHA-256 hash to detect corruption or tampering
             let mut hasher = Sha256::new();
             hasher.update(bytes);
-            let computed = format!("{:x}", hasher.finalize());
+            let computed = hex::encode(hasher.finalize());
             if computed != EMBEDDED_PREDICTOR_HASH {
                 return Err(TokenizerError::ModelLoad(
                     "embedded predictor bytes failed integrity check (possible corruption)".into(),
