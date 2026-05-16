@@ -7,13 +7,16 @@ Crate path: `cli/`
 
 | Command | Args | Description |
 |---------|------|-------------|
-| `chart` | `[--notes-dir]` `[--db-path]` | Index/re-index all Markdown files |
-| `dive <query>` | `[--notes-dir]` `[--db-path]` `[--limit]` `[--json]` | Search notes (AND search) |
-| `tide` | `[--db-path]` | Show vault statistics |
+| `chart` | `[--notes-dir]` `[--db-path]` | Index/re-index all Markdown files (chunk-based) |
+| `dive <query>` | `[--notes-dir]` `[--db-path]` `[--limit]` `[--mode]` `[--json]` `[--json-pretty]` | Search notes. `--mode`: `keyword` (default), `semantic`, `hybrid`. |
+| `tide` | `[--db-path]` | Show vault statistics (chunks, files, vec index status) |
 | `scan` | `[--notes-dir]` `[--db-path]` | Watch for file changes and auto-re-index |
 | `log` | `[--db-path]` | Show indexing history |
 | `init` | `[--notes-dir]` `[--db-path]` `[--force]` `[--yes]` | Create config file with interactive exclusion selection |
 | `config detect-noise` | `[--notes-dir]` | Scan vault for exclusion candidates (read-only) |
+| `setup` | `[--check]` `[--model-path]` | Setup/check ONNX embedding model and Vaporetto tokenizer. `--check` verifies model availability and hash. |
+| `dredge` | `[--notes-dir]` `[--db-path]` | Extract and index chunks from existing notes without re-embedding content. Migrates pre-v0.3.3 vaults to chunked schema. |
+| `support` | (no subcommands) | Display build info, dependency versions, and system information |
 
 ## Global Options
 
@@ -84,16 +87,21 @@ exclude_dirs = ["node_modules", "templates"]
 
 ## Implementation Files
 
-- `cli/src/main.rs` — Entry point, argument parsing with `clap`
+- `cli/src/main.rs` — Entry point, argument parsing with `clap`, dynamic version info
 - `cli/src/config.rs` — Config types (`ShiotsuchiConfig`, `VaultConfig`, `IndexingConfig`, `WatcherConfig`)
-- `cli/src/commands/chart.rs` — Full vault indexing
-- `cli/src/commands/dive.rs` — Search with JSON output
-- `cli/src/commands/tide.rs` — Statistics display
+- `cli/src/build_info.rs` — Dynamic version string generation for `--version` / `support`
+- `cli/src/util.rs` — Shared utilities (e.g., resolving DB path)
+- `cli/src/commands/chart.rs` — Full vault indexing (chunk-aware, optional embedding)
+- `cli/src/commands/dive.rs` — Search with keyword/semantic/hybrid modes, JSON output
+- `cli/src/commands/tide.rs` — Statistics display (chunk/file/vector counts)
 - `cli/src/commands/scan.rs` — File watcher setup
 - `cli/src/commands/log.rs` — Metadata listing
 - `cli/src/commands/init.rs` — Config file creation with interactive exclusion selection
 - `cli/src/commands/noise.rs` — Vault scanning logic for exclusion candidate detection
 - `cli/src/commands/config.rs` — Config subcommands (`detect-noise`)
+- `cli/src/commands/setup.rs` — ONNX model download/check
+- `cli/src/commands/dredge.rs` — Chunk migration for pre-v0.3.3 vaults
+- `cli/src/commands/support.rs` — Build info display
 
 ## DB Path Resolution
 
@@ -120,3 +128,6 @@ Resolution order:
 | `log` | Table with columns |
 | `init` | Human-readable config creation summary |
 | `config detect-noise` | Human-readable exclusion candidate list |
+| `setup` | Model availability and hash verification output |
+| `dredge` | Re-indexing progress |
+| `support` | Build info and dependency version table |

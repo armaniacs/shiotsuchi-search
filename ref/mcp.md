@@ -6,31 +6,71 @@ Crate path: `mcp/`
 ## Protocol
 
 Implements [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) over stdio JSON-RPC 2.0.
+Uses tokio multi-thread runtime for async background tasks.
 
 ## Available Tools
 
-### `search_vault`
+### `search_local_notes`
 
-Search the user's Markdown vault for notes matching a query.
+Search the user's Markdown vault using keyword (FTS5), semantic (vector), or hybrid retrieval.
 
-**Input**: `{ "query": string }`
-**Output**: JSON array of search results with paths, snippets, and scores
+**Input**:
+```json
+{
+  "query": "search terms",
+  "limit": 10,
+  "mode": "hybrid",
+  "min_score": 0.5
+}
+```
 
-### `read_full_note`
+| Param | Type | Default | Description |
+|-------|------|---------|-------------|
+| `query` | string | required | Japanese or English search query |
+| `limit` | integer | 10 | Max results (1–50) |
+| `mode` | string | `"hybrid"` | `"fts"` (keyword-only, no model needed), `"vec"` (semantic, requires model), `"hybrid"` (RRF fusion) |
+| `min_score` | number | optional | Minimum relevance score threshold |
 
-Read the complete Markdown content of a specific note.
+**Output**: Structured Markdown with `### RETRIEVED CONTEXT ###` / `### END RETRIEVED CONTEXT ###` delimiters, source numbering, parent heading hierarchy, chunk IDs, and relevance scores.
 
-**Input**: `{ "path": string }` (relative path within vault)
-**Output**: Markdown text content
+### `get_surrounding_context`
 
-**Security**: Path traversal protection — rejects `..`, absolute paths, and paths escaping the vault directory.
+Retrieve chunks immediately before and after a given chunk for expanded context.
 
-### `vault_status`
+**Input**:
+```json
+{
+  "chunk_id": 123,
+  "window": 2
+}
+```
+
+| Param | Type | Default | Description |
+|-------|------|---------|-------------|
+| `chunk_id` | integer | required | ID from `search_local_notes` results |
+| `window` | integer | 2 | Chunks before and after (1–5) |
+
+**Output**: Markdown content of surrounding chunks with parent headers.
+
+### `index_status`
 
 Get vault indexing statistics.
 
 **Input**: `{}`
-**Output**: Plain text with total notes, DB size, last indexed time
+
+**Output**: Plain text with total files, total chunks, vec-indexed chunks, database size, embedder status, and last indexed time. Reflects state at query time (may be slightly stale if background rebuild is running).
+
+### `rebuild_index`
+
+Trigger a full re-index of the vault in the background. Sends MCP `notifications/progress` on stdout with per-file (current/total) updates.
+
+**Input**: `{}`
+
+**Behavior**:
+- Spawns a background tokio task
+- Calls `core::indexer::index_directory()` with progress callback
+- Emits `notifications/progress` on each file processed
+- Does not block other tool calls
 
 ## JSON-RPC Methods
 
@@ -40,25 +80,42 @@ Get vault indexing statistics.
 | `tools/list` | List available tools |
 | `tools/call` | Execute a tool |
 | `ping` | Health check |
+| `notifications/progress` | Emitted by background rebuild_index (params: current, total) |
+
+## Tool Dispatch Flow
+
+```
+tools/call
+    │
+    ├── "rebuild_index" → spawn_rebuild() [background tokio task]
+    │                       └── index_directory() with progress callback
+    │
+    └── other tools → handler::call_tool()
+                        ├── "search_local_notes" → open_readonly() → search()
+                        ├── "get_surrounding_context" → open() → get_surrounding_chunks()
+                        └── "index_status" → open() → stats()
+```
 
 ## Implementation Files
 
-- `mcp/src/main.rs` — Stdio JSON-RPC loop, dispatch routing
+- `mcp/src/main.rs` — Stdio JSON-RPC loop, tokio `#[tokio::main]` entry point, dispatch routing for `rebuild_index`
 - `mcp/src/protocol.rs` — `McpRequest`, `McpResponse`, `McpError`, `McpNotification`
-- `mcp/src/tools.rs` — Tool definitions (JSON Schema)
-- `mcp/src/handler.rs` — Tool execution logic
+- `mcp/src/tools.rs` — Tool definitions (JSON Schema for each tool)
+- `mcp/src/handler.rs` — Tool execution logic: `call_tool()`, `search_local_notes()`, `get_surrounding_context()`, `index_status()`, structured Markdown formatting
 
 ## Error Handling
 
 - Internal errors are mapped to generic `"Internal tool execution error"` to avoid information leakage
 - Uses `get_tokenizer()` for cached tokenizer access (avoids per-request model init cost)
-- Opens DB connection per request
+- Opens DB connection per request (lightweight under SQLite WAL)
+- `rebuild_index` errors are logged but not returned to client (background task)
 
 ## Configuration
 
 Environment variables:
 - `SHIOTSUCHI_NOTES_DIR` — Vault root (default: `.`)
 - `SHIOTSUCHI_DB_PATH` — Database path (default: `~/.cache/shiotsuchi/db.sqlite3`)
+- `SHIOTSUCHI_MODEL_PATH` — Vaporetto tokenizer model path
 
 ## Claude Desktop Setup
 

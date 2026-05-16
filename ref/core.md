@@ -7,42 +7,61 @@ Published name: `shiotsuchi-core`
 
 ### `db.rs` — Database Operations
 
-**Type**: `NoteDatabase { conn: Connection }`
+**Type**: `NoteDatabase { write_conn: RefCell<Connection> }`
 
-**Key Methods**:
-- `open(path)` — Opens SQLite DB, enables WAL mode, initializes schema
-- `open_in_memory()` — In-memory DB for testing
-- `upsert_note(path, title, tokenized_body, hash, mtime)` — Insert/update with hash skip optimization. Wraps FTS delete + insert + meta upsert in a transaction.
-- `delete_note(path)` — Delete from both `notes_fts` and `notes_meta`. Transaction-wrapped.
-- `search(fts5_query, limit)` — Execute FTS5 MATCH query with BM25 ranking. Uses parameter binding for both query and limit.
-- `get_metadata(path)` — Lookup single note metadata
-- `list_paths()` — All indexed paths
-- `list_all_metadata()` — All metadata ordered by `indexed_at DESC`
-- `stats()` — Vault statistics (total notes, DB size, last indexed)
+**Schema** (all tables created by `create_schema()`):
 
-**Schema**:
 ```sql
--- FTS5 virtual table for full-text search
-CREATE VIRTUAL TABLE notes_fts USING fts5(
-    path UNINDEXED,
-    title,
-    body,
+-- File cache for incremental indexing (hash + mtime tracking)
+CREATE TABLE IF NOT EXISTS file_cache (
+    path     TEXT PRIMARY KEY,
+    hash     TEXT NOT NULL,
+    mtime    INTEGER NOT NULL,
+    model_id TEXT NOT NULL
+);
+
+-- Chunk storage
+CREATE TABLE IF NOT EXISTS chunks (
+    id                INTEGER PRIMARY KEY,
+    file_path         TEXT NOT NULL,
+    chunk_index       INTEGER NOT NULL,
+    parent_header     TEXT,
+    content           TEXT NOT NULL,
+    tokenized_content TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_chunks_file_path ON chunks(file_path);
+
+-- FTS5 virtual table for keyword search (external content table)
+CREATE VIRTUAL TABLE IF NOT EXISTS fts_chunks USING fts5(
+    tokenized_content,
+    content='chunks',
+    content_rowid='id',
     tokenize='unicode61 remove_diacritics 0'
 );
 
--- Metadata tracking table
-CREATE TABLE notes_meta (
-    path TEXT PRIMARY KEY,
-    hash TEXT NOT NULL,
-    mtime INTEGER NOT NULL,
-    indexed_at INTEGER NOT NULL,
-    title TEXT
+-- Vec0 virtual table for vector KNN search
+CREATE VIRTUAL TABLE IF NOT EXISTS vec_chunks USING vec0(
+    chunk_id  INTEGER PRIMARY KEY,
+    embedding FLOAT[1024]
 );
-
-CREATE INDEX idx_notes_meta_hash ON notes_meta(hash);
 ```
 
-**Error Type**: `DbError { Sqlite(rusqlite::Error), NotFound(String) }`
+**Key Methods**:
+- `open(path)` / `open_in_memory()` — Open SQLite DB, enable WAL, register sqlite-vec extension, run migrations
+- `open_readonly(path)` — Read-only connection (for MCP search handlers)
+- `insert_chunks(chunks)` — Insert chunk batch in transaction, returns assigned IDs
+- `insert_embeddings(pairs)` — Insert (chunk_id, embedding) pairs for vector search
+- `delete_chunks_for_file(file_path)` — Remove all chunks/FTS/vec entries for a file (transaction-wrapped)
+- `fts_search(fts5_query, limit)` — Execute FTS5 MATCH with BM25 ranking
+- `vec_search(embedding, limit)` — Execute vec0 KNN search with cosine distance
+- `get_chunks_by_ids(ids)` — Fetch chunks by IDs, preserving order
+- `get_surrounding_chunks(chunk_id, window)` — Fetch chunks before/after a given chunk (for context)
+- `cached_hash(path)` / `upsert_file_cache(...)` / `delete_file_cache(path)` — Incremental index tracking
+- `list_cached_paths()` — All indexed file paths
+- `stats()` — Vault statistics (total_chunks, total_files, vec_indexed_chunks, db_path, etc.)
+- `migrate()` — Schema migration (v1→v2: from old notes_fts/notes_meta to chunk schema)
+
+**Error Type**: `DbError { Sqlite(rusqlite::Error), NotFound(String), Io(std::io::Error), Other(String) }`
 
 ### `tokenizer.rs` — Japanese Tokenization
 
@@ -66,28 +85,75 @@ CREATE INDEX idx_notes_meta_hash ON notes_meta(hash);
 - `simple_tokenize(text)` — whitespace split
 - `simple_and_query(text)` — simple FTS5 AND query
 
-### `indexer.rs` — File Indexing
+### `chunker.rs` — Markdown Chunking (RAG)
+
+**Type**: Free functions only.
+
+**Key Function**:
+- `split_into_chunks(markdown, tokenizer, file_path)` → `Vec<Chunk>`
+
+**Algorithm**:
+1. **Level 1**: Split on Markdown headers (`#`, `##`, `###`). Builds a hierarchy stack of parent headers.
+2. **Level 2**: Sections exceeding 1000 chars are further split on blank-line boundaries (paragraphs).
+3. Fenced code blocks (` ``` `) are never split internally.
+4. Each chunk receives `parent_header` set to the ancestor heading path (e.g. `"Section 1 > Subsection A"`).
+
+### `embedder.rs` — ONNX Embedding Inference (RAG)
+
+**Type**: `Embedder { session: RefCell<Session>, tokenizer: Tokenizer, model_id: String }`
+
+**Construction**:
+- `Embedder::load(model_path)` — Load ONNX model + HuggingFace tokenizer from `model.onnx` / `tokenizer.json`
+- Expects `tokenizer.json` alongside the ONNX model
+- Computes SHA-256 hash of model file as `model_id`
+
+**Key Methods**:
+- `embed(texts)` → `Vec<Vec<f32>>` — Batched embedding with mean pooling + L2 normalization
+- `flush()` — Clear embedding cache (reclaims memory)
+- `model_id()` — Returns the SHA-256 hex string of the loaded ONNX file
+
+**Output Handling**:
+- If model outputs `sentence_embedding`: used directly (already pooled)
+- If model outputs `last_hidden_state`: applies mean pooling + L2 normalization
+
+**Error Type**: `EmbedderError`
+
+**Status**: `EmbedderStatus::Ready` or `EmbedderStatus::Unavailable(reason)`
+
+### `indexer.rs` — File Indexing (Chunk-aware)
 
 **Key Functions**:
-- `index_directory(db, tokenizer, config)` → Walk vault, index all matching files
-- `index_file(db, tokenizer, file_path, relative_path, config)` → Index single file
-- `cleanup_deleted(db, config)` → Remove DB entries for deleted files
+- `index_directory(db, tokenizer, config, file_limit, progress)` → Walk vault, index all matching files. Optional `file_limit` caps files processed. Optional `progress` callback reports (current, total).
+- `index_file(db, tokenizer, embedder, file_path, relative_path, config)` → Index single file: read → split into chunks → FTS insert → optional embedding insert
+- `cleanup_deleted(db, config)` → Remove DB entries for deleted files (checks file_cache)
 - `extract_frontmatter(content)` → Parse YAML frontmatter, extract title
 - `markdown_to_text(markdown)` → Strip markup to plain text
 - `title_from_path(path)` → Derive title from filename
+- `sha256_hex(content)` → SHA-256 of raw file content
 
 **Flow**:
 ```
-Read file ──► Extract frontmatter ──► Markdown to text ──► Tokenize ──► Upsert to DB
-              (YAML title)              (strip markup)      (Vaporetto)   (hash check)
+Read file → Extract frontmatter → Split into chunks → Tokenize each chunk → Delete old chunks → Insert new chunks → Insert embeddings (if embedder available)
 ```
 
-**Hash**: SHA-256 of raw file content (used for change detection)
+**Progress type**: `IndexProgress = Box<dyn Fn(usize, usize) + Send + 'static>`
 
 ### `search.rs` — Search Engine
 
-**Key Functions**:
-- `search(db, tokenizer, notes_dir, query, limit, search_cfg)` → FTS5 search + snippet extraction
+**Key Function**:
+- `search(db, tokenizer, query, limit, mode, embedder, min_score)` → `Result<Vec<ChunkSearchResult>>`
+
+**Modes** (`SearchMode` enum):
+- `Fts` — Keyword search via FTS5 BM25 (works without model). Lower score = more relevant.
+- `Vec` — Semantic search via embedding + vec0 KNN (requires model). Lower distance = more relevant.
+- `Hybrid` — Reciprocal Rank Fusion (RRF) merge of FTS + Vec results. Higher RRF score = more relevant.
+
+**Parameters**:
+- `query`: Raw search query text (tokenized internally for FTS)
+- `limit`: Max results (1–50 recommended for MCP)
+- `mode`: Search strategy
+- `embedder`: Optional ONNX embedder (required for Vec/Hybrid modes)
+- `min_score`: Optional threshold — FTS/Vec excludes `score > min_score`, Hybrid excludes `score < min_score`
 
 **Snippet Extraction** (`extract_snippet`):
 - Finds first matching token position
@@ -95,21 +161,21 @@ Read file ──► Extract frontmatter ──► Markdown to text ──► Tok
 - Falls back to first `max_chars` chars if no match
 - Truncates at `max_chars` chars (configurable, default 1000, clamped 128–65535)
 
-**SearchConfig** (`models.rs`):
-- `max_snippet_chars: usize` — clamped to 128–65535, default 1000
-- `SearchConfig::new(value)` applies clamping automatically
-
 **Security**: Path traversal protection via `canonicalize` + `starts_with` vault check
 
 ### `models.rs` — Data Structures
 
 | Type | Fields |
 |------|--------|
+| `Chunk` | id, file_path, chunk_index, parent_header, content, tokenized_content |
+| `ChunkSearchResult` | chunk_id, file_path, parent_header, content, score, search_mode |
+| `SearchMode` | `Fts` / `Vec` / `Hybrid` (default) |
+| `EmbedderStatus` | `Ready` / `Unavailable(String)` |
 | `NoteMetadata` | path, hash, mtime, indexed_at, title |
-| `SearchResult` | path, title, snippet, score |
-| `VaultStats` | total_notes, total_size_bytes, last_indexed_at, db_path |
-| `IndexResult` | Inserted / Updated / Skipped / Error(String) |
+| `VaultStats` | total_chunks, total_files, total_size_bytes, last_indexed_at, db_path, vec_indexed_chunks, embedder_status |
+| `SearchConfig` | max_snippet_chars (128–65535, default 1000) |
 | `IndexConfig` | notes_dir, include_extensions, exclude_dirs, auto_exclude_hidden, follow_links, dynamic_threshold |
+| `IndexResult` | `Inserted` / `Updated` / `Skipped` / `Error(String)` |
 
 ### `watcher.rs` — File System Watcher
 
@@ -118,22 +184,31 @@ Read file ──► Extract frontmatter ──► Markdown to text ──► Tok
 **Behavior**:
 - Uses `notify` crate for cross-platform file watching
 - Handles: Create, Modify (data), Remove, Rename
-- Incremental re-indexing on change
+- Incremental re-indexing on change by calling `index_file()`
 - Requires `watcher` feature flag (enabled by default)
+
+### `build_info.rs` — Compile-time Build Information
+
+**Constants**:
+- `HAS_MODEL_EMBEDDED: bool` — Vaporetto model embedded at build time
+- `EMBEDDED_MODEL_HASH: &str` — SHA-256 hex of embedded predictor
+- `FEATURE_WATCHER: bool` / `FEATURE_ASYNC_INDEX: bool` — Feature flags
+- `DEP_*` constants — Dependency configurations (bundled SQLite, vaporetto features, etc.)
 
 ## Build-time Model Embedding
 
 `core/build.rs`:
-- Checks `SHIOTSUCHI_MODEL_PATH` env var at build time
+- Checks `SHIOTSUCHI_EMBED_MODEL` env var at build time
 - Reads `.model.zst` file, decompresses if needed
 - Serializes `Predictor` via `serialize_to_vec()`
-- Generates `embedded_model.rs` containing `EMBEDDED_PREDICTOR_BYTES: Option<&[u8]>`
+- Generates `embedded_model.rs` containing `EMBEDDED_PREDICTOR_BYTES: Option<&[u8]>` and `EMBEDDED_PREDICTOR_HASH`
 
 ## Feature Flags
 
 | Feature | Default | Description |
 |---------|---------|-------------|
 | `watcher` | yes | Enables file system watcher via `notify` crate |
+| `async-index` | yes | Enables parallel indexing via `rayon` |
 
 ## Testing Strategy
 
@@ -141,3 +216,4 @@ Read file ──► Extract frontmatter ──► Markdown to text ──► Tok
 - CI: Set `SHIOTSUCHI_MODEL_PATH` for full tests
 - In-memory DB for unit tests
 - `tempfile` for disk-based DB tests
+- 84 unit tests + 7 integration tests (transaction safety, migration, integrity checks)

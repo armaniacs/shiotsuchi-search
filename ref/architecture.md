@@ -3,7 +3,7 @@
 ## Project Description
 
 High-performance Japanese-aware search engine for Markdown note vaults (Obsidian, etc.).
-Powered by Vaporetto × SQLite FTS5.
+Powered by Vaporetto × SQLite FTS5, with optional vector (semantic) search via ONNX + sqlite-vec.
 
 ## Workspace Structure
 
@@ -13,23 +13,31 @@ shiotsuchi-search/
 ├── core/               # Core library (shiotsuchi-core)
 │   ├── src/
 │   │   ├── lib.rs      # Module exports
-│   │   ├── db.rs       # SQLite + FTS5 database operations
+│   │   ├── db.rs       # SQLite + FTS5 + vec0 database operations
 │   │   ├── tokenizer.rs # Japanese tokenizer (Vaporetto)
-│   │   ├── indexer.rs  # File walking + indexing
-│   │   ├── search.rs   # Search + snippet extraction
-│   │   ├── models.rs   # Data structures
-│   │   └── watcher.rs  # File change watcher
+│   │   ├── chunker.rs  # Markdown → chunks splitter (RAG)
+│   │   ├── embedder.rs # ONNX embedding inference (RAG)
+│   │   ├── indexer.rs  # File walking + indexing (chunk-aware)
+│   │   ├── search.rs   # Search (FTS / Vec / Hybrid) + snippet extraction
+│   │   ├── models.rs   # Data structures (Chunk, SearchMode, VaultStats, etc.)
+│   │   ├── watcher.rs  # File change watcher
+│   │   ├── build_info.rs # Compile-time constants (embedded hash, features)
+│   │   ├── paths.rs    # XDG path resolution
+│   │   └── constants.rs # Build-time constants (embedded model hash)
+│   ├── benches/        # Criterion benchmarks
 │   └── build.rs        # Model embedding at compile time
 ├── cli/                # CLI binary (shiotsuchi)
 │   └── src/
-│       ├── main.rs     # Entry point
+│       ├── main.rs     # Entry point (clap)
 │       ├── config.rs   # Config file loading
+│       ├── build_info.rs # Dynamic version/build info
+│       ├── util.rs     # Shared CLI utilities
 │       └── commands/   # Subcommand implementations
 ├── mcp/                # MCP server binary (shiotsuchi-mcp)
 │   └── src/
-│       ├── main.rs     # JSON-RPC stdio loop
+│       ├── main.rs     # JSON-RPC stdio loop, tokio runtime
 │       ├── protocol.rs # MCP request/response types
-│       ├── tools.rs    # Tool definitions
+│       ├── tools.rs    # Tool definitions (JSON Schema)
 │       └── handler.rs  # Tool call handlers
 └── integration/        # TypeScript integration tests (Vitest)
 ```
@@ -37,11 +45,13 @@ shiotsuchi-search/
 ## Key Design Decisions
 
 1. **Rust tokenizer instead of FTS5 extension**: Vaporetto runs in-process rather than as a SQLite loadable extension. This avoids platform-dependent `.so`/`.dylib` distribution issues.
-2. **Tokenized body stored in FTS5**: `tokenizer.split()` produces space-separated tokens stored in the `body` column. FTS5 `unicode61` tokenizer then treats each as a word.
-3. **SHA-256 hash tracking**: Only re-indexes files whose content changed.
-4. **Two-table design**: `notes_fts` (FTS5 virtual table for search) + `notes_meta` (ordinary table for metadata/hash tracking).
-5. **WAL mode**: Enabled on database open for concurrent read/write between CLI and MCP server.
-6. **Transaction safety**: `upsert_note` and `delete_note` wrap FTS + meta operations in transactions.
+2. **Tokenized body stored in FTS5**: `tokenizer.split()` produces space-separated tokens stored in the `tokenized_content` column. FTS5 `unicode61` tokenizer then treats each as a word.
+3. **SHA-256 hash tracking**: Only re-indexes files whose content changed. Uses `file_cache` table.
+4. **Chunk-based schema**: Files are split into chunks (by headers/paragraphs) for RAG retrieval. Each chunk has its own FTS5 entry and optional vector embedding.
+5. **Dual retrieval**: FTS5 BM25 for keyword search + sqlite-vec `vec0` for semantic search, combinable via Hybrid RRF.
+6. **WAL mode**: Enabled on database open for concurrent read/write between CLI and MCP server.
+7. **tokio runtime in MCP**: Enables async MCP progress notifications during background `rebuild_index`.
+8. **Model embedding at compile time**: Vaporetto tokenizer model can be embedded via `build.rs` for zero-runtime-dependency deployment.
 
 ## Data Flow
 
@@ -49,24 +59,49 @@ shiotsuchi-search/
 Markdown files
     │
     ▼
-index_file() ──► extract_frontmatter() ──► markdown_to_text()
-                                              │
-                                              ▼
-                                   JapaneseTokenizer.split()
-                                              │
-                                              ▼
-                              db.upsert_note() ──► notes_fts + notes_meta
-                                              │
-                                              ▼
-                                   db.search() ──► extract_snippet()
+index_directory() / index_file()
+    │
+    ├── extract_frontmatter() ──► (title, body)
+    │
+    ├── split_into_chunks()
+    │   ├── Level 1: split on headers (#/##/###)
+    │   └── Level 2: split long sections on blank lines
+    │
+    ├── JapaneseTokenizer.split() per chunk
+    │       │
+    │       ▼
+    ├── db.insert_chunks()
+    │   ├── chunks table (id, file_path, chunk_index, content, tokenized_content)
+    │   ├── fts_chunks (FTS5 virtual table over tokenized_content)
+    │   └── file_cache (hash/mtime tracking)
+    │
+    └── Embedder (optional)
+        └── db.insert_embeddings()
+            └── vec_chunks (vec0 virtual table for KNN search)
+
+Search flow:
+    query
+     │
+     ▼
+    search(db, tokenizer, query, limit, mode, embedder?, min_score?)
+     │
+     ├── Mode::Fts → search_fts() → fts_chunks MATCH (BM25 ranking)
+     ├── Mode::Vec → search_vec() → embed → vec_chunks KNN (cosine distance)
+     └── Mode::Hybrid → search_hybrid() → RRF merge of FTS + Vec results
+     │
+     ▼
+    extract_snippet() ──► ChunkSearchResult[]
+     │
+     ▼
+    Structured Markdown output with context delimiters
 ```
 
 ## Entry Points
 
 | Binary | File | Purpose |
 |--------|------|---------|
-| `shiotsuchi` | `cli/src/main.rs` | CLI tool (chart, dive, tide, scan, log) |
-| `shiotsuchi-mcp` | `mcp/src/main.rs` | MCP server for Claude Desktop |
+| `shiotsuchi` | `cli/src/main.rs` | CLI tool (chart, dive, tide, scan, log, init, setup, dredge) |
+| `shiotsuchi-mcp` | `mcp/src/main.rs` | MCP server for Claude Desktop (tokio async) |
 
 ## Crate Dependencies
 
@@ -85,5 +120,13 @@ mcp ──► core
 | Config file | `vault.notes_dir` | `~/.config/shiotsuchi/config.toml` |
 | Config file | `vault.db_path` | `~/.cache/shiotsuchi/db.sqlite3` |
 | Env var | `SHIOTSUCHI_MODEL_PATH` | `models/bccwj-suw+unidic_pos+kana.model.zst` |
+| Env var | `SHIOTSUCHI_EMBED_MODEL` | `/path/to/model.onnx` (build-time embedding) |
 | Env var | `SHIOTSUCHI_NOTES_DIR` | `/Users/name/Notes` |
 | Env var | `SHIOTSUCHI_DB_PATH` | `~/.cache/shiotsuchi/db.sqlite3` |
+
+## Feature Flags (core)
+
+| Feature | Default | Description |
+|---------|---------|-------------|
+| `watcher` | yes | File system watcher via `notify` crate |
+| `async-index` | yes | Parallel indexing via `rayon` |
