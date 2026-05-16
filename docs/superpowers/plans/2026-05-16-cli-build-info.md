@@ -140,12 +140,12 @@ Add above the test module in `cli/src/build_info.rs`:
 //! Build-time information display helpers for the CLI.
 
 pub fn help_footer() -> String {
-    "Build features: watcher=enabled, async-index=disabled, model-embedded=no".to_string()
+     "Build features: watcher=enabled, async-index=enabled, model-embedded=no".to_string()
 }
 
 pub fn long_version() -> String {
     format!(
-        "{}\nGuiding your path through the data tide.\nBuild features: watcher=enabled, async-index=disabled, model-embedded=no",
+         "{}\nGuiding your path through the data tide.\nBuild features: watcher=enabled, async-index=enabled, model-embedded=no",
         env!("CARGO_PKG_VERSION")
     )
 }

@@ -100,7 +100,7 @@ pub fn run_support(args: &SupportArgs, cfg: &ShiotsuchiConfig) -> Result<(), Box
 ### `--help` フッター（拡張）
 
 ```text
-Build features: watcher=enabled, async-index=disabled, model-embedded=yes
+Build features: watcher=enabled, async-index=enabled, model-embedded=yes
 ```
 
 clap の `after_help` を使ってデフォルト help に追記します。
@@ -110,7 +110,7 @@ clap の `after_help` を使ってデフォルト help に追記します。
 ```text
 shiotsuchi 0.3.2
 Guiding your path through the data tide.
-Build features: watcher=enabled, async-index=disabled, model-embedded=yes
+Build features: watcher=enabled, async-index=enabled, model-embedded=yes
 ```
 
 ### `support` サブコマンド（網羅的）
@@ -120,7 +120,7 @@ Build features: watcher=enabled, async-index=disabled, model-embedded=yes
 ```text
 === Build Features ===
 watcher        : enabled (default)
-async-index    : disabled
+async-index    : enabled
 model-embedded : yes (hash: abc123...)
 
 === Dependency Features ===
