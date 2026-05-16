@@ -1,0 +1,150 @@
+   Compiling memchr v2.8.0
+   Compiling typenum v1.20.0
+   Compiling const-oid v0.10.2
+   Compiling libsqlite3-sys v0.37.0
+   Compiling cpufeatures v0.3.0
+   Compiling foldhash v0.2.0
+   Compiling hex v0.4.3
+   Compiling hashbrown v0.16.1
+   Compiling onig v6.5.3
+   Compiling aho-corasick v1.1.4
+   Compiling serde_json v1.0.149
+   Compiling hybrid-array v0.4.12
+   Compiling nom v7.1.3
+   Compiling hashlink v0.11.0
+   Compiling crypto-common v0.2.1
+   Compiling block-buffer v0.12.0
+   Compiling bstr v1.12.1
+   Compiling tinytemplate v1.2.1
+   Compiling regex-automata v0.4.14
+   Compiling digest v0.11.3
+   Compiling sha2 v0.11.0
+   Compiling spm_precompiled v0.1.4
+   Compiling notify v6.1.1
+   Compiling ort v2.0.0-rc.12
+   Compiling shiotsuchi-core v0.3.5 (/Users/yaar/Playground/shiotsuchi-search/core)
+   Compiling regex v1.12.3
+   Compiling globset v0.4.18
+   Compiling tokenizers v0.23.1
+   Compiling criterion v0.5.1
+   Compiling rusqlite v0.39.0
+    Finished `bench` profile [optimized] target(s) in 30.88s
+     Running unittests src/lib.rs (target/release/deps/shiotsuchi_core-2e9768fc796b95fc)
+
+running 84 tests
+test build_info::tests::dependency_features_use_core_constants ... ignored
+test build_info::tests::embedded_predictor_hash_accessible ... ignored
+test build_info::tests::has_model_embedded_matches_hash_emptiness ... ignored
+test chunker::tests::test_chunks_have_correct_indices ... ignored
+test chunker::tests::test_code_block_not_split ... ignored
+test chunker::tests::test_empty_content_returns_single_chunk ... ignored
+test chunker::tests::test_h4_ignored_as_header ... ignored
+test chunker::tests::test_header_popping ... ignored
+test chunker::tests::test_heading_without_space_not_treated_as_header ... ignored
+test chunker::tests::test_long_section_splits_on_paragraphs ... ignored
+test chunker::tests::test_no_headers_single_chunk ... ignored
+test chunker::tests::test_parent_header_hierarchy_is_correct ... ignored
+test chunker::tests::test_parent_header_populating_content_before_new_header ... ignored
+test chunker::tests::test_short_paragraphs_not_split ... ignored
+test chunker::tests::test_split_on_blank_lines_basic ... ignored
+test chunker::tests::test_split_on_blank_lines_no_split ... ignored
+test chunker::tests::test_split_on_h1 ... ignored
+test chunker::tests::test_split_on_headers_h1_h2_h3 ... ignored
+test chunker::tests::test_whitespace_only_returns_single_chunk ... ignored
+test constants::tests::test_constant_values ... ignored
+test db::tests::test_db_file_permissions ... ignored
+test db::tests::test_delete_chunks_removes_fts_entries ... ignored
+test db::tests::test_file_cache_upsert_and_lookup ... ignored
+test db::tests::test_fts_search_finds_inserted_chunk ... ignored
+test db::tests::test_get_surrounding_chunks ... ignored
+test db::tests::test_init_schema_fresh ... ignored
+test db::tests::test_insert_and_delete_chunks ... ignored
+test db::tests::test_wal_mode ... ignored
+test embedder::tests::test_embedder_not_ready ... ignored
+test embedder::tests::test_load_is_alias_for_new ... ignored
+test embedder::tests::test_mean_pool_empty_sequence_returns_zeros ... ignored
+test embedder::tests::test_mean_pool_l2_normalize_basic ... ignored
+test embedder::tests::test_mean_pool_partial_padding ... ignored
+test embedder::tests::test_resolve_model_path_explicit_existing ... ignored
+test embedder::tests::test_resolve_model_path_explicit_nonexistent ... ignored
+test embedder::tests::test_resolve_model_path_none_when_no_file ... ignored
+test embedder::tests::test_verify_model_hash_io_error_on_missing ... ignored
+test embedder::tests::test_verify_model_hash_skipped_when_constant_empty ... ignored
+test indexer::tests::test_build_exclude_globset_escapes_special_chars ... ignored
+test indexer::tests::test_build_exclude_globset_invalid_pattern ... ignored
+test indexer::tests::test_build_exclude_globset_trims_slashes ... ignored
+test indexer::tests::test_chunking_does_not_deadlock_empty_vault ... ignored
+test indexer::tests::test_chunking_exact_boundary_256 ... ignored
+test indexer::tests::test_chunking_preserves_all_results ... ignored
+test indexer::tests::test_chunking_single_chunk_for_small_vault ... ignored
+test indexer::tests::test_chunking_splits_at_256_entries ... ignored
+test indexer::tests::test_chunking_splits_at_byte_threshold ... ignored
+test indexer::tests::test_cleanup_deleted ... ignored
+test indexer::tests::test_exclude_dirs_globset_basename_matching ... ignored
+test indexer::tests::test_globset_matches_subdirectory_files ... ignored
+test indexer::tests::test_hidden_dir_auto_excluded ... ignored
+test indexer::tests::test_hidden_dir_included_when_disabled ... ignored
+test indexer::tests::test_index_directory ... ignored
+test indexer::tests::test_index_directory_parallel_multiple_files ... ignored
+test indexer::tests::test_index_directory_respects_exclude_dirs ... ignored
+test indexer::tests::test_index_file_skips_on_same_hash ... ignored
+test indexer::tests::test_index_file_updates_on_changed_content ... ignored
+test indexer::tests::test_no_frontmatter ... ignored
+test indexer::tests::test_strip_prefix_outside_vault_is_rejected ... ignored
+test models::tests::chunk_serde_roundtrip ... ignored
+test models::tests::default_index_config ... ignored
+test models::tests::note_metadata_serde_roundtrip ... ignored
+test models::tests::search_mode_default_is_hybrid ... ignored
+test paths::tests::test_default_db_path_respects_xdg ... ignored
+test paths::tests::test_default_db_path_structure ... ignored
+test search::tests::test_extract_snippet_empty_query ... ignored
+test search::tests::test_extract_snippet_fallback_on_no_match ... ignored
+test search::tests::test_extract_snippet_found ... ignored
+test search::tests::test_extract_snippet_respects_max_chars ... ignored
+test search::tests::test_search_empty_query_returns_empty ... ignored
+test search::tests::test_search_fts_fallback_when_no_embedder ... ignored
+test search::tests::test_search_fts_finds_chunk ... ignored
+test tokenizer::tests::test_decompress_if_needed_passthrough_plain_bytes ... ignored
+test tokenizer::tests::test_decompress_if_needed_rejects_garbage_zstd ... ignored
+test tokenizer::tests::test_get_tokenizer_cached ... ignored
+test tokenizer::tests::test_predictor_init_path ... ignored
+test tokenizer::tests::test_simple_and_query ... ignored
+test tokenizer::tests::test_simple_tokenize ... ignored
+test tokenizer::tests::test_simple_tokenize_multiple_spaces ... ignored
+test watcher::tests::test_handle_event_modify_outside_vault_safe_noop ... ignored
+test watcher::tests::test_is_path_within_vault_accepts_symlink_inside_vault ... ignored
+test watcher::tests::test_is_path_within_vault_nonexistent_path_returns_false ... ignored
+test watcher::tests::test_is_path_within_vault_rejects_symlink_escape ... ignored
+test watcher::tests::test_watcher_setup ... ignored
+
+test result: ok. 0 passed; 0 failed; 84 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running benches/search_bench.rs (target/release/deps/search_bench-77037598f414f421)
+Gnuplot not found, using plotters backend
+Benchmarking index_100_files
+Benchmarking index_100_files: Warming up for 3.0000 s
+
+Warning: Unable to complete 100 samples in 5.0s. You may wish to increase target time to 252.6s, or reduce sample count to 10.
+Benchmarking index_100_files: Collecting 100 samples in estimated 252.64 s (100 iterations)
+Benchmarking index_100_files: Analyzing
+index_100_files         time:   [2.5510 s 2.5599 s 2.5701 s]
+                        change: [+0.7151% +1.4498% +2.1068%] (p = 0.00 < 0.05)
+                        Change within noise threshold.
+Found 11 outliers among 100 measurements (11.00%)
+  5 (5.00%) low severe
+  3 (3.00%) low mild
+  3 (3.00%) high severe
+
+Benchmarking search_1000_notes
+Benchmarking search_1000_notes: Warming up for 3.0000 s
+
+Warning: Unable to complete 100 samples in 5.0s. You may wish to increase target time to 6.0s, enable flat sampling, or reduce sample count to 60.
+Benchmarking search_1000_notes: Collecting 100 samples in estimated 6.0320 s (5050 iterations)
+Benchmarking search_1000_notes: Analyzing
+search_1000_notes       time:   [1.1687 ms 1.1750 ms 1.1831 ms]
+                        change: [+4.6455% +5.6654% +6.8143%] (p = 0.00 < 0.05)
+                        Performance has regressed.
+Found 9 outliers among 100 measurements (9.00%)
+  7 (7.00%) high mild
+  2 (2.00%) high severe
+
