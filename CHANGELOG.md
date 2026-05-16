@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.4] - 2026-05-16
+
+### Added
+- None
+
+### Changed
+- **Default features:** Enabled `async-index` feature by default in `shiotsuchi-core` for improved indexing performance
+- **Build info display:** Fixed CLI build information display to properly show enabled features in `--help` and `--version` output
+- **Documentation:** Updated documentation references that mentioned async-index as disabled by default
+
+### Fixed
+- None
+
 ## [0.3.3] - 2026-05-16
 
 ### Added
