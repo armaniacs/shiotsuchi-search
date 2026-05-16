@@ -10,7 +10,7 @@ use std::time::Instant;
 #[command(
     name = "shiotsuchi",
     version,
-    long_version = concat!(env!("CARGO_PKG_VERSION"), "\nGuiding your path through the data tide."),
+    long_version = crate::build_info::long_version(),
     about = "Guiding your path through the data tide."
 )]
 struct Cli {
@@ -43,10 +43,9 @@ enum Commands {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let long_ver: &'static str = Box::leak(build_info::long_version().into_boxed_str());
     let cmd = <Cli as clap::CommandFactory>::command()
         .after_help(build_info::help_footer())
-        .long_version(long_ver);
+        .long_version(build_info::long_version());
     let cli = <Cli as clap::FromArgMatches>::from_arg_matches(&cmd.get_matches())?;
 
     let env = env_logger::Env::default()

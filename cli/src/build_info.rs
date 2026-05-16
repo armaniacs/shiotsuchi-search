@@ -26,23 +26,25 @@ fn model_embedded_status() -> &'static str {
     }
 }
 
-pub fn help_footer() -> String {
-    format!(
+pub fn help_footer() -> &'static str {
+    let s = format!(
         "Build features: watcher={}, async-index={}, model-embedded={}",
         watcher_status(),
         async_index_status(),
         model_embedded_status()
-    )
+    );
+    Box::leak(s.into_boxed_str())
 }
 
-pub fn long_version() -> String {
-    format!(
+pub fn long_version() -> &'static str {
+    let s = format!(
         "{}\nGuiding your path through the data tide.\nBuild features: watcher={}, async-index={}, model-embedded={}",
         env!("CARGO_PKG_VERSION"),
         watcher_status(),
         async_index_status(),
         model_embedded_status()
-    )
+    );
+    Box::leak(s.into_boxed_str())
 }
 
 #[cfg(test)]
