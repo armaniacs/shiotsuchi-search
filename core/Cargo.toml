@@ -6,7 +6,7 @@ authors.workspace = true
 license.workspace = true
 
 [dependencies]
-rusqlite = { version = "0.31", features = ["bundled"] }
+rusqlite = { version = "0.39", features = ["bundled"] }
 # NOTE: "load_extension" は不要。Rust 側でトークナイズするため。
 
 # sqlite-vaporetto と同一の feature flags を指定する。

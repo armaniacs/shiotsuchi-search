@@ -24,11 +24,14 @@ unsafe fn register_vec_extension() {
         // sqlite-vec crate documentation.
         // SAFETY: The transmute through `*const ()` is the standard pattern from
         // the sqlite-vec crate documentation.
-        let func: unsafe extern "C" fn(
+        // In rusqlite 0.39+, sqlite3_auto_extension expects char** (writable) vs older versions
+        // which used char*const*. We transmute to match the new signature.
+        type AutoExtFn = unsafe extern "C" fn(
             *mut rusqlite::ffi::sqlite3,
-            *mut *const std::os::raw::c_char,
+            *mut *mut std::os::raw::c_char,
             *const rusqlite::ffi::sqlite3_api_routines,
-        ) -> std::os::raw::c_int =
+        ) -> std::os::raw::c_int;
+        let func: AutoExtFn =
             std::mem::transmute::<*const (), _>(sqlite_vec::sqlite3_vec_init as *const ());
         rusqlite::ffi::sqlite3_auto_extension(Some(func));
     });
@@ -354,10 +357,11 @@ impl NoteDatabase {
     /// Vault statistics.
     pub fn stats(&self) -> Result<VaultStats, DbError> {
         let conn = self.write_conn.borrow();
-        let total_chunks: usize = conn.query_row("SELECT COUNT(*) FROM chunks", [], |r| r.get(0))?;
-        let total_files: usize = conn.query_row("SELECT COUNT(*) FROM file_cache", [], |r| r.get(0))?;
-        let vec_indexed: usize = conn.query_row("SELECT COUNT(*) FROM vec_chunks", [], |r| r.get(0))?;
-        let total_size: usize = conn.query_row(
+        // rusqlite 0.38+ disabled FromSql for usize by default; retrieve as i64 and cast.
+        let total_chunks: i64 = conn.query_row("SELECT COUNT(*) FROM chunks", [], |r| r.get(0))?;
+        let total_files: i64 = conn.query_row("SELECT COUNT(*) FROM file_cache", [], |r| r.get(0))?;
+        let vec_indexed: i64 = conn.query_row("SELECT COUNT(*) FROM vec_chunks", [], |r| r.get(0))?;
+        let total_size: i64 = conn.query_row(
             "SELECT page_count * page_size FROM pragma_page_count(), pragma_page_size()",
             [], |r| r.get(0),
         ).unwrap_or(0);
@@ -367,12 +371,12 @@ impl NoteDatabase {
         let db_path = conn.path().map(PathBuf::from).unwrap_or_default();
 
         Ok(VaultStats {
-            total_chunks,
-            total_files,
-            total_size_bytes: total_size,
+            total_chunks: total_chunks as usize,
+            total_files: total_files as usize,
+            total_size_bytes: total_size as usize,
             last_indexed_at: last_indexed,
             db_path,
-            vec_indexed_chunks: vec_indexed,
+            vec_indexed_chunks: vec_indexed as usize,
             embedder_status: String::new(), // filled by caller
         })
     }
