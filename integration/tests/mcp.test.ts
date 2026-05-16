@@ -118,149 +118,115 @@ afterAll(async () => {
 // ─── テスト ───────────────────────────────────────────────────────────────────
 
 describe("tools/list", () => {
-  it("3 つのツールを返す", async () => {
+  it("4 つのツールを返す", async () => {
     const { tools } = await client.listTools();
     const names = tools.map((t) => t.name);
-    expect(names).toContain("search_vault");
-    expect(names).toContain("read_full_note");
-    expect(names).toContain("vault_status");
-    expect(tools).toHaveLength(3);
+    expect(names).toContain("search_local_notes");
+    expect(names).toContain("get_surrounding_context");
+    expect(names).toContain("index_status");
+    expect(names).toContain("rebuild_index");
+    expect(tools).toHaveLength(4);
   });
 
-  it("search_vault は query を required として定義する", async () => {
+  it("search_local_notes は query を required として定義する", async () => {
     const { tools } = await client.listTools();
-    const tool = tools.find((t) => t.name === "search_vault")!;
+    const tool = tools.find((t) => t.name === "search_local_notes")!;
     const required = (tool.inputSchema as { required?: string[] }).required ?? [];
     expect(required).toContain("query");
   });
 
-  it("read_full_note は path を required として定義する", async () => {
+  it("get_surrounding_context は chunk_id を required として定義する", async () => {
     const { tools } = await client.listTools();
-    const tool = tools.find((t) => t.name === "read_full_note")!;
+    const tool = tools.find((t) => t.name === "get_surrounding_context")!;
     const required = (tool.inputSchema as { required?: string[] }).required ?? [];
-    expect(required).toContain("path");
+    expect(required).toContain("chunk_id");
   });
 });
 
-describe("search_vault", () => {
+describe("search_local_notes", () => {
   it("日本語クエリでヒットするノートを返す", async () => {
     const result = await client.callTool({
-      name: "search_vault",
-      arguments: { query: "プロジェクト" },
+      name: "search_local_notes",
+      arguments: { query: "プロジェクト", mode: "fts" },
     });
     const text = firstText(result);
-    const hits = JSON.parse(text) as { path: string }[];
-    expect(hits.length).toBeGreaterThan(0);
-    expect(hits.some((h) => h.path.includes("plan"))).toBe(true);
+    expect(result.isError).not.toBe(true);
+    expect(text).toContain("RETRIEVED CONTEXT");
+    expect(text).toContain("plan");
   });
 
   it("英語クエリでもヒットする", async () => {
     const result = await client.callTool({
-      name: "search_vault",
-      arguments: { query: "Rust SQLite" },
+      name: "search_local_notes",
+      arguments: { query: "Rust SQLite", mode: "fts" },
     });
-    const hits = JSON.parse(firstText(result)) as { path: string }[];
-    expect(hits.length).toBeGreaterThan(0);
+    const text = firstText(result);
+    expect(result.isError).not.toBe(true);
+    expect(text).toContain("RETRIEVED CONTEXT");
   });
 
-  it("存在しないキーワードで空配列を返す（クラッシュしない）", async () => {
+  it("存在しないキーワードで空結果を返す（クラッシュしない）", async () => {
     const result = await client.callTool({
-      name: "search_vault",
-      arguments: { query: "zzznomatchxxx99999" },
+      name: "search_local_notes",
+      arguments: { query: "zzznomatchxxx99999", mode: "fts" },
     });
-    const hits = JSON.parse(firstText(result));
-    expect(Array.isArray(hits)).toBe(true);
-    expect(hits).toHaveLength(0);
+    const text = firstText(result);
+    expect(text).toContain("No results found");
     expect(result.isError).not.toBe(true);
   });
 
-  it("空クエリで空配列を返す（クラッシュしない）", async () => {
+  it("空クエリで空結果を返す（クラッシュしない）", async () => {
     const result = await client.callTool({
-      name: "search_vault",
-      arguments: { query: "" },
+      name: "search_local_notes",
+      arguments: { query: "", mode: "fts" },
     });
-    const hits = JSON.parse(firstText(result));
-    expect(Array.isArray(hits)).toBe(true);
-    expect(hits).toHaveLength(0);
     expect(result.isError).not.toBe(true);
   });
 
-  it("結果オブジェクトに path / title / snippet / score が含まれる", async () => {
+  it("結果にファイルパスとスコアが含まれる", async () => {
     const result = await client.callTool({
-      name: "search_vault",
-      arguments: { query: "アーキテクチャ" },
+      name: "search_local_notes",
+      arguments: { query: "アーキテクチャ", mode: "fts" },
     });
-    const hits = JSON.parse(firstText(result)) as Record<string, unknown>[];
-    if (hits.length > 0) {
-      expect(hits[0]).toHaveProperty("path");
-      expect(hits[0]).toHaveProperty("title");
-      expect(hits[0]).toHaveProperty("snippet");
-      expect(hits[0]).toHaveProperty("score");
+    const text = firstText(result);
+    if (!text.includes("No results found")) {
+      expect(text).toMatch(/Source \d+:/);
+      expect(text).toMatch(/Score:/);
     }
   });
 });
 
-describe("read_full_note", () => {
-  it("存在するノートの全文を返す", async () => {
-    const result = await client.callTool({
-      name: "read_full_note",
-      arguments: { path: "plan.md" },
-    });
-    const text = firstText(result);
-    expect(result.isError).not.toBe(true);
-    expect(text).toContain("プロジェクト計画");
-    expect(text).toContain("Rust");
-  });
-
-  it("パストラバーサル（../）を MCP エラーで拒否する", async () => {
-    // Rust が Err(...) を返すと SDK は McpError(-32000) として throw する
+describe("get_surrounding_context", () => {
+  it("存在しない chunk_id でエラーを返す（クラッシュしない）", async () => {
     await expect(
       client.callTool({
-        name: "read_full_note",
-        arguments: { path: "../../../etc/passwd" },
-      })
-    ).rejects.toThrow(/invalid|error/i);
-  });
-
-  it("絶対パスを MCP エラーで拒否する", async () => {
-    await expect(
-      client.callTool({
-        name: "read_full_note",
-        arguments: { path: "/etc/passwd" },
-      })
-    ).rejects.toThrow(/invalid|error/i);
-  });
-
-  it("存在しないファイルで MCP エラーを返す（クラッシュしない）", async () => {
-    await expect(
-      client.callTool({
-        name: "read_full_note",
-        arguments: { path: "nonexistent_file_xyz.md" },
+        name: "get_surrounding_context",
+        arguments: { chunk_id: 999999, window: 1 },
       })
     ).rejects.toThrow();
   });
 });
 
-describe("vault_status", () => {
-  it("インデックス済みノート数を含む統計を返す", async () => {
+describe("index_status", () => {
+  it("チャンク数を含む統計を返す", async () => {
     const result = await client.callTool({
-      name: "vault_status",
+      name: "index_status",
       arguments: {},
     });
     const text = firstText(result);
     expect(result.isError).not.toBe(true);
-    expect(text).toMatch(/total notes/i);
-    expect(text).not.toMatch(/total notes:\s*0/i);
+    expect(text).toMatch(/Total chunks/i);
+    expect(text).not.toMatch(/Total chunks:\s*0/i);
   });
 
-  it("DB サイズと最終インデックス日時が含まれる", async () => {
+  it("DB サイズと Indexed files が含まれる", async () => {
     const result = await client.callTool({
-      name: "vault_status",
+      name: "index_status",
       arguments: {},
     });
     const text = firstText(result);
-    expect(text).toMatch(/db size/i);
-    expect(text).toMatch(/last indexed/i);
+    expect(text).toMatch(/DB size/i);
+    expect(text).toMatch(/Indexed files/i);
   });
 });
 

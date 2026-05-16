@@ -73,7 +73,7 @@ mod tests {
 
     #[test]
     fn test_request_deserialize() {
-        let json = r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"search_vault","arguments":{"query":"test"}}}"#;
+        let json = r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"search_local_notes","arguments":{"query":"test"}}}"#;
         let req: McpRequest = serde_json::from_str(json).unwrap();
         assert_eq!(req.method, "tools/call");
     }

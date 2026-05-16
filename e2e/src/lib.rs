@@ -532,9 +532,9 @@ mod tests {
             .collect()
     }
 
-    /// §7: search_vault returns results for a matching query.
+    /// §7: search_local_notes returns results for a matching query.
     #[test]
-    fn e2e_mcp_search_vault_returns_results() {
+    fn e2e_mcp_search_local_notes_returns_results() {
         let temp = TempDir::new().unwrap();
         let db = temp.path().join("db.sqlite3");
         setup_vault(&temp);
@@ -550,8 +550,8 @@ mod tests {
                 2,
                 "tools/call",
                 serde_json::json!({
-                    "name": "search_vault",
-                    "arguments": {"query": "project"}
+                    "name": "search_local_notes",
+                    "arguments": {"query": "project", "mode": "fts"}
                 }),
             ),
         ];
@@ -570,9 +570,9 @@ mod tests {
         );
     }
 
-    /// §7: read_full_note returns file content.
+    /// §7: search_local_notes returns chunks with content.
     #[test]
-    fn e2e_mcp_read_full_note_returns_content() {
+    fn e2e_mcp_search_local_notes_returns_content() {
         let temp = TempDir::new().unwrap();
         let db = temp.path().join("db.sqlite3");
         setup_vault(&temp);
@@ -588,8 +588,8 @@ mod tests {
                 2,
                 "tools/call",
                 serde_json::json!({
-                    "name": "read_full_note",
-                    "arguments": {"path": "meeting.md"}
+                    "name": "search_local_notes",
+                    "arguments": {"query": "project plan", "mode": "fts"}
                 }),
             ),
         ];
@@ -608,9 +608,9 @@ mod tests {
         );
     }
 
-    /// §7: vault_status returns note count.
+    /// §7: index_status returns chunk count.
     #[test]
-    fn e2e_mcp_vault_status_returns_count() {
+    fn e2e_mcp_index_status_returns_count() {
         let temp = TempDir::new().unwrap();
         let db = temp.path().join("db.sqlite3");
         setup_vault(&temp);
@@ -626,7 +626,7 @@ mod tests {
                 2,
                 "tools/call",
                 serde_json::json!({
-                    "name": "vault_status",
+                    "name": "index_status",
                     "arguments": {}
                 }),
             ),
@@ -639,6 +639,10 @@ mod tests {
         assert!(tool_resp.is_some(), "no tool response found");
         let resp = tool_resp.unwrap();
         let text = resp["result"]["content"][0]["text"].as_str().unwrap_or("");
-        assert!(text.contains('2'), "expected note count 2: {}", text);
+        assert!(
+            text.contains("Total chunks"),
+            "expected Total chunks in status: {}",
+            text
+        );
     }
 }

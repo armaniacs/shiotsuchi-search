@@ -129,7 +129,8 @@ pub fn dispatch(req: McpRequest, notes_dir: &Path, db_path: &Path) -> McpRespons
     }
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
     env_logger::init();
 
     let cli = Cli::parse();
@@ -325,7 +326,7 @@ notes_dir = "/tmp/partial-notes"
             std::path::Path::new("/tmp/db"),
         );
         let json = serde_json::to_string(&resp).unwrap();
-        assert!(json.contains("search_vault"));
+        assert!(json.contains("search_local_notes"));
     }
 
     #[test]
