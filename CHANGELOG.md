@@ -5,15 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.3.4] - 2026-05-16
+## [0.3.5] - 2026-05-16
 
 ### Added
-- None
+- **Background rebuild with progress notifications:** `rebuild_index` MCP tool now spawns a background tokio task that calls `index_directory()` directly, sending MCP `notifications/progress` on stdout. Progress is reported per-file with current/total counts.
+- **`min_score` filter in search:** `search()` now accepts an optional `min_score` threshold. FTS/Vec mode excludes results with score above the threshold, Hybrid mode excludes results with score below it. Exposed via `search_local_notes` MCP tool.
 
 ### Changed
-- **Default features:** Enabled `async-index` feature by default in `shiotsuchi-core` for improved indexing performance
-- **Build info display:** Fixed CLI build information display to properly show enabled features in `--help` and `--version` output
-- **Documentation:** Updated documentation references that mentioned async-index as disabled by default
+- **MCP tool surface overhaul:** Replaced old `search_vault` / `read_full_note` / `vault_status` tools with new RAG-aware tools: `search_local_notes` (with `mode`/`limit`/`min_score` params), `get_surrounding_context`, `index_status`, and `rebuild_index`.
+- **Structured Markdown output:** Search results now include `### RETRIEVED CONTEXT ###` / `### END RETRIEVED CONTEXT ###` delimiters, source numbering, parent heading hierarchy, chunk IDs, and relevance scores.
+- **`index_directory()` signature:** Added optional `IndexProgress` callback parameter for per-file progress reporting.
+- **MCP server runtime:** Added tokio multi-thread runtime via `#[tokio::main]` for future async extensibility. The stdio loop remains synchronous.
 
 ### Fixed
 - None

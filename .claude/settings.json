@@ -12,7 +12,12 @@
       "Read(//Users/yaar/.config/claude/skills/**)",
       "Read(//private/tmp/checking-team/**)",
       "WebFetch(domain:api.github.com)",
-      "Bash(cargo run *)"
+      "Bash(cargo run *)",
+      "Bash(cargo update *)",
+      "Bash(cargo search *)",
+      "Skill(writing-plans)",
+      "Skill(writing-plans:*)",
+      "Bash(cargo tree *)"
     ],
     "additionalDirectories": [
       "/Users/yaar/.agents/skills/checking-team",
