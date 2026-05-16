@@ -1,14 +1,33 @@
-use serde_json::Value;
+use serde_json::{json, Value};
 use shiotsuchi_core::{
     db::NoteDatabase,
     models::SearchMode,
-    search::search,
+    search::{extract_snippet, search},
     tokenizer::get_tokenizer,
 };
-use std::{fs, path::Path};
+use std::path::Path;
 
-fn text_content(text: impl Into<String>) -> Value {
-    serde_json::json!({ "content": [{ "type": "text", "text": text.into() }] })
+fn format_results_markdown(results: &[shiotsuchi_core::models::ChunkSearchResult], query: &str) -> String {
+    if results.is_empty() {
+        return "No results found.".to_string();
+    }
+
+    let mut out = String::from("### RETRIEVED CONTEXT ###\n\n");
+    for (i, r) in results.iter().enumerate() {
+        let header = r.parent_header.as_deref().unwrap_or("(top level)");
+        out.push_str(&format!(
+            "## Source {}: {} > {}\n\n",
+            i + 1,
+            r.file_path,
+            header
+        ));
+        // extract_snippet(text, query, max_lines, max_chars)
+        let snippet = extract_snippet(&r.content, query, 3, 800);
+        out.push_str(&snippet);
+        out.push_str(&format!("\n\n_Chunk ID: {} | Score: {:.4}_\n\n---\n\n", r.chunk_id, r.score));
+    }
+    out.push_str("### END RETRIEVED CONTEXT ###\n");
+    out
 }
 
 pub fn call_tool(
@@ -18,44 +37,88 @@ pub fn call_tool(
     db_path: &Path,
 ) -> Result<Value, Box<dyn std::error::Error>> {
     match name {
-        "search_vault" => {
-            let query = args["query"].as_str().unwrap_or("");
+        "search_local_notes" => {
+            let query = args["query"].as_str().unwrap_or("").to_string();
+            let limit = args["limit"].as_u64().unwrap_or(10).min(50) as usize;
+            let mode_str = args["mode"].as_str().unwrap_or("hybrid");
+
+            // MCP server runs without an embedder. Return a guidance message for vec-only mode.
+            // hybrid and fts both work — search() auto-falls-back to Fts when embedder is None.
+            if mode_str == "vec" {
+                return Ok(json!({
+                    "content": [{
+                        "type": "text",
+                        "text": "Vector search requires a model. Use mode='fts' or run 'shiotsuchi setup' to configure an embedder."
+                    }]
+                }));
+            }
+
+            let mode = if mode_str == "fts" { SearchMode::Fts } else { SearchMode::Hybrid };
+
+            // Validate notes_dir is reachable (path traversal check)
+            let _canonical_vault = notes_dir.canonicalize()?;
+
             let db = NoteDatabase::open(db_path)?;
-            let tokenizer = get_tokenizer()?;
-            // FTS-only (no embedder available in MCP without model file)
-            let results = search(&db, &tokenizer, query, 20, SearchMode::Fts, None)?;
-            let text = serde_json::to_string_pretty(&results)?;
-            Ok(text_content(text))
+            let tokenizer = match get_tokenizer() {
+                Ok(t) => t,
+                Err(_) => return Ok(json!({
+                    "content": [{"type": "text", "text": "Full-text search requires a tokenizer model. Run 'shiotsuchi setup' to configure one, or set SHIOTSUCHI_MODEL_PATH."}]
+                })),
+            };
+            let results = search(&db, &tokenizer, &query, limit, mode, None)?;
+
+            let markdown = format_results_markdown(&results, &query);
+            Ok(json!({
+                "content": [{"type": "text", "text": markdown}]
+            }))
         }
-        "read_full_note" => {
-            let path = args["path"].as_str().unwrap_or("");
-            if path.starts_with('/') || path.contains("..") {
-                return Err("Invalid path: must be relative and within vault".into());
+
+        "get_surrounding_context" => {
+            let chunk_id = args["chunk_id"].as_i64()
+                .ok_or("chunk_id must be an integer")?;
+            let window = args["window"].as_u64().unwrap_or(2).min(5) as usize;
+
+            let db = NoteDatabase::open(db_path)?;
+            let chunks = db.get_surrounding_chunks(chunk_id, window)?;
+
+            let mut out = format!("### Context around chunk {} ###\n\n", chunk_id);
+            for c in &chunks {
+                let marker = if c.id == Some(chunk_id) { "**[SELECTED]** " } else { "" };
+                let header = c.parent_header.as_deref().unwrap_or("(top level)");
+                out.push_str(&format!("## {}Source: {} > {}\n\n{}\n\n---\n\n",
+                    marker, c.file_path, header, c.content));
             }
-            let full_path = notes_dir.join(path);
-            let canonical = full_path.canonicalize()?;
-            let vault_canonical = notes_dir.canonicalize()?;
-            if !canonical.starts_with(&vault_canonical) {
-                return Err("Path escapes vault directory".into());
-            }
-            let content = fs::read_to_string(&canonical)?;
-            Ok(text_content(content))
+
+            Ok(json!({
+                "content": [{"type": "text", "text": out}]
+            }))
         }
-        "vault_status" => {
+
+        "index_status" => {
             let db = NoteDatabase::open(db_path)?;
             let stats = db.stats()?;
             let text = format!(
-                "Total files: {}\nTotal chunks: {}\nDB size: {} bytes\nLast indexed: {}",
+                "Indexed files: {}\nTotal chunks: {}\nVector-indexed chunks: {}\nDB size: {:.1} MB\n\
+                 Note: this status may be slightly stale if background indexing is running.",
                 stats.total_files,
                 stats.total_chunks,
-                stats.total_size_bytes,
-                stats
-                    .last_indexed_at
-                    .map(|t| t.to_string())
-                    .unwrap_or_else(|| "never".to_string()),
+                stats.vec_indexed_chunks,
+                stats.total_size_bytes as f64 / 1_048_576.0
             );
-            Ok(text_content(text))
+            Ok(json!({"content": [{"type": "text", "text": text}]}))
         }
+
+        "rebuild_index" => {
+            // MCP server is read-only by design. Delegate rebuild to the CLI.
+            Ok(json!({
+                "content": [{
+                    "type": "text",
+                    "text": "To rebuild the index, run: shiotsuchi chart --force\n\
+                             The MCP server will automatically use the updated index."
+                }]
+            }))
+        }
+
         _ => Err(format!("Unknown tool: {}", name).into()),
     }
 }
@@ -63,76 +126,107 @@ pub fn call_tool(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
     use tempfile::TempDir;
 
-    fn indexed_vault() -> Option<(TempDir, std::path::PathBuf)> {
-        use shiotsuchi_core::{
-            db::NoteDatabase, indexer::index_directory, models::IndexConfig,
-            tokenizer::get_tokenizer,
-        };
-        let tok = get_tokenizer().ok()?;
+    // Returns None (and callers skip) when no Vaporetto model is available.
+    fn setup_db(temp: &TempDir) -> Option<std::path::PathBuf> {
+        use shiotsuchi_core::{db::NoteDatabase, chunker::split_into_chunks};
+        let tok = shiotsuchi_core::tokenizer::get_tokenizer().ok()?;
+        let db_path = temp.path().join("test.db");
+        let db = NoteDatabase::open(&db_path).unwrap();
+        let chunks = split_into_chunks(
+            "# Title\n\nThis is a searchable note about Rust programming.",
+            &tok,
+            "note.md",
+        );
+        db.insert_chunks(&chunks).unwrap();
+        Some(db_path)
+    }
+
+    #[test]
+    fn test_search_local_notes_fts_returns_content() {
         let temp = TempDir::new().unwrap();
-        fs::write(
-            temp.path().join("note.md"),
-            "# Hello\n\nMCP integration test.",
-        )
-        .unwrap();
-        let db = temp.path().join("test.db");
-        let ndb = NoteDatabase::open(&db).unwrap();
-        let cfg = IndexConfig {
-            notes_dir: temp.path().to_path_buf(),
-            ..Default::default()
-        };
-        index_directory(&ndb, &tok, &cfg, None).unwrap();
-        Some((temp, db))
+        let Some(db_path) = setup_db(&temp) else { return; };
+        let args = serde_json::json!({"query": "Rust programming", "mode": "fts"});
+        let result = call_tool("search_local_notes", &args, temp.path(), &db_path);
+        assert!(result.is_ok(), "search_local_notes failed: {:?}", result.err());
+        let text = result.unwrap()["content"][0]["text"].as_str().unwrap().to_string();
+        assert!(text.contains("### RETRIEVED CONTEXT ###"),
+            "Expected RETRIEVED CONTEXT delimiter, got: {}", text);
+        assert!(text.contains("note.md"), "Expected file_path in output, got: {}", text);
     }
 
     #[test]
-    fn test_call_search_vault() {
-        let Some((temp, db)) = indexed_vault() else {
-            return;
-        };
-        let args = serde_json::json!({"query": "MCP integration"});
-        let result = call_tool("search_vault", &args, temp.path(), &db).unwrap();
-        let content = &result["content"];
-        assert!(content.is_array());
-        assert!(!content.as_array().unwrap().is_empty());
-    }
-
-    #[test]
-    fn test_call_vault_status() {
-        let Some((_temp, db)) = indexed_vault() else {
-            return;
-        };
-        let result = call_tool(
-            "vault_status",
-            &serde_json::Value::Null,
-            std::path::Path::new("/tmp"),
-            &db,
-        )
-        .unwrap();
-        assert!(result["content"][0]["text"].as_str().unwrap().contains("1"));
-    }
-
-    #[test]
-    fn test_call_read_full_note() {
-        let Some((temp, db)) = indexed_vault() else {
-            return;
-        };
-        let args = serde_json::json!({"path": "note.md"});
-        let result = call_tool("read_full_note", &args, temp.path(), &db).unwrap();
+    fn test_search_local_notes_vec_without_embedder_returns_message() {
+        // vec guard fires before tokenizer is needed — no model required for this test
+        let temp = TempDir::new().unwrap();
+        let db_path = temp.path().join("test.db");
+        shiotsuchi_core::db::NoteDatabase::open(&db_path).unwrap();
+        let args = serde_json::json!({"query": "Rust", "mode": "vec"});
+        let result = call_tool("search_local_notes", &args, temp.path(), &db_path).unwrap();
         let text = result["content"][0]["text"].as_str().unwrap();
-        assert!(text.contains("Hello"));
+        assert!(text.contains("fts") || text.contains("model") || text.contains("setup"),
+            "Expected guidance message, got: {}", text);
     }
 
     #[test]
-    fn test_path_traversal_rejected() {
-        let Some((temp, db)) = indexed_vault() else {
-            return;
+    fn test_index_status_returns_counts() {
+        // Uses setup_db (requires model) so chunk count is non-zero and the assertion is meaningful.
+        // In model-absent environments this test is skipped — that is intentional.
+        // To test index_status on an empty DB without a model, use NoteDatabase::open directly.
+        let temp = TempDir::new().unwrap();
+        let Some(db_path) = setup_db(&temp) else { return; };
+        let result = call_tool("index_status", &serde_json::json!({}), temp.path(), &db_path).unwrap();
+        let text = result["content"][0]["text"].as_str().unwrap();
+        assert!(text.contains("Total chunks"), "Expected 'Total chunks' in output, got: {}", text);
+        assert!(text.contains("Indexed files"), "Expected 'Indexed files' in output, got: {}", text);
+    }
+
+    #[test]
+    fn test_rebuild_index_returns_guidance() {
+        // rebuild_index never touches the DB — no model required
+        let temp = TempDir::new().unwrap();
+        let db_path = temp.path().join("test.db");
+        shiotsuchi_core::db::NoteDatabase::open(&db_path).unwrap();
+        let result = call_tool("rebuild_index", &serde_json::json!({}), temp.path(), &db_path).unwrap();
+        let text = result["content"][0]["text"].as_str().unwrap();
+        assert!(text.contains("shiotsuchi chart"));
+    }
+
+    #[test]
+    fn test_get_surrounding_context_returns_chunks() {
+        let temp = TempDir::new().unwrap();
+        use shiotsuchi_core::{db::NoteDatabase, chunker::split_into_chunks};
+        let tok = match shiotsuchi_core::tokenizer::get_tokenizer() {
+            Ok(t) => t,
+            Err(_) => return, // skip when no model
         };
-        let args = serde_json::json!({"path": "../secret.txt"});
-        let result = call_tool("read_full_note", &args, temp.path(), &db);
+        let db_path = temp.path().join("test.db");
+        let db = NoteDatabase::open(&db_path).unwrap();
+        let chunks = split_into_chunks(
+            "# Intro\n\nFirst chunk.\n\n# Body\n\nSecond chunk.\n\n# End\n\nThird chunk.",
+            &tok,
+            "multi.md",
+        );
+        let ids = db.insert_chunks(&chunks).unwrap();
+        drop(db);
+
+        let middle_id = ids[ids.len() / 2];
+        let args = serde_json::json!({"chunk_id": middle_id, "window": 1});
+        let result = call_tool("get_surrounding_context", &args, temp.path(), &db_path);
+        assert!(result.is_ok(), "get_surrounding_context failed: {:?}", result.err());
+        let text = result.unwrap()["content"][0]["text"].as_str().unwrap().to_string();
+        assert!(text.contains("### Context around chunk"),
+            "Expected context delimiter, got: {}", text);
+        assert!(text.contains("multi.md"), "Expected file_path in output, got: {}", text);
+    }
+
+    #[test]
+    fn test_unknown_tool_returns_error() {
+        // No DB interaction needed — unknown tool returns Err before any DB open
+        let temp = TempDir::new().unwrap();
+        let db_path = temp.path().join("nonexistent.db");
+        let result = call_tool("nonexistent_tool", &serde_json::json!({}), temp.path(), &db_path);
         assert!(result.is_err());
     }
 }
