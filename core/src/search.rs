@@ -8,6 +8,10 @@ use log;
 
 /// Main search entry point. Dispatches to FTS, vec, or hybrid (RRF) mode.
 /// When `embedder` is None and mode is Hybrid, falls back to Fts.
+///
+/// `min_score` filters results by score after sorting.
+///   - FTS/Vec mode (lower score = more relevant): results with `score > min_score` are excluded.
+///   - Hybrid mode (higher RRF score = more relevant): results with `score < min_score` are excluded.
 pub fn search(
     db: &NoteDatabase,
     tokenizer: &JapaneseTokenizer,
@@ -15,6 +19,7 @@ pub fn search(
     limit: usize,
     mode: SearchMode,
     embedder: Option<&crate::embedder::Embedder>,
+    min_score: Option<f64>,
 ) -> Result<Vec<ChunkSearchResult>, DbError> {
     if query.trim().is_empty() {
         return Ok(vec![]);
@@ -27,14 +32,14 @@ pub fn search(
     };
 
     match effective_mode {
-        SearchMode::Fts => search_fts(db, tokenizer, query, limit),
+        SearchMode::Fts => search_fts(db, tokenizer, query, limit, min_score),
         SearchMode::Vec => {
             let emb = embedder.ok_or_else(|| DbError::Other("Vec mode requires embedder — model not loaded".into()))?;
-            search_vec(db, emb, query, limit)
+            search_vec(db, emb, query, limit, min_score)
         }
         SearchMode::Hybrid => {
             let emb = embedder.ok_or_else(|| DbError::Other("Hybrid mode requires embedder — model not loaded".into()))?;
-            search_hybrid(db, tokenizer, emb, query, limit)
+            search_hybrid(db, tokenizer, emb, query, limit, min_score)
         }
     }
 }
@@ -44,6 +49,7 @@ fn search_fts(
     tokenizer: &JapaneseTokenizer,
     query: &str,
     limit: usize,
+    min_score: Option<f64>,
 ) -> Result<Vec<ChunkSearchResult>, DbError> {
     let fts5_query = tokenizer.and_query(query);
     let fts5_query = if fts5_query.is_empty() {
@@ -88,6 +94,11 @@ fn search_fts(
 
     // FTS5 BM25 rank: lower = more relevant; sort ascending
     results.sort_by(|a, b| a.score.partial_cmp(&b.score).unwrap_or(std::cmp::Ordering::Equal));
+
+    if let Some(ms) = min_score {
+        results.retain(|r| r.score <= ms);
+    }
+
     Ok(results)
 }
 
@@ -96,6 +107,7 @@ fn search_vec(
     embedder: &crate::embedder::Embedder,
     query: &str,
     limit: usize,
+    min_score: Option<f64>,
 ) -> Result<Vec<ChunkSearchResult>, DbError> {
     let embedding = embedder
         .embed(query)
@@ -134,6 +146,11 @@ fn search_vec(
 
     // Vec distance: lower = more relevant; sort ascending
     results.sort_by(|a, b| a.score.partial_cmp(&b.score).unwrap_or(std::cmp::Ordering::Equal));
+
+    if let Some(ms) = min_score {
+        results.retain(|r| r.score <= ms);
+    }
+
     Ok(results)
 }
 
@@ -145,11 +162,12 @@ fn search_hybrid(
     embedder: &crate::embedder::Embedder,
     query: &str,
     limit: usize,
+    min_score: Option<f64>,
 ) -> Result<Vec<ChunkSearchResult>, DbError> {
     const K: f64 = 60.0;
 
-    let fts_results = search_fts(db, tokenizer, query, limit * 2)?;
-    let vec_results = search_vec(db, embedder, query, limit * 2)?;
+    let fts_results = search_fts(db, tokenizer, query, limit * 2, None)?;
+    let vec_results = search_vec(db, embedder, query, limit * 2, None)?;
 
     // Build rank maps: chunk_id → 1-based rank
     let fts_ranks: HashMap<i64, usize> = fts_results
@@ -222,6 +240,11 @@ fn search_hybrid(
         .collect();
 
     results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+
+    if let Some(ms) = min_score {
+        results.retain(|r| r.score >= ms);
+    }
+
     Ok(results)
 }
 
@@ -331,7 +354,7 @@ mod tests {
         }];
         db.insert_chunks(&chunks).unwrap();
 
-        let results = search(&db, &tokenizer, "search engine", 10, SearchMode::Fts, None).unwrap();
+        let results = search(&db, &tokenizer, "search engine", 10, SearchMode::Fts, None, None).unwrap();
         assert!(!results.is_empty());
         assert_eq!(results[0].file_path, "test.md");
         assert!(matches!(results[0].search_mode, SearchMode::Fts));
@@ -341,7 +364,7 @@ mod tests {
     fn test_search_empty_query_returns_empty() {
         let db = NoteDatabase::open_in_memory().unwrap();
         let tokenizer = crate::require_tokenizer!(crate::tokenizer::TokenizerConfig::default());
-        let results = search(&db, &tokenizer, "  ", 10, SearchMode::Fts, None).unwrap();
+        let results = search(&db, &tokenizer, "  ", 10, SearchMode::Fts, None, None).unwrap();
         assert!(results.is_empty());
     }
 
@@ -360,7 +383,7 @@ mod tests {
         db.insert_chunks(&chunks).unwrap();
 
         // Hybrid with no embedder → falls back to FTS
-        let results = search(&db, &tokenizer, "hybrid fallback", 10, SearchMode::Hybrid, None).unwrap();
+        let results = search(&db, &tokenizer, "hybrid fallback", 10, SearchMode::Hybrid, None, None).unwrap();
         assert!(!results.is_empty());
         assert!(matches!(results[0].search_mode, SearchMode::Fts));
     }

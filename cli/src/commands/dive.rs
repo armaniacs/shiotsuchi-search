@@ -127,6 +127,7 @@ pub fn run_dive(
         args.limit,
         search_mode,
         embedder.as_ref(),
+        None,
     )?;
     Ok(results)
 }

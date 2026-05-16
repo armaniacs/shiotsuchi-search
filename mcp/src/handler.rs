@@ -41,6 +41,7 @@ pub fn call_tool(
             let query = args["query"].as_str().unwrap_or("").to_string();
             let limit = args["limit"].as_u64().unwrap_or(10).min(50) as usize;
             let mode_str = args["mode"].as_str().unwrap_or("hybrid");
+            let min_score = args["min_score"].as_f64();
 
             // MCP server runs without an embedder. Return a guidance message for vec-only mode.
             // hybrid and fts both work — search() auto-falls-back to Fts when embedder is None.
@@ -65,7 +66,7 @@ pub fn call_tool(
                     "content": [{"type": "text", "text": "Full-text search requires a tokenizer model. Run 'shiotsuchi setup' to configure one, or set SHIOTSUCHI_MODEL_PATH."}]
                 })),
             };
-            let results = search(&db, &tokenizer, &query, limit, mode, None)?;
+            let results = search(&db, &tokenizer, &query, limit, mode, None, min_score)?;
 
             let markdown = format_results_markdown(&results, &query);
             Ok(json!({
