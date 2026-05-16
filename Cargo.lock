@@ -1940,7 +1940,7 @@ dependencies = [
  "sha2 0.11.0",
  "shiotsuchi-core",
  "tempfile",
- "thiserror 1.0.69",
+ "thiserror 2.0.18",
  "toml",
  "walkdir",
 ]
@@ -1965,7 +1965,7 @@ dependencies = [
  "sha2 0.11.0",
  "sqlite-vec",
  "tempfile",
- "thiserror 1.0.69",
+ "thiserror 2.0.18",
  "tokenizers",
  "tokio",
  "vaporetto",
@@ -1996,7 +1996,7 @@ dependencies = [
  "serde_json",
  "shiotsuchi-core",
  "tempfile",
- "thiserror 1.0.69",
+ "thiserror 2.0.18",
  "tokio",
 ]
 
