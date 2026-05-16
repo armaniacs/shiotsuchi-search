@@ -20,7 +20,6 @@ vaporetto = { version = "0.6", default-features = false, features = [
 ] }
 vaporetto_rules = { version = "0.6", default-features = false }
 ruzstd = "0.8"  # sqlite-vaporetto と同じ。.model.zst の zstd 解凍に使用。
-pulldown-cmark = "0.11"
 walkdir = "2"
 rayon = "1"
 sha2 = "0.10"
@@ -37,7 +36,6 @@ indicatif = "0.17"
 notify = { version = "6", optional = true }
 log = "0.4"
 dirs = "5"
-ndarray = "0.15"
 sqlite-vec = "0.1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "sync", "time"], optional = true }
 
