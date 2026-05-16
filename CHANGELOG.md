@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.6] - 2026-05-17
+
+### Changed
+- **Upgrade rusqlite 0.31 → 0.39:** Bundled SQLite jumps from 3.4x → 3.51.3, bringing FTS5 performance improvements and security patches. API migration: adapted `sqlite3_auto_extension` FFI signature (`*const`→`*mut`), replaced `usize` FromSql with `i64` casts (disabled by default in rusqlite 0.38+).
+- **Upgrade sha2 0.10 → 0.11:** digest 0.11 changed `finalize()` return type — replaced `format!("{:x}", hash)` with `hex::encode(hash)` in build.rs, tokenizer.rs, and CLI support.rs.
+- **Upgrade thiserror 1 → 2:** drop-in replacement, faster compile times.
+- **Remove unused direct dependencies:** `pulldown-cmark` and `ndarray` were declared but not imported — removed for faster compilation.
+- **`cargo update` patch bumps:** 17 package updates including rustls 0.23.31→0.23.40 (security), ruzstd 0.8.2→0.8.3, tracing 0.1.41→0.1.44.
+- **Benchmark baseline captured:** Criterion benchmarks for `index_100_files` and `search_1000_notes` recorded pre- and post-upgrade for performance tracking.
+
+### Added
+- None
+
+### Fixed
+- `search_bench.rs` updated with missing `min_score` parameter (benchmark was broken since v0.3.5).
+
 ## [0.3.5] - 2026-05-16
 
 ### Added
@@ -354,7 +370,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `docs/MODEL_LICENSES.md` with BSD-3-Clause notice for the bundled tokenizer model
 - `README.md` (English) and `README.ja.md` (Japanese)
 
-[Unreleased]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.3.3...HEAD
+[Unreleased]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.3.6...HEAD
+[0.3.6]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.3.5...v0.3.6
  [0.3.3]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.3.2...v0.3.3
  [0.3.2]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.3.0...v0.3.1
