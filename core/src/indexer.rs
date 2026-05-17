@@ -197,13 +197,14 @@ pub fn index_directory(
 
 /// Remove indexed files from DB that no longer exist on disk.
 pub fn cleanup_deleted(db: &NoteDatabase, config: &IndexConfig) -> Result<Vec<String>, DbError> {
-    let cached_paths = db.list_cached_paths()?;
+    let vault_name = &config.vaults[0].0;
+    let cached_paths = db.list_cached_paths(vault_name)?;
     let mut removed = Vec::new();
     for path in cached_paths {
         let full_path = config.vaults[0].1.join(&path);
         if !full_path.exists() {
-            db.delete_chunks_for_file(&path)?;
-            db.delete_file_cache(&path)?;
+            db.delete_chunks_for_file(vault_name, &path)?;
+            db.delete_file_cache(vault_name, &path)?;
             removed.push(path);
         }
     }
@@ -228,18 +229,18 @@ pub fn index_file_with_embedder(
     let mtime = file_mtime(file_path);
     let model_id = embedder.map_or("none", |e| e.model_id());
 
-    let is_update = match db.cached_hash(relative_path) {
+    let vault_name = &config.vaults[0].0;
+
+    let is_update = match db.cached_hash(vault_name, relative_path) {
         Ok(Some(cached)) if cached == hash => return IndexResult::Skipped,
         Ok(Some(_)) => true,
         Ok(None) => false,
         Err(e) => return IndexResult::Error(e.to_string()),
     };
 
-    if let Err(e) = db.delete_chunks_for_file(relative_path) {
+    if let Err(e) = db.delete_chunks_for_file(vault_name, relative_path) {
         return IndexResult::Error(e.to_string());
     }
-
-    let vault_name = &config.vaults[0].0;
     let chunks = split_into_chunks(&content, tokenizer, relative_path, vault_name);
 
     let ids = match db.insert_chunks(&chunks) {
@@ -251,7 +252,7 @@ pub fn index_file_with_embedder(
         embed_and_insert_chunks(emb, db, &ids, &chunks);
     }
 
-    if let Err(e) = db.upsert_file_cache(relative_path, &hash, mtime, model_id) {
+    if let Err(e) = db.upsert_file_cache(vault_name, relative_path, &hash, mtime, model_id) {
         return IndexResult::Error(e.to_string());
     }
 

@@ -41,7 +41,7 @@ pub fn run_chart(
     let db = NoteDatabase::open(db_path)?;
     let tokenizer = get_tokenizer()?;
     let config = IndexConfig {
-        notes_dir: notes_dir.to_path_buf(),
+        vaults: vec![("default".to_string(), notes_dir.to_path_buf())],
         include_extensions: indexing_cfg.include_extensions.clone(),
         exclude_dirs: indexing_cfg.exclude_dirs.clone(),
         auto_exclude_hidden: indexing_cfg.auto_exclude_hidden,

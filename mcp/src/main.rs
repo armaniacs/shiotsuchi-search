@@ -175,7 +175,7 @@ fn spawn_rebuild(
 
         // Build IndexConfig (defaults: .md/.markdown, exclude node_modules, auto-exclude hidden)
         let config = shiotsuchi_core::models::IndexConfig {
-            notes_dir: n_dir,
+            vaults: vec![("default".to_string(), n_dir)],
             ..Default::default()
         };
 

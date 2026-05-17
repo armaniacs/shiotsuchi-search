@@ -56,7 +56,7 @@ pub fn run_scan(
     let db = Arc::new(Mutex::new(NoteDatabase::open(db_path)?));
     let tokenizer = get_tokenizer()?;
     let config = IndexConfig {
-        notes_dir: notes_dir.to_path_buf(),
+        vaults: vec![("default".to_string(), notes_dir.to_path_buf())],
         include_extensions: indexing_cfg.include_extensions.clone(),
         exclude_dirs: indexing_cfg.exclude_dirs.clone(),
         auto_exclude_hidden: indexing_cfg.auto_exclude_hidden,
@@ -89,7 +89,7 @@ mod tests {
         let db_file = temp.path().join("test.db");
         let db = Arc::new(Mutex::new(NoteDatabase::open(&db_file).unwrap()));
         let config = IndexConfig {
-            notes_dir: vault,
+            vaults: vec![("default".to_string(), vault)],
             ..Default::default()
         };
         let _watcher = VaultWatcher::new(db, tokenizer, config, None);

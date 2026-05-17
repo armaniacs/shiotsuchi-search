@@ -12,6 +12,7 @@ pub fn run_delete(
     args: &DeleteArgs,
     notes_dir: &Path,
     db_path: &Path,
+    vault_name: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let path = &args.path;
     // Reject absolute paths or paths with directory traversal components
@@ -33,8 +34,8 @@ pub fn run_delete(
     }
 
     let db = NoteDatabase::open(db_path)?;
-    db.delete_chunks_for_file(&args.path)?;
-    db.delete_file_cache(&args.path)?;
+    db.delete_chunks_for_file(vault_name, &args.path)?;
+    db.delete_file_cache(vault_name, &args.path)?;
     println!("Deleted: {}", args.path);
     Ok(())
 }

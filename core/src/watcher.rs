@@ -108,11 +108,12 @@ impl VaultWatcher {
                 for path in &event.paths {
                     if let Ok(rel) = path.strip_prefix(&self.config.vaults[0].1) {
                         let rel_str = rel.to_string_lossy();
+                        let vault_name = &self.config.vaults[0].0;
                         let db = self.db.lock().unwrap();
-                        if let Err(e) = db.delete_chunks_for_file(&rel_str) {
+                        if let Err(e) = db.delete_chunks_for_file(vault_name, &rel_str) {
                             log::warn!("watcher: failed to delete chunks for {}: {}", rel_str, e);
                         }
-                        if let Err(e) = db.delete_file_cache(&rel_str) {
+                        if let Err(e) = db.delete_file_cache(vault_name, &rel_str) {
                             log::warn!("watcher: failed to delete cache for {}: {}", rel_str, e);
                         }
                     }
@@ -126,11 +127,12 @@ impl VaultWatcher {
                     if self.is_path_within_vault(old) {
                         if let Ok(old_rel) = old.strip_prefix(&self.config.vaults[0].1) {
                             let rel_str = old_rel.to_string_lossy();
+                            let vault_name = &self.config.vaults[0].0;
                             let db = self.db.lock().unwrap();
-                            if let Err(e) = db.delete_chunks_for_file(&rel_str) {
+                            if let Err(e) = db.delete_chunks_for_file(vault_name, &rel_str) {
                                 log::warn!("watcher: failed to delete old path {}: {}", rel_str, e);
                             }
-                            let _ = db.delete_file_cache(&rel_str);
+                            let _ = db.delete_file_cache(vault_name, &rel_str);
                         }
                     }
                     // Symlink-safe vault check for the new path before indexing
@@ -359,11 +361,11 @@ mod tests {
 
         // Verify: old path should no longer be in DB
         let db = db.lock().unwrap();
-        assert_eq!(db.cached_hash("old_name.md").unwrap(), None,
+        assert_eq!(db.cached_hash("default", "old_name.md").unwrap(), None,
             "old path should be deleted from cache");
 
         // Verify: new path should be indexed
-        assert!(db.cached_hash("new_name.md").unwrap().is_some(),
+        assert!(db.cached_hash("default", "new_name.md").unwrap().is_some(),
             "new path should be indexed");
         let stats = db.stats().unwrap();
         assert_eq!(stats.total_files, 1,
@@ -454,7 +456,7 @@ mod tests {
 
         // Verify the file was removed from DB
         let db = db.lock().unwrap();
-        assert_eq!(db.cached_hash("to_delete.md").unwrap(), None,
+        assert_eq!(db.cached_hash("default", "to_delete.md").unwrap(), None,
             "Remove event should delete file from cache");
         let stats = db.stats().unwrap();
         assert_eq!(stats.total_files, 0, "Remove event should leave 0 files");
@@ -508,7 +510,7 @@ mod tests {
         watcher.handle_event(&event).unwrap();
 
         // File should still be indexed (re-indexed)
-        assert!(db.lock().unwrap().cached_hash("update.md").unwrap().is_some(),
+        assert!(db.lock().unwrap().cached_hash("default", "update.md").unwrap().is_some(),
             "file should still be in cache after modify event");
     }
 }

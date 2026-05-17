@@ -110,12 +110,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 &cfg.indexing,
             )?;
         }
-        Commands::Log => commands::log::run_log(&cfg.vault.db_path)?,
+        Commands::Log => commands::log::run_log(&cfg.vault.db_path, "default")?,
         Commands::Setup(args) => {
             commands::setup::run_setup(&args)?;
         }
         Commands::Delete(args) => {
-            commands::delete::run_delete(&args, &cfg.vault.notes_dir, &cfg.vault.db_path)?;
+            commands::delete::run_delete(&args, &cfg.vault.notes_dir, &cfg.vault.db_path, "default")?;
         }
         Commands::Init(args) => {
             let config_path = config::default_config_path();
