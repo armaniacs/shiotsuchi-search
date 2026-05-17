@@ -533,4 +533,45 @@ mod tests {
         assert!((result[0] - 0.4472).abs() < 0.01, "expected ~0.4472, got {}", result[0]);
         assert!((result[1] - 0.8944).abs() < 0.01, "expected ~0.8944, got {}", result[1]);
     }
+
+    #[test]
+    fn test_compute_model_id_consistent() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("model.bin");
+        std::fs::write(&path, b"consistent test bytes").unwrap();
+
+        let hash1 = compute_model_id(&path).unwrap();
+        let hash2 = compute_model_id(&path).unwrap();
+        assert_eq!(hash1, hash2, "same file should produce same hash");
+    }
+
+    #[test]
+    fn test_compute_model_id_different_files() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let path_a = dir.path().join("a.bin");
+        let path_b = dir.path().join("b.bin");
+        std::fs::write(&path_a, b"content A").unwrap();
+        std::fs::write(&path_b, b"content B").unwrap();
+
+        let hash_a = compute_model_id(&path_a).unwrap();
+        let hash_b = compute_model_id(&path_b).unwrap();
+        assert_ne!(hash_a, hash_b, "different files should produce different hashes");
+    }
+
+    #[test]
+    fn test_verify_model_hash_mismatch_return_false() {
+        use crate::constants::EXPECTED_MODEL_SHA256;
+
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("model.onnx");
+        std::fs::write(&path, b"some model bytes").unwrap();
+
+        if EXPECTED_MODEL_SHA256.is_empty() {
+            eprintln!("[SKIPPED] {}:{} — EXPECTED_MODEL_SHA256 is empty, verification skipped", file!(), line!());
+            return;
+        }
+
+        let result = verify_model_hash(&path).unwrap();
+        assert!(!result, "model with non-matching hash should return false");
+    }
 }
