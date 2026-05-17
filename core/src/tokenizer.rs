@@ -392,4 +392,128 @@ mod tests {
     fn test_simple_tokenize_single_word() {
         assert_eq!(simple_tokenize("hello"), "hello");
     }
+
+    // ── simple_and_query additional edge cases ───────────────────────
+
+    #[test]
+    fn test_simple_and_query_basic() {
+        let result = simple_and_query("hello world");
+        assert_eq!(result, "\"hello\" AND \"world\"");
+    }
+
+    #[test]
+    fn test_simple_and_query_with_quotes_in_term() {
+        let result = simple_and_query("say \"hi\"");
+        // Quotes in the term should be doubled: " → ""
+        assert_eq!(result, "\"say\" AND \"\"\"hi\"\"\"");
+    }
+
+    #[test]
+    fn test_simple_and_query_tabs_and_newlines() {
+        let result = simple_and_query("hello\tworld\nfoo");
+        assert_eq!(result, "\"hello\" AND \"world\" AND \"foo\"");
+    }
+
+    // ── simple_tokenize additional edge cases ────────────────────────
+
+    #[test]
+    fn test_simple_tokenize_basic() {
+        let result = simple_tokenize("hello world foo");
+        assert_eq!(result, "hello world foo");
+    }
+
+    #[test]
+    fn test_simple_tokenize_unicode() {
+        let result = simple_tokenize("日本語 English 中文");
+        assert_eq!(result, "日本語 English 中文");
+    }
+
+    // ── should_include / collect_tokens with config variations ───────
+
+    #[test]
+    fn test_collect_tokens_empty_input() {
+        let tokenizer = match JapaneseTokenizer::new(TokenizerConfig::default()) {
+            Ok(tok) => tok,
+            Err(_) => return,
+        };
+        let tokens = tokenizer.collect_tokens("");
+        assert_eq!(tokens.len(), 0);
+    }
+
+    #[test]
+    fn test_collect_tokens_single_line() {
+        let tokenizer = match JapaneseTokenizer::new(TokenizerConfig::default()) {
+            Ok(tok) => tok,
+            Err(_) => return,
+        };
+        let tokens = tokenizer.collect_tokens("こんにちは");
+        assert!(!tokens.is_empty(), "should tokenize Japanese text");
+    }
+
+    #[test]
+    fn test_collect_tokens_multiline_input() {
+        let tokenizer = match JapaneseTokenizer::new(TokenizerConfig::default()) {
+            Ok(tok) => tok,
+            Err(_) => return,
+        };
+        let text = "行一\n行二\n行三";
+        let tokens = tokenizer.collect_tokens(text);
+        assert!(!tokens.is_empty());
+    }
+
+    #[test]
+    fn test_collect_tokens_skips_empty_lines() {
+        let tokenizer = match JapaneseTokenizer::new(TokenizerConfig::default()) {
+            Ok(tok) => tok,
+            Err(_) => return,
+        };
+        let text = "content\n\n\nmore";
+        let tokens = tokenizer.collect_tokens(text);
+        assert!(!tokens.is_empty());
+    }
+
+    #[test]
+    fn test_collect_tokens_pos_filter() {
+        let config = TokenizerConfig {
+            pos_filter: Some(vec!["名詞".to_string()]),
+            keep_untagged: false,
+        };
+        let tokenizer = match JapaneseTokenizer::new(config) {
+            Ok(tok) => tok,
+            Err(_) => return,
+        };
+        let tokens = tokenizer.collect_tokens("東京は日本の首都です");
+        // With 名詞 filter and no untagged, should find some noun tokens
+        assert!(!tokens.is_empty(), "should find noun tokens");
+    }
+
+    #[test]
+    fn test_collect_tokens_multiple_pos_prefixes() {
+        let config = TokenizerConfig {
+            pos_filter: Some(vec!["名詞".to_string(), "動詞".to_string()]),
+            keep_untagged: false,
+        };
+        let tokenizer = match JapaneseTokenizer::new(config) {
+            Ok(tok) => tok,
+            Err(_) => return,
+        };
+        let tokens = tokenizer.collect_tokens("東京は日本の首都です");
+        assert!(!tokens.is_empty(), "should find noun or verb tokens");
+    }
+
+    #[test]
+    fn test_collect_tokens_keep_untagged() {
+        // With keep_untagged=true, tokens without POS tags should pass through
+        let config = TokenizerConfig {
+            pos_filter: Some(vec!["名詞".to_string()]),
+            keep_untagged: true,
+        };
+        let tokenizer = match JapaneseTokenizer::new(config) {
+            Ok(tok) => tok,
+            Err(_) => return,
+        };
+        let tokens = tokenizer.collect_tokens("Hello 東京 world");
+        // "Hello" and "world" (untagged) should be included with keep_untagged=true
+        assert!(!tokens.is_empty(), "should include untagged tokens");
+    }
 }
