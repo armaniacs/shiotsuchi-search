@@ -811,4 +811,27 @@ mod tests {
         let new_mtime = file_mtime(&new_path);
         assert!(new_mtime >= old_mtime, "newer file should have >= mtime");
     }
+
+    #[test]
+    fn test_build_exclude_globset_empty_patterns() {
+        let (set, invalid) = build_exclude_globset(&[]);
+        assert_eq!(invalid, 0);
+        assert!(!set.is_match("anything.md"), "empty globset should not match anything");
+    }
+
+    #[test]
+    fn test_build_exclude_globset_all_invalid_patterns() {
+        let patterns = vec!["[".to_string()];
+        let (set, invalid) = build_exclude_globset(&patterns);
+        assert_eq!(invalid, 0, "escape_glob_literal escapes [, making it valid");
+        assert!(set.is_match("projects/[/notes.md"), "escaped [ is a valid literal glob");
+    }
+
+    #[test]
+    fn test_build_exclude_globset_empty_string_pattern() {
+        let patterns = vec!["".to_string()];
+        let (set, invalid) = build_exclude_globset(&patterns);
+        assert_eq!(invalid, 0);
+        assert!(!set.is_match("file.md"), "empty string pattern should be skipped");
+    }
 }
