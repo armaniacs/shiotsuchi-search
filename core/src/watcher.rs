@@ -267,6 +267,26 @@ mod tests {
     }
 
     #[test]
+    fn test_is_path_within_vault_regular_file() {
+        let tokenizer = match JapaneseTokenizer::new(TokenizerConfig::default()) {
+            Ok(tok) => Arc::new(tok),
+            Err(_) => return,
+        };
+        let temp = TempDir::new().unwrap();
+        let vault = temp.path().join("vault");
+        std::fs::create_dir_all(&vault).unwrap();
+        let file = vault.join("test.md");
+        std::fs::write(&file, "content").unwrap();
+        let db = Arc::new(Mutex::new(NoteDatabase::open_in_memory().unwrap()));
+        let config = IndexConfig {
+            notes_dir: vault.clone(),
+            ..Default::default()
+        };
+        let watcher = VaultWatcher::new(db, tokenizer, config, None);
+        assert!(watcher.is_path_within_vault(&file), "regular file in vault should pass");
+    }
+
+    #[test]
     fn test_is_path_within_vault_nonexistent_path_returns_false() {
         let tokenizer = match JapaneseTokenizer::new(TokenizerConfig::default()) {
             Ok(tok) => Arc::new(tok),
