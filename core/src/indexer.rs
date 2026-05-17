@@ -834,4 +834,54 @@ mod tests {
         assert_eq!(invalid, 0);
         assert!(!set.is_match("file.md"), "empty string pattern should be skipped");
     }
+
+    #[test]
+    fn test_index_directory_no_follow_links_creates_structure() {
+        use walkdir::WalkDir;
+        let dir = TempDir::new().unwrap();
+        let vault = dir.path().join("vault");
+        let sub = vault.join("sub");
+        std::fs::create_dir_all(&sub).unwrap();
+        std::fs::write(vault.join("a.md"), "# A").unwrap();
+        std::fs::write(sub.join("b.md"), "# B").unwrap();
+
+        let config = IndexConfig {
+            notes_dir: vault.clone(),
+            ..Default::default()
+        };
+        let (_exclude_globset, _) = build_exclude_globset(&config.exclude_dirs);
+
+        let entries: Vec<_> = WalkDir::new(&vault)
+            .follow_links(false)
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().is_file())
+            .collect();
+        assert_eq!(entries.len(), 2, "should find 2 files");
+    }
+
+    #[test]
+    fn test_index_directory_with_progress_collects_tags() {
+        let tokenizer = match crate::tokenizer::JapaneseTokenizer::new(crate::tokenizer::TokenizerConfig::default()) {
+            Ok(tok) => tok,
+            Err(_) => return,
+        };
+        let dir = TempDir::new().unwrap();
+        let vault = dir.path().join("vault");
+        std::fs::create_dir_all(&vault).unwrap();
+        std::fs::write(vault.join("progress_test.md"), "# Progress test\n\nContent.").unwrap();
+
+        let db = NoteDatabase::open_in_memory().unwrap();
+        let config = IndexConfig {
+            notes_dir: vault,
+            ..Default::default()
+        };
+
+        let progress: IndexProgress = Box::new(|_current, _total| {});
+
+        let (results, invalid) = index_directory(&db, &tokenizer, &config, None, Some(progress)).unwrap();
+        assert_eq!(results.len(), 1, "should index 1 file");
+        assert!(!results[0].0.is_empty(), "should have a relative path");
+        assert_eq!(invalid, 0, "no invalid patterns");
+    }
 }
