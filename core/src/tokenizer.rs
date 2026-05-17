@@ -350,4 +350,46 @@ mod tests {
         assert_ne!(wrong_hash, EMBEDDED_PREDICTOR_HASH,
             "wrong hash should not match embedded predictor hash");
     }
+
+    #[test]
+    fn test_or_query_empty_input() {
+        let tokenizer = match JapaneseTokenizer::new(TokenizerConfig::default()) {
+            Ok(tok) => tok,
+            Err(_) => return,
+        };
+        assert_eq!(tokenizer.or_query(""), "");
+    }
+
+    #[test]
+    fn test_or_query_normal_input() {
+        let tokenizer = match JapaneseTokenizer::new(TokenizerConfig::default()) {
+            Ok(tok) => tok,
+            Err(_) => return,
+        };
+        let result = tokenizer.or_query("hello");
+        assert!(!result.is_empty(), "or_query on normal input should produce output");
+    }
+
+    #[test]
+    fn test_and_query_empty_input() {
+        assert_eq!(simple_and_query(""), "");
+        assert_eq!(simple_and_query("   "), "");
+    }
+
+    #[test]
+    fn test_simple_tokenize_empty_input() {
+        assert_eq!(simple_tokenize(""), "");
+        assert_eq!(simple_tokenize("   "), "");
+    }
+
+    #[test]
+    fn test_simple_and_query_single_word() {
+        let q = simple_and_query("hello");
+        assert_eq!(q, "\"hello\"");
+    }
+
+    #[test]
+    fn test_simple_tokenize_single_word() {
+        assert_eq!(simple_tokenize("hello"), "hello");
+    }
 }
