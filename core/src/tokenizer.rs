@@ -329,4 +329,25 @@ mod tests {
             elapsed
         );
     }
+
+    #[test]
+    fn test_integrity_check_fails_on_corrupted_bytes() {
+        if EMBEDDED_PREDICTOR_BYTES.is_none() {
+            eprintln!("[SKIPPED] {}:{} — no embedded predictor, skipping integrity check test", file!(), line!());
+            return;
+        }
+
+        let mut hasher = Sha256::new();
+        hasher.update(EMBEDDED_PREDICTOR_BYTES.unwrap());
+        let computed = hex::encode(hasher.finalize());
+        assert_eq!(computed, EMBEDDED_PREDICTOR_HASH,
+            "embedded predictor hash should match computed hash");
+
+        let wrong_data = b"different bytes that are not the model";
+        let mut hasher2 = Sha256::new();
+        hasher2.update(wrong_data);
+        let wrong_hash = hex::encode(hasher2.finalize());
+        assert_ne!(wrong_hash, EMBEDDED_PREDICTOR_HASH,
+            "wrong hash should not match embedded predictor hash");
+    }
 }
