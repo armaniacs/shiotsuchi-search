@@ -536,4 +536,50 @@ mod tests {
         let result = search(&db, &tokenizer, "test", 10, SearchMode::Fts, None, None);
         assert!(result.is_ok());
     }
+
+    // ── extract_snippet edge cases ───────────────────────────────────
+
+    #[test]
+    fn test_extract_snippet_query_at_start() {
+        let text = "query starts here\nLine 2\nLine 3";
+        let snippet = extract_snippet(text, "query", 1, 100);
+        assert!(snippet.contains("query"));
+    }
+
+    #[test]
+    fn test_extract_snippet_query_at_end() {
+        let text = "Line 1\nLine 2\nQuery at end";
+        let snippet = extract_snippet(text, "query", 1, 100);
+        assert!(snippet.contains("Query"));
+    }
+
+    #[test]
+    fn test_extract_snippet_multi_token_query() {
+        let text = "hello\nworld\nfoo\nhello world";
+        let snippet = extract_snippet(text, "hello world", 1, 100);
+        assert!(snippet.contains("hello") || snippet.contains("world"));
+    }
+
+    #[test]
+    fn test_extract_snippet_max_lines_zero() {
+        let text = "Line 1\nLine 2\nLine 3\nLine 4";
+        let snippet = extract_snippet(text, "Line", 0, 100);
+        assert!(snippet.contains("Line"));
+    }
+
+    #[test]
+    fn test_extract_snippet_very_long_document() {
+        let long_text = (0..1000).map(|i| format!("Line {} unique_content", i)).collect::<Vec<_>>().join("\n");
+        let snippet = extract_snippet(&long_text, "unique_content", 2, 500);
+        assert!(snippet.contains("unique_content"));
+        // Verify the snippet is bounded in size
+        assert!(snippet.len() <= 510, "snippet should be reasonably bounded");
+    }
+
+    #[test]
+    fn test_extract_snippet_case_insensitive_match() {
+        let text = "HELLO\nWorld\nFOO";
+        let snippet = extract_snippet(text, "hello", 1, 100);
+        assert!(snippet.contains("HELLO"));
+    }
 }
