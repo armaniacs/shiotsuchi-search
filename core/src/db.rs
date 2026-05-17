@@ -474,6 +474,9 @@ mod tests {
         let retrieved = db.get_chunks_by_ids(&ids).unwrap();
         assert_eq!(retrieved.len(), 2);
 
+        assert_eq!(retrieved[0].id, Some(ids[0]), "first chunk id should match");
+        assert_eq!(retrieved[1].id, Some(ids[1]), "second chunk id should match");
+
         // Verify field-by-field for each chunk
         // First chunk
         assert_eq!(retrieved[0].file_path, "a.md");
@@ -515,23 +518,27 @@ mod tests {
         // Perform a write to trigger WAL creation
         db.upsert_file_cache("test.md", "hash", 1000, "none").unwrap();
 
+        // Check companion files while db is alive (SQLite may remove -wal on close
+        // via autocheckpoint).
+        let base = db_path.to_string_lossy();
+        let wal = std::path::PathBuf::from(format!("{}-wal", base));
+        assert!(wal.exists(), "-wal should exist after write in WAL mode");
+        let wal_meta = std::fs::metadata(&wal).unwrap();
+        assert_eq!(wal_meta.permissions().mode() & 0o777, 0o600,
+            "-wal should be 0o600");
+        let shm = std::path::PathBuf::from(format!("{}-shm", base));
+        if shm.exists() {
+            let shm_meta = std::fs::metadata(&shm).unwrap();
+            assert_eq!(shm_meta.permissions().mode() & 0o777, 0o600,
+                "-shm should be 0o600");
+        }
+
         drop(db);
 
         // Main DB file
         let meta = std::fs::metadata(&db_path).unwrap();
         assert_eq!(meta.permissions().mode() & 0o777, 0o600,
             "main DB file should be 0o600");
-
-        // Companion files (-wal, -shm)
-        let base = db_path.to_string_lossy();
-        for suffix in ["-wal", "-shm"] {
-            let companion = std::path::PathBuf::from(format!("{}{}", base, suffix));
-            if companion.exists() {
-                let meta = std::fs::metadata(&companion).unwrap();
-                assert_eq!(meta.permissions().mode() & 0o777, 0o600,
-                    "companion file {} should be 0o600", companion.display());
-            }
-        }
     }
 
     #[test]
