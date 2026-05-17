@@ -51,4 +51,34 @@ mod tests {
             },
         }
     }
+
+    #[test]
+    fn test_default_db_path_contains_cache_dir() {
+        let path = default_db_path();
+        let path_str = path.to_string_lossy();
+        // Should contain either .cache or a named XDG cache directory
+        assert!(path_str.contains("cache") || path_str.contains("Cache"),
+            "default_db_path should include a cache directory, got: {}", path_str);
+    }
+
+    #[test]
+    fn test_xdg_cache_home_returns_valid_path() {
+        let path = xdg_cache_home();
+        assert!(!path.as_os_str().is_empty(), "xdg_cache_home should return a non-empty path");
+    }
+
+    #[test]
+    fn test_home_dir_returns_some_path() {
+        let home = home_dir();
+        assert!(!home.as_os_str().is_empty(), "home_dir should return a non-empty path");
+    }
+
+    #[test]
+    fn test_default_db_path_creatable_parent() {
+        // Verify the parent directory structure is plausible
+        let db_path = default_db_path();
+        let parent = db_path.parent().expect("db_path should have a parent");
+        // The parent path should not be empty
+        assert!(!parent.as_os_str().is_empty());
+    }
 }
