@@ -284,4 +284,69 @@ mod tests {
         let nonexistent = vault.join("nonexistent.md");
         assert!(!watcher.is_path_within_vault(&nonexistent));
     }
+
+    #[test]
+    fn test_handle_event_rename_reindexes_new_path() {
+        use notify::event::RenameMode;
+
+        let tokenizer = match JapaneseTokenizer::new(TokenizerConfig::default()) {
+            Ok(tok) => Arc::new(tok),
+            Err(_) => return,
+        };
+        let temp = TempDir::new().unwrap();
+        let vault = temp.path().join("vault");
+        std::fs::create_dir_all(&vault).unwrap();
+
+        // Create source file and index it directly first
+        let src_path = vault.join("old_name.md");
+        std::fs::write(&src_path, "# Old name\n\nContent here.").unwrap();
+
+        let db = Arc::new(Mutex::new(NoteDatabase::open_in_memory().unwrap()));
+        let config = IndexConfig {
+            notes_dir: vault.clone(),
+            ..Default::default()
+        };
+
+        // Pre-index the old name file
+        {
+            let db = db.lock().unwrap();
+            let _ = index_file_with_embedder(
+                &db, &tokenizer, None, &src_path, "old_name.md", &config,
+            );
+        }
+        assert_eq!(db.lock().unwrap().stats().unwrap().total_files, 1);
+
+        // Create rename event: old_name.md -> new_name.md
+        let new_path = vault.join("new_name.md");
+        let event = NotifyEvent {
+            kind: EventKind::Modify(ModifyKind::Name(RenameMode::Both)),
+            paths: vec![src_path.clone(), new_path.clone()],
+            attrs: notify::event::EventAttributes::default(),
+        };
+
+        let watcher = VaultWatcher::new(
+            Arc::clone(&db),
+            Arc::clone(&tokenizer),
+            config,
+            None,
+        );
+
+        // Rename the file on disk (the watcher code reads from disk)
+        std::fs::rename(&src_path, &new_path).unwrap();
+
+        // Handle the rename event
+        watcher.handle_event(&event).unwrap();
+
+        // Verify: old path should no longer be in DB
+        let db = db.lock().unwrap();
+        assert_eq!(db.cached_hash("old_name.md").unwrap(), None,
+            "old path should be deleted from cache");
+
+        // Verify: new path should be indexed
+        assert!(db.cached_hash("new_name.md").unwrap().is_some(),
+            "new path should be indexed");
+        let stats = db.stats().unwrap();
+        assert_eq!(stats.total_files, 1,
+            "should have exactly 1 file indexed");
+    }
 }
