@@ -595,4 +595,86 @@ mod tests {
             .unwrap();
         assert_eq!(journal2.to_lowercase(), "wal", "journal mode should remain WAL after reopen");
     }
+
+    // ── batch ops and metadata consistency ───────────────────────────
+
+    #[test]
+    fn test_insert_chunks_different_indices_same_path() {
+        let db = NoteDatabase::open_in_memory().unwrap();
+        let chunk1 = Chunk {
+            id: None,
+            file_path: "test.md".into(),
+            chunk_index: 0,
+            parent_header: None,
+            content: "content1".into(),
+            tokenized_content: "content1".into(),
+        };
+        let chunk2 = Chunk {
+            id: None,
+            file_path: "test.md".into(),
+            chunk_index: 1,
+            parent_header: None,
+            content: "content2".into(),
+            tokenized_content: "content2".into(),
+        };
+
+        let ids1 = db.insert_chunks(&[chunk1]).unwrap();
+        let ids2 = db.insert_chunks(&[chunk2]).unwrap();
+        assert_ne!(ids1[0], ids2[0], "different indices should get different IDs");
+    }
+
+    #[test]
+    fn test_get_chunks_by_ids_large_batch() {
+        let db = NoteDatabase::open_in_memory().unwrap();
+        let mut chunks = Vec::new();
+        for i in 0..100 {
+            chunks.push(Chunk {
+                id: None,
+                file_path: format!("file{}.md", i),
+                chunk_index: 0,
+                parent_header: None,
+                content: format!("content{}", i),
+                tokenized_content: format!("content{}", i),
+            });
+        }
+
+        let ids = db.insert_chunks(&chunks).unwrap();
+        let retrieved = db.get_chunks_by_ids(&ids).unwrap();
+        assert_eq!(retrieved.len(), 100, "should retrieve all inserted chunks");
+    }
+
+    #[test]
+    fn test_fts_search_deduplication() {
+        let db = NoteDatabase::open_in_memory().unwrap();
+        let chunk = Chunk {
+            id: None,
+            file_path: "test.md".into(),
+            chunk_index: 0,
+            parent_header: None,
+            content: "search term here".into(),
+            tokenized_content: "search term here".into(),
+        };
+
+        db.insert_chunks(&[chunk]).unwrap();
+        let results = db.fts_search("search", 10).unwrap();
+        assert_eq!(results.len(), 1, "unique chunks should appear once");
+    }
+
+    #[test]
+    fn test_metadata_consistency_after_chunk_insert() {
+        let db = NoteDatabase::open_in_memory().unwrap();
+        db.upsert_file_cache("test.md", "abcd1234", 1000, "hash").unwrap();
+
+        let chunk = Chunk {
+            id: None,
+            file_path: "test.md".into(),
+            chunk_index: 0,
+            parent_header: None,
+            content: "content".into(),
+            tokenized_content: "content".into(),
+        };
+
+        let ids = db.insert_chunks(&[chunk]).unwrap();
+        assert!(!ids.is_empty(), "chunk insert should succeed after metadata insert");
+    }
 }
