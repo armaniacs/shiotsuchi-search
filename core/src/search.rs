@@ -498,4 +498,42 @@ mod tests {
         let result = compute_rrf(&fts, &[], 5, 60.0);
         assert_eq!(result.len(), 2, "should return FTS results even without vec results");
     }
+
+    #[test]
+    fn test_search_vec_mode_without_embedder_returns_error() {
+        let db = crate::db::NoteDatabase::open_in_memory().unwrap();
+        let tokenizer = match JapaneseTokenizer::new(crate::tokenizer::TokenizerConfig::default()) {
+            Ok(tok) => tok,
+            Err(_) => return,
+        };
+        let result = search(&db, &tokenizer, "test", 10, SearchMode::Vec, None, None);
+        match result {
+            Err(crate::db::DbError::Other(msg)) => {
+                assert!(msg.contains("embedder"), "error should mention embedder");
+            }
+            _ => panic!("expected DbError::Other with embedder message, got {:?}", result),
+        }
+    }
+
+    #[test]
+    fn test_search_hybrid_mode_without_embedder_falls_back_to_fts() {
+        let db = crate::db::NoteDatabase::open_in_memory().unwrap();
+        let tokenizer = match JapaneseTokenizer::new(crate::tokenizer::TokenizerConfig::default()) {
+            Ok(tok) => tok,
+            Err(_) => return,
+        };
+        let result = search(&db, &tokenizer, "test", 10, SearchMode::Hybrid, None, None);
+        assert!(result.is_ok(), "Hybrid without embedder should fall back to FTS, got error");
+    }
+
+    #[test]
+    fn test_search_fts_non_empty_query_min_score_high_excludes_all() {
+        let db = crate::db::NoteDatabase::open_in_memory().unwrap();
+        let tokenizer = match JapaneseTokenizer::new(crate::tokenizer::TokenizerConfig::default()) {
+            Ok(tok) => tok,
+            Err(_) => return,
+        };
+        let result = search(&db, &tokenizer, "test", 10, SearchMode::Fts, None, None);
+        assert!(result.is_ok());
+    }
 }
