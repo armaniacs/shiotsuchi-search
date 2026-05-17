@@ -733,4 +733,82 @@ mod tests {
         // index_file_with_embedder. Full coverage requires an ONNX model.
         assert!(true, "embed_and_insert_chunks compiled successfully");
     }
+
+    #[test]
+    fn test_escape_glob_literal_basic() {
+        assert_eq!(escape_glob_literal("normal"), "normal");
+        assert_eq!(escape_glob_literal("path/to/file"), "path/to/file");
+    }
+
+    #[test]
+    fn test_escape_glob_literal_special_chars() {
+        assert_eq!(escape_glob_literal("file*"), "file\\*");
+        assert_eq!(escape_glob_literal("file?"), "file\\?");
+        assert_eq!(escape_glob_literal("[test]"), "\\[test\\]");
+        assert_eq!(escape_glob_literal("{a,b}"), "\\{a,b\\}");
+        assert_eq!(escape_glob_literal("back\\slash"), "back\\\\slash");
+    }
+
+    #[test]
+    fn test_escape_glob_literal_multiple_special() {
+        assert_eq!(escape_glob_literal("a*b?c[d]e{f}g"), "a\\*b\\?c\\[d\\]e\\{f\\}g");
+    }
+
+    #[test]
+    fn test_escape_glob_literal_empty_string() {
+        assert_eq!(escape_glob_literal(""), "");
+    }
+
+    #[test]
+    fn test_sha256_hex_known_input() {
+        let empty_hash = sha256_hex("");
+        assert_eq!(empty_hash.len(), 64, "SHA-256 hex should be 64 chars");
+        assert_eq!(empty_hash, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+        let hello_hash = sha256_hex("hello");
+        assert_eq!(hello_hash, "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824");
+    }
+
+    #[test]
+    fn test_sha256_hex_different_inputs_different_hashes() {
+        let a = sha256_hex("content A");
+        let b = sha256_hex("content B");
+        assert_ne!(a, b, "different inputs should produce different hashes");
+    }
+
+    #[test]
+    fn test_sha256_hex_unicode() {
+        let hash = sha256_hex("東京 検索");
+        assert_eq!(hash.len(), 64);
+        assert_eq!(sha256_hex("東京 検索"), sha256_hex("東京 検索"));
+    }
+
+    #[test]
+    fn test_file_mtime_existing_file_returns_positive() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test.txt");
+        std::fs::write(&path, "content").unwrap();
+        let mtime = file_mtime(&path);
+        assert!(mtime > 0, "mtime should be positive for existing file");
+    }
+
+    #[test]
+    fn test_file_mtime_nonexistent_file_returns_zero() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("nonexistent.txt");
+        let mtime = file_mtime(&path);
+        assert_eq!(mtime, 0, "mtime should be 0 for nonexistent file");
+    }
+
+    #[test]
+    fn test_file_mtime_newer_file_has_newer_mtime() {
+        let dir = TempDir::new().unwrap();
+        let old_path = dir.path().join("old.txt");
+        let new_path = dir.path().join("new.txt");
+        std::fs::write(&old_path, "old").unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        std::fs::write(&new_path, "new").unwrap();
+        let old_mtime = file_mtime(&old_path);
+        let new_mtime = file_mtime(&new_path);
+        assert!(new_mtime >= old_mtime, "newer file should have >= mtime");
+    }
 }
