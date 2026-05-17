@@ -574,4 +574,26 @@ mod tests {
         let result = verify_model_hash(&path).unwrap();
         assert!(!result, "model with non-matching hash should return false");
     }
+
+    #[test]
+    fn test_embedder_status_ready_serialization() {
+        let status = EmbedderStatus::Ready;
+        let json = serde_json::to_string(&status).unwrap();
+        assert_eq!(json, "\"ready\"", "Ready status should serialize as 'ready' with snake_case");
+    }
+
+    #[test]
+    fn test_embedder_status_unavailable_serialization() {
+        let status = EmbedderStatus::Unavailable("model file not found".into());
+        let json = serde_json::to_string(&status).unwrap();
+        assert!(json.contains("unavailable"));
+        assert!(json.contains("model file not found"));
+    }
+
+    #[test]
+    fn test_compute_model_id_io_error_on_directory() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let result = compute_model_id(dir.path());
+        assert!(result.is_err(), "computing hash on a directory should fail");
+    }
 }
