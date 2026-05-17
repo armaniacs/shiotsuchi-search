@@ -386,6 +386,7 @@ impl NoteDatabase {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::TempDir;
 
     #[test]
     fn test_init_schema_fresh() {
@@ -548,5 +549,50 @@ mod tests {
         let mode: String = db.write_conn.borrow()
             .query_row("PRAGMA journal_mode", [], |r| r.get(0)).unwrap();
         assert_eq!(mode.to_lowercase(), "wal");
+    }
+
+    #[test]
+    fn test_get_chunks_by_ids_nonexistent_returns_empty() {
+        let db = NoteDatabase::open_in_memory().unwrap();
+        let result = db.get_chunks_by_ids(&[99999, 88888]).unwrap();
+        assert!(result.is_empty(), "non-existent IDs should return empty vec");
+    }
+
+    #[test]
+    fn test_get_chunks_by_ids_mixed_existing_and_nonexistent() {
+        let db = NoteDatabase::open_in_memory().unwrap();
+        let chunk = Chunk {
+            id: None,
+            file_path: "exists.md".into(),
+            chunk_index: 0,
+            parent_header: None,
+            content: "test".into(),
+            tokenized_content: "test".into(),
+        };
+        let ids = db.insert_chunks(&[chunk]).unwrap();
+        assert_eq!(ids.len(), 1);
+
+        let result = db.get_chunks_by_ids(&[ids[0], 99999]).unwrap();
+        assert_eq!(result.len(), 1, "should only return the existing chunk");
+    }
+
+    #[test]
+    fn test_wal_mode_persists_after_reopen() {
+        let dir = TempDir::new().unwrap();
+        let db_path = dir.path().join("test.db");
+        {
+            let db = NoteDatabase::open(&db_path).unwrap();
+            let journal: String = db.write_conn.borrow()
+                .pragma_query_value(None, "journal_mode", |r| r.get(0))
+                .unwrap();
+            assert_eq!(journal.to_lowercase(), "wal", "journal mode should be WAL on fresh DB");
+            db.upsert_file_cache("test.md", "hash", 1000, "none").unwrap();
+        }
+
+        let db2 = NoteDatabase::open(&db_path).unwrap();
+        let journal2: String = db2.write_conn.borrow()
+            .pragma_query_value(None, "journal_mode", |r| r.get(0))
+            .unwrap();
+        assert_eq!(journal2.to_lowercase(), "wal", "journal mode should remain WAL after reopen");
     }
 }
