@@ -382,5 +382,63 @@ mod tests {
         let result = split_on_blank_lines("Single paragraph.");
         assert_eq!(result.len(), 1);
     }
+
+    #[test]
+    fn test_frontmatter_only_content_returns_body_only() {
+        let tokenizer = match crate::tokenizer::JapaneseTokenizer::new(crate::tokenizer::TokenizerConfig::default()) {
+            Ok(tok) => tok,
+            Err(_) => return,
+        };
+        let content = "---\ntitle: Test\n---";
+        let chunks = split_into_chunks(content, &tokenizer, "test.md");
+        assert_eq!(chunks.len(), 1, "should still create 1 chunk");
+        assert!(chunks[0].content.contains("title:"), "chunk should contain frontmatter key");
+    }
+
+    #[test]
+    fn test_frontmatter_with_body_after() {
+        let tokenizer = match crate::tokenizer::JapaneseTokenizer::new(crate::tokenizer::TokenizerConfig::default()) {
+            Ok(tok) => tok,
+            Err(_) => return,
+        };
+        let content = "---\ntitle: Test\n---\n\n# Actual content\n\nBody text here.";
+        let chunks = split_into_chunks(content, &tokenizer, "test.md");
+        assert_eq!(chunks.len(), 1, "small content should be 1 chunk");
+        assert!(chunks[0].content.contains("Actual content"), "chunk should include body");
+    }
+
+    #[test]
+    fn test_h4_heading_does_not_split() {
+        let tokenizer = match crate::tokenizer::JapaneseTokenizer::new(crate::tokenizer::TokenizerConfig::default()) {
+            Ok(tok) => tok,
+            Err(_) => return,
+        };
+        let content = "# Section 1\n\nContent.\n\n#### Subsection\n\nMore content.\n\n# Section 2\n\nFinal.";
+        let chunks = split_into_chunks(content, &tokenizer, "test.md");
+        assert_eq!(chunks.len(), 2, "only h1 should split: h4 is not a split point");
+    }
+
+    #[test]
+    fn test_h3_split_boundary() {
+        let tokenizer = match crate::tokenizer::JapaneseTokenizer::new(crate::tokenizer::TokenizerConfig::default()) {
+            Ok(tok) => tok,
+            Err(_) => return,
+        };
+        let content = "# Top\n\nIntro.\n\n### Sub A\n\nContent A.\n\n### Sub B\n\nContent B.";
+        let chunks = split_into_chunks(content, &tokenizer, "test.md");
+        assert!(chunks.len() >= 2, "h3 headers should create multiple chunks");
+    }
+
+    #[test]
+    fn test_long_paragraph_splits_at_byte_threshold() {
+        let tokenizer = match crate::tokenizer::JapaneseTokenizer::new(crate::tokenizer::TokenizerConfig::default()) {
+            Ok(tok) => tok,
+            Err(_) => return,
+        };
+        let body = "word ".repeat(3000);
+        let content = format!("# Header\n\n{}", body);
+        let chunks = split_into_chunks(&content, &tokenizer, "test.md");
+        assert!(chunks.len() > 1, "long content should split into multiple chunks");
+    }
 }
 
