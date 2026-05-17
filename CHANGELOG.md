@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.7] - 2026-05-17
+
+### Added
+- **58 new unit tests** across all core modules, closing coverage gaps in helper functions, edge cases, and security-critical paths:
+
+  - **Chunker** (`chunker.rs`): Direct tests for `header_level()` (h1–h3, h4+ ignored, invalid formats, leading whitespace, unicode), `split_by_headers()` (code block awareness, mixed fence types, header hierarchy, level popping, empty sections), and `split_on_blank_lines()` (consecutive blank collapse, whitespace-only lines, code block blank line pass-through, tilde/indented fence markers, empty result). (18 new tests)
+
+  - **Embedder** (`embedder.rs`): Full edge-case coverage for `mean_pool_l2_normalize()` (all-zero input, single token, masked tokens, all-masked sequence, unit vector verification, variable hidden sizes). Added `resolve_model_path()` path structure assertion. (7 new tests)
+
+  - **Search** (`search.rs`): `extract_snippet()` edge cases for query-at-start, query-at-end, multi-token queries, `max_lines=0`, very long documents, and case-insensitive matching. (6 new tests)
+
+  - **Tokenizer** (`tokenizer.rs`): `simple_and_query()` edge cases (quote escaping, tab/newline separation). `simple_tokenize()` unicode support. `collect_tokens()` with empty input, single/multi-line Japanese, blank line skipping, and POS filter variations (noun filter, multiple prefixes, keep_untagged). (12 new tests)
+
+  - **Watcher** (`watcher.rs`): `is_path_within_vault()` regular file acceptance test. (1 new test; symlink escape, symlink inside, and nonexistent path tests already existed)
+
+  - **Indexer** (`indexer.rs`): `build_exclude_globset()` literal component matching patterns (bracket literals, recursive depth, multi-pattern, extension-as-component). `escape_glob_literal()` backslash chain. (6 new tests)
+
+  - **DB** (`db.rs`): Batch retrieval of 100 chunks via `get_chunks_by_ids()`, FTS search deduplication verification, metadata-before-chunk consistency, and same-path different-index insert. (4 new tests)
+
+  - **Paths** (`paths.rs`): `xdg_cache_home()`, `home_dir()`, `default_db_path()` cache directory assertion, and parent path plausibility check. (4 new tests)
+
+### Changed
+- None
+
+### Fixed
+- `test_split_on_blank_lines_code_block_blank_lines_not_split` input adjusted to match actual `split_on_blank_lines` behavior (blank line after closing fence is a valid paragraph separator).
+
 ## [0.3.6] - 2026-05-17
 
 ### Changed
@@ -370,7 +397,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `docs/MODEL_LICENSES.md` with BSD-3-Clause notice for the bundled tokenizer model
 - `README.md` (English) and `README.ja.md` (Japanese)
 
-[Unreleased]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.3.6...HEAD
+[Unreleased]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.3.7...HEAD
+[0.3.7]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.3.6...v0.3.7
 [0.3.6]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.3.5...v0.3.6
  [0.3.3]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.3.2...v0.3.3
  [0.3.2]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.3.1...v0.3.2
