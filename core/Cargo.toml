@@ -33,7 +33,7 @@ thiserror = "2"
 # For production, set ORT_LIB_LOCATION env var to use system-installed ONNX Runtime instead.
 ort = { version = "2.0.0-rc.12", default-features = false, features = ["std", "download-binaries", "tls-rustls"] }
 indicatif = "0.17"
-notify = { version = "6", optional = true }
+notify = { version = "9.0.0-rc.4", optional = true }
 log = "0.4"
 dirs = "5"
 sqlite-vec = "0.1"
