@@ -884,4 +884,65 @@ mod tests {
         assert!(!results[0].0.is_empty(), "should have a relative path");
         assert_eq!(invalid, 0, "no invalid patterns");
     }
+
+    // ── build_exclude_globset literal pattern matching ───────────────
+
+    #[test]
+    fn test_build_exclude_globset_literal_with_brackets() {
+        // The function escapes [ ] so they're treated literally
+        let patterns = vec!["[test]".to_string()];
+        let (set, invalid) = build_exclude_globset(&patterns);
+        assert_eq!(invalid, 0);
+        assert!(set.is_match("dir/[test]/notes.md"));
+        assert!(!set.is_match("dir/t/notes.md")); // [test] is literal, not char class
+    }
+
+    #[test]
+    fn test_build_exclude_globset_recursive_literal_at_any_depth() {
+        // The function wraps in **/{}/**, so "notes" matches at any depth
+        let patterns = vec!["notes".to_string()];
+        let (set, invalid) = build_exclude_globset(&patterns);
+        assert_eq!(invalid, 0);
+        assert!(set.is_match("a/notes/b/file.md"));
+        assert!(!set.is_match("not_notes/file.md"));
+    }
+
+    #[test]
+    fn test_build_exclude_globset_literal_component_matching() {
+        // The function wraps in **/{}/**, so "tmpdir" matches as a path component
+        let patterns = vec!["tmpdir".to_string()];
+        let (set, invalid) = build_exclude_globset(&patterns);
+        assert_eq!(invalid, 0);
+        assert!(set.is_match("tmpdir/file.md"));
+        assert!(set.is_match("a/tmpdir/b/file.md"));
+        assert!(!set.is_match("file.tmpdir"));
+    }
+
+    #[test]
+    fn test_build_exclude_globset_multiple_literals() {
+        let patterns = vec![
+            "archive".to_string(),
+            "backup".to_string(),
+        ];
+        let (set, invalid) = build_exclude_globset(&patterns);
+        assert_eq!(invalid, 0);
+        assert!(set.is_match("dir/archive/notes.md"));
+        assert!(set.is_match("dir/backup/notes.md"));
+        assert!(!set.is_match("dir/active/notes.md"));
+    }
+
+    #[test]
+    fn test_build_exclude_globset_extension_as_component() {
+        // ".bak" is escaped and wrapped as **/.bak/**, matching it as a component
+        let patterns = vec![".bak".to_string()];
+        let (set, invalid) = build_exclude_globset(&patterns);
+        assert_eq!(invalid, 0);
+        assert!(set.is_match("dir/.bak/notes.md"));
+        assert!(!set.is_match("file.bak"));
+    }
+
+    #[test]
+    fn test_escape_glob_literal_backslash_chain() {
+        assert_eq!(escape_glob_literal("a\\b\\c"), "a\\\\b\\\\c");
+    }
 }
