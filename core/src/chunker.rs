@@ -440,5 +440,148 @@ mod tests {
         let chunks = split_into_chunks(&content, &tokenizer, "test.md");
         assert!(chunks.len() > 1, "long content should split into multiple chunks");
     }
+
+    // ── header_level direct tests ────────────────────────────────────
+
+    #[test]
+    fn test_header_level_h1_to_h3() {
+        assert_eq!(header_level("# Title"), Some(1));
+        assert_eq!(header_level("## Subtitle"), Some(2));
+        assert_eq!(header_level("### Subsubtitle"), Some(3));
+    }
+
+    #[test]
+    fn test_header_level_h4_and_deeper_not_split_points() {
+        assert_eq!(header_level("#### Deep"), None);
+        assert_eq!(header_level("##### Deeper"), None);
+        assert_eq!(header_level("###### Deepest"), None);
+    }
+
+    #[test]
+    fn test_header_level_invalid_formats() {
+        assert_eq!(header_level("#NoSpace"), None);
+        assert_eq!(header_level("###"), None);
+        assert_eq!(header_level("regular text"), None);
+    }
+
+    #[test]
+    fn test_header_level_with_trailing_content() {
+        assert_eq!(header_level("# Title | pipe"), Some(1));
+        assert_eq!(header_level("## Code: `sample()`"), Some(2));
+    }
+
+    #[test]
+    fn test_header_level_with_leading_whitespace() {
+        assert_eq!(header_level("  # Indented"), Some(1));
+        assert_eq!(header_level("\t## Tab"), Some(2));
+    }
+
+    #[test]
+    fn test_header_level_unicode_title() {
+        assert_eq!(header_level("# 日本語タイトル"), Some(1));
+        assert_eq!(header_level("## 中文标题"), Some(2));
+    }
+
+    // ── split_by_headers direct tests ────────────────────────────────
+
+    #[test]
+    fn test_split_by_headers_header_in_code_block_not_split() {
+        let md = "# Real Header\n\nContent.\n\n```\n# Fake Header\ncode\n```\n\nMore.";
+        let sections = split_by_headers(md);
+        assert_eq!(sections.len(), 1);
+        assert!(sections[0].1.contains("# Fake Header"));
+    }
+
+    #[test]
+    fn test_split_by_headers_mixed_fence_types() {
+        let md = "# Header\n\n```\ncode1\n~~~\nfake close\n```\n\nMore.";
+        let sections = split_by_headers(md);
+        assert_eq!(sections.len(), 1, "code block spanning multiple fence types");
+    }
+
+    #[test]
+    fn test_split_by_headers_h1_then_h2_then_h3() {
+        let md = "# H1\n\nA\n\n## H2\n\nB\n\n### H3\n\nC";
+        let sections = split_by_headers(md);
+        assert_eq!(sections.len(), 3);
+        assert_eq!(sections[0].0, vec!["H1"]);
+        assert_eq!(sections[1].0, vec!["H1", "H2"]);
+        assert_eq!(sections[2].0, vec!["H1", "H2", "H3"]);
+    }
+
+    #[test]
+    fn test_split_by_headers_header_level_pop() {
+        let md = "# H1\n## H2a\nContent A\n## H2b\nContent B";
+        let sections = split_by_headers(md);
+        assert_eq!(sections.len(), 3);
+        assert_eq!(sections[1].0, vec!["H1", "H2a"]);
+        assert_eq!(sections[2].0, vec!["H1", "H2b"]);
+    }
+
+    #[test]
+    fn test_split_by_headers_empty_sections() {
+        let md = "# A\n# B\n# C";
+        let sections = split_by_headers(md);
+        assert!(sections.len() >= 2);
+    }
+
+    #[test]
+    fn test_split_by_headers_unicode_headers() {
+        let md = "# 日本語\n\n内容\n\n## 中文\n\n中文内容";
+        let sections = split_by_headers(md);
+        assert_eq!(sections.len(), 2);
+        assert_eq!(sections[0].0, vec!["日本語"]);
+        assert_eq!(sections[1].0, vec!["日本語", "中文"]);
+    }
+
+    // ── split_on_blank_lines edge cases ──────────────────────────────
+
+    #[test]
+    fn test_split_on_blank_lines_consecutive_blank_lines_collapsed() {
+        let text = "Para 1\n\n\n\nPara 2";
+        let paras = split_on_blank_lines(text);
+        assert_eq!(paras.len(), 2, "consecutive blanks should be treated as one split");
+    }
+
+    #[test]
+    fn test_split_on_blank_lines_whitespace_only_is_blank() {
+        let text = "Para 1\n  \n\t\nPara 2";
+        let paras = split_on_blank_lines(text);
+        assert_eq!(paras.len(), 2, "whitespace-only lines are blank lines");
+    }
+
+    #[test]
+    fn test_split_on_blank_lines_code_block_blank_lines_not_split() {
+        // No blank line after closing fence — blank inside code block should not split
+        let text = "Para 1\n\n```\ncode\n\nwith blank\n```\nPara 2";
+        let paras = split_on_blank_lines(text);
+        assert_eq!(paras.len(), 2);
+        // First paragraph should NOT include code block content (separated by blank line)
+        assert!(!paras[0].contains("code"), "code block should be in second paragraph");
+        // Whole code block stays in one paragraph despite internal blank line
+        assert!(paras[1].contains("code"));
+        assert!(paras[1].contains("Para 2"));
+    }
+
+    #[test]
+    fn test_split_on_blank_lines_tilde_fence() {
+        let text = "Para 1\n~~~\ncode\n~~~\n\nPara 2";
+        let paras = split_on_blank_lines(text);
+        assert_eq!(paras.len(), 2);
+    }
+
+    #[test]
+    fn test_split_on_blank_lines_indented_fence_markers() {
+        let text = "Para 1\n  ```\ncode\n  ```\n\nPara 2";
+        let paras = split_on_blank_lines(text);
+        assert_eq!(paras.len(), 2);
+    }
+
+    #[test]
+    fn test_split_on_blank_lines_empty_result() {
+        let text = "   \n\n   ";
+        let paras = split_on_blank_lines(text);
+        assert_eq!(paras.len(), 0, "only blank lines yields empty result");
+    }
 }
 
