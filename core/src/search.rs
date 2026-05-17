@@ -154,21 +154,16 @@ fn search_vec(
     Ok(results)
 }
 
-/// Hybrid search using Reciprocal Rank Fusion (RRF) to merge FTS + vec results.
-/// RRF score = 1/(k + rank_fts) + 1/(k + rank_vec), higher = more relevant.
-fn search_hybrid(
-    db: &NoteDatabase,
-    tokenizer: &JapaneseTokenizer,
-    embedder: &crate::embedder::Embedder,
-    query: &str,
+/// Compute Reciprocal Rank Fusion scores from FTS and vec search results.
+///
+/// `k` is the RRF constant (default 60.0). Higher RRF score = more relevant.
+/// Results are sorted by RRF score descending and truncated to `limit`.
+pub(crate) fn compute_rrf(
+    fts_results: &[ChunkSearchResult],
+    vec_results: &[ChunkSearchResult],
     limit: usize,
-    min_score: Option<f64>,
-) -> Result<Vec<ChunkSearchResult>, DbError> {
-    const K: f64 = 60.0;
-
-    let fts_results = search_fts(db, tokenizer, query, limit * 2, None)?;
-    let vec_results = search_vec(db, embedder, query, limit * 2, None)?;
-
+    k: f64,
+) -> Vec<(i64, f64)> {
     // Build rank maps: chunk_id → 1-based rank
     let fts_ranks: HashMap<i64, usize> = fts_results
         .iter()
@@ -190,8 +185,8 @@ fn search_hybrid(
     let mut rrf_scores: Vec<(i64, f64)> = all_ids
         .into_iter()
         .map(|id| {
-            let fts_contrib = fts_ranks.get(&id).map(|&r| 1.0 / (K + r as f64)).unwrap_or(0.0);
-            let vec_contrib = vec_ranks.get(&id).map(|&r| 1.0 / (K + r as f64)).unwrap_or(0.0);
+            let fts_contrib = fts_ranks.get(&id).map(|&r| 1.0 / (k + r as f64)).unwrap_or(0.0);
+            let vec_contrib = vec_ranks.get(&id).map(|&r| 1.0 / (k + r as f64)).unwrap_or(0.0);
             (id, fts_contrib + vec_contrib)
         })
         .collect();
@@ -199,6 +194,25 @@ fn search_hybrid(
     // Sort by RRF score descending (higher = more relevant)
     rrf_scores.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
     rrf_scores.truncate(limit);
+    rrf_scores
+}
+
+/// Hybrid search using Reciprocal Rank Fusion (RRF) to merge FTS + vec results.
+/// RRF score = 1/(k + rank_fts) + 1/(k + rank_vec), higher = more relevant.
+fn search_hybrid(
+    db: &NoteDatabase,
+    tokenizer: &JapaneseTokenizer,
+    embedder: &crate::embedder::Embedder,
+    query: &str,
+    limit: usize,
+    min_score: Option<f64>,
+) -> Result<Vec<ChunkSearchResult>, DbError> {
+    const K: f64 = 60.0;
+
+    let fts_results = search_fts(db, tokenizer, query, limit * 2, None)?;
+    let vec_results = search_vec(db, embedder, query, limit * 2, None)?;
+
+    let rrf_scores = compute_rrf(&fts_results, &vec_results, limit, K);
 
     if rrf_scores.is_empty() {
         return Ok(vec![]);
@@ -386,5 +400,102 @@ mod tests {
         let results = search(&db, &tokenizer, "hybrid fallback", 10, SearchMode::Hybrid, None, None).unwrap();
         assert!(!results.is_empty());
         assert!(matches!(results[0].search_mode, SearchMode::Fts));
+    }
+
+    #[test]
+    fn test_compute_rrf_identical_rankings() {
+        let make = |id: i64, score: f64| -> ChunkSearchResult {
+            ChunkSearchResult {
+                chunk_id: id,
+                file_path: format!("{}.md", id),
+                parent_header: None,
+                content: String::new(),
+                score,
+                search_mode: SearchMode::Fts,
+            }
+        };
+
+        // Both FTS and vec return the same 3 chunks in the same order
+        let fts = vec![make(1, 1.0), make(2, 2.0), make(3, 3.0)];
+        let vec = vec![make(1, 0.5), make(2, 1.0), make(3, 1.5)];
+
+        let result = compute_rrf(&fts, &vec, 3, 60.0);
+        assert_eq!(result.len(), 3, "should return all 3 results");
+
+        // Chunk 1 appears at rank 1 in both → highest RRF score
+        // Chunk 3 appears at rank 3 in both → lowest RRF score
+        assert_eq!(result[0].0, 1, "chunk 1 should be first, got {:?}", result[0]);
+        assert_eq!(result[2].0, 3, "chunk 3 should be last, got {:?}", result[2]);
+    }
+
+    #[test]
+    fn test_compute_rrf_disjoint_sets() {
+        let make = |id: i64, score: f64| -> ChunkSearchResult {
+            ChunkSearchResult {
+                chunk_id: id,
+                file_path: format!("{}.md", id),
+                parent_header: None,
+                content: String::new(),
+                score,
+                search_mode: SearchMode::Fts,
+            }
+        };
+
+        // FTS finds chunks 1, 2; vec finds chunks 3, 4
+        let fts = vec![make(1, 1.0), make(2, 2.0)];
+        let vec = vec![make(3, 0.5), make(4, 1.0)];
+
+        let result = compute_rrf(&fts, &vec, 4, 60.0);
+        assert_eq!(result.len(), 4, "should return all 4 unique chunks");
+
+        // Each chunk gets contribution from only one source
+        for (_id, score) in &result {
+            assert!(*score > 0.0, "all scores should be positive");
+            assert!(*score < 0.02, "single-source scores should be < 0.02");
+        }
+    }
+
+    #[test]
+    fn test_compute_rrf_respects_limit() {
+        let make = |id: i64, score: f64| -> ChunkSearchResult {
+            ChunkSearchResult {
+                chunk_id: id,
+                file_path: format!("{}.md", id),
+                parent_header: None,
+                content: String::new(),
+                score,
+                search_mode: SearchMode::Fts,
+            }
+        };
+
+        let fts = vec![make(1, 1.0), make(2, 2.0), make(3, 3.0)];
+        let vec = vec![make(1, 0.5), make(2, 1.0)];
+
+        let result = compute_rrf(&fts, &vec, 2, 60.0);
+        assert_eq!(result.len(), 2, "should return only 2 results (limited)");
+    }
+
+    #[test]
+    fn test_compute_rrf_empty_inputs() {
+        let result = compute_rrf(&[], &[], 10, 60.0);
+        assert!(result.is_empty(), "empty inputs should produce empty results");
+    }
+
+    #[test]
+    fn test_compute_rrf_one_source_empty() {
+        let make = |id: i64, score: f64| -> ChunkSearchResult {
+            ChunkSearchResult {
+                chunk_id: id,
+                file_path: format!("{}.md", id),
+                parent_header: None,
+                content: String::new(),
+                score,
+                search_mode: SearchMode::Fts,
+            }
+        };
+
+        let fts = vec![make(1, 1.0), make(2, 2.0)];
+        let result = compute_rrf(&fts, &[], 5, 60.0);
+        assert_eq!(result.len(), 2, "should return FTS results even without vec results");
     }
 }
