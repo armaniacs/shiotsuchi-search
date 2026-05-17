@@ -448,6 +448,49 @@ mod tests {
     }
 
     #[test]
+    fn test_content_roundtrip_via_get_chunks_by_ids() {
+        let db = NoteDatabase::open_in_memory().unwrap();
+        let chunks = vec![
+            Chunk {
+                id: None,
+                file_path: "a.md".into(),
+                chunk_index: 0,
+                parent_header: None,
+                content: "Hello world content with unique marker 98765".into(),
+                tokenized_content: "Hello world content with unique marker 98765".into(),
+            },
+            Chunk {
+                id: None,
+                file_path: "b.md".into(),
+                chunk_index: 5,
+                parent_header: Some("# Section > Subsection".into()),
+                content: "Second chunk with different text ABCDEF".into(),
+                tokenized_content: "Second chunk with different text ABCDEF".into(),
+            },
+        ];
+        let ids = db.insert_chunks(&chunks).unwrap();
+        assert_eq!(ids.len(), 2);
+
+        let retrieved = db.get_chunks_by_ids(&ids).unwrap();
+        assert_eq!(retrieved.len(), 2);
+
+        // Verify field-by-field for each chunk
+        // First chunk
+        assert_eq!(retrieved[0].file_path, "a.md");
+        assert_eq!(retrieved[0].chunk_index, 0);
+        assert_eq!(retrieved[0].parent_header, None);
+        assert_eq!(retrieved[0].content, "Hello world content with unique marker 98765");
+        assert_eq!(retrieved[0].tokenized_content, "Hello world content with unique marker 98765");
+
+        // Second chunk
+        assert_eq!(retrieved[1].file_path, "b.md");
+        assert_eq!(retrieved[1].chunk_index, 5);
+        assert_eq!(retrieved[1].parent_header.as_deref(), Some("# Section > Subsection"));
+        assert_eq!(retrieved[1].content, "Second chunk with different text ABCDEF");
+        assert_eq!(retrieved[1].tokenized_content, "Second chunk with different text ABCDEF");
+    }
+
+    #[test]
     fn test_delete_chunks_removes_fts_entries() {
         let db = NoteDatabase::open_in_memory().unwrap();
         let chunks = vec![
@@ -463,14 +506,32 @@ mod tests {
 
     #[test]
     #[cfg(unix)]
-    fn test_db_file_permissions() {
+    fn test_db_file_and_companion_permissions() {
         use std::os::unix::fs::PermissionsExt;
         let temp = tempfile::TempDir::new().unwrap();
         let db_path = temp.path().join("test.db");
         let db = NoteDatabase::open(&db_path).unwrap();
+
+        // Perform a write to trigger WAL creation
+        db.upsert_file_cache("test.md", "hash", 1000, "none").unwrap();
+
         drop(db);
+
+        // Main DB file
         let meta = std::fs::metadata(&db_path).unwrap();
-        assert_eq!(meta.permissions().mode() & 0o777, 0o600);
+        assert_eq!(meta.permissions().mode() & 0o777, 0o600,
+            "main DB file should be 0o600");
+
+        // Companion files (-wal, -shm)
+        let base = db_path.to_string_lossy();
+        for suffix in ["-wal", "-shm"] {
+            let companion = std::path::PathBuf::from(format!("{}{}", base, suffix));
+            if companion.exists() {
+                let meta = std::fs::metadata(&companion).unwrap();
+                assert_eq!(meta.permissions().mode() & 0o777, 0o600,
+                    "companion file {} should be 0o600", companion.display());
+            }
+        }
     }
 
     #[test]
