@@ -349,4 +349,146 @@ mod tests {
         assert_eq!(stats.total_files, 1,
             "should have exactly 1 file indexed");
     }
+
+    #[test]
+    fn test_handle_event_create_indexes_new_file() {
+        let tokenizer = match JapaneseTokenizer::new(TokenizerConfig::default()) {
+            Ok(tok) => Arc::new(tok),
+            Err(_) => return,
+        };
+        let temp = TempDir::new().unwrap();
+        let vault = temp.path().join("vault");
+        std::fs::create_dir_all(&vault).unwrap();
+        let db = Arc::new(Mutex::new(NoteDatabase::open_in_memory().unwrap()));
+        let config = IndexConfig {
+            notes_dir: vault.clone(),
+            ..Default::default()
+        };
+        let watcher = VaultWatcher::new(
+            Arc::clone(&db),
+            Arc::clone(&tokenizer),
+            config,
+            None,
+        );
+
+        // Create a file inside the vault
+        let new_file = vault.join("new_file.md");
+        std::fs::write(&new_file, "# New file\n\nContent for create event.").unwrap();
+        let event = NotifyEvent {
+            kind: EventKind::Create(notify::event::CreateKind::File),
+            paths: vec![new_file],
+            attrs: notify::event::EventAttributes::default(),
+        };
+
+        watcher.handle_event(&event).unwrap();
+
+        // Verify the file was indexed
+        let db = db.lock().unwrap();
+        let stats = db.stats().unwrap();
+        assert_eq!(stats.total_files, 1, "Create event should index the file");
+    }
+
+    #[test]
+    fn test_handle_event_remove_deletes_from_db() {
+        let tokenizer = match JapaneseTokenizer::new(TokenizerConfig::default()) {
+            Ok(tok) => Arc::new(tok),
+            Err(_) => return,
+        };
+        let temp = TempDir::new().unwrap();
+        let vault = temp.path().join("vault");
+        std::fs::create_dir_all(&vault).unwrap();
+
+        let src_path = vault.join("to_delete.md");
+        std::fs::write(&src_path, "# To delete\n\nContent.").unwrap();
+
+        let db = Arc::new(Mutex::new(NoteDatabase::open_in_memory().unwrap()));
+        let config = IndexConfig {
+            notes_dir: vault.clone(),
+            ..Default::default()
+        };
+
+        // Pre-index the file
+        {
+            let db = db.lock().unwrap();
+            let _ = index_file_with_embedder(
+                &db, &tokenizer, None, &src_path, "to_delete.md", &config,
+            );
+        }
+        assert_eq!(db.lock().unwrap().stats().unwrap().total_files, 1);
+
+        // Create Remove event
+        let event = NotifyEvent {
+            kind: EventKind::Remove(notify::event::RemoveKind::File),
+            paths: vec![src_path],
+            attrs: notify::event::EventAttributes::default(),
+        };
+
+        let watcher = VaultWatcher::new(
+            Arc::clone(&db),
+            Arc::clone(&tokenizer),
+            config,
+            None,
+        );
+
+        watcher.handle_event(&event).unwrap();
+
+        // Verify the file was removed from DB
+        let db = db.lock().unwrap();
+        assert_eq!(db.cached_hash("to_delete.md").unwrap(), None,
+            "Remove event should delete file from cache");
+        let stats = db.stats().unwrap();
+        assert_eq!(stats.total_files, 0, "Remove event should leave 0 files");
+    }
+
+    #[test]
+    fn test_handle_event_modify_any_data_triggers_reindex() {
+        let tokenizer = match JapaneseTokenizer::new(TokenizerConfig::default()) {
+            Ok(tok) => Arc::new(tok),
+            Err(_) => return,
+        };
+        let temp = TempDir::new().unwrap();
+        let vault = temp.path().join("vault");
+        std::fs::create_dir_all(&vault).unwrap();
+
+        let src_path = vault.join("update.md");
+        std::fs::write(&src_path, "# Update\n\nContent v1.").unwrap();
+
+        let db = Arc::new(Mutex::new(NoteDatabase::open_in_memory().unwrap()));
+        let config = IndexConfig {
+            notes_dir: vault.clone(),
+            ..Default::default()
+        };
+
+        // Pre-index the file
+        {
+            let db = db.lock().unwrap();
+            let _ = index_file_with_embedder(
+                &db, &tokenizer, None, &src_path, "update.md", &config,
+            );
+        }
+        assert_eq!(db.lock().unwrap().stats().unwrap().total_files, 1);
+
+        // Modify content on disk
+        std::fs::write(&src_path, "# Update\n\nContent v2 (modified).").unwrap();
+
+        // Fire DataChange::Any event
+        let event = NotifyEvent {
+            kind: EventKind::Modify(ModifyKind::Data(notify::event::DataChange::Any)),
+            paths: vec![src_path],
+            attrs: notify::event::EventAttributes::default(),
+        };
+
+        let watcher = VaultWatcher::new(
+            Arc::clone(&db),
+            Arc::clone(&tokenizer),
+            config,
+            None,
+        );
+
+        watcher.handle_event(&event).unwrap();
+
+        // File should still be indexed (re-indexed)
+        assert!(db.lock().unwrap().cached_hash("update.md").unwrap().is_some(),
+            "file should still be in cache after modify event");
+    }
 }
