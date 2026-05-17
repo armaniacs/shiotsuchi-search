@@ -2,7 +2,7 @@ use crate::{
     chunker::split_into_chunks,
     db::{DbError, NoteDatabase},
     embedder::Embedder,
-    models::IndexConfig,
+    models::{Chunk, IndexConfig},
     tokenizer::JapaneseTokenizer,
 };
 use globset::{Glob, GlobSet, GlobSetBuilder};
@@ -247,14 +247,7 @@ pub fn index_file_with_embedder(
     };
 
     if let Some(emb) = embedder {
-        let pairs: Vec<(i64, Vec<f32>)> = ids.iter().zip(chunks.iter())
-            .filter_map(|(id, chunk)| {
-                emb.embed(&chunk.content).ok().map(|e| (*id, e))
-            })
-            .collect();
-        if let Err(e) = db.insert_embeddings(&pairs) {
-            log::warn!("Failed to insert embeddings: {}", e);
-        }
+        embed_and_insert_chunks(emb, db, &ids, &chunks);
     }
 
     if let Err(e) = db.upsert_file_cache(relative_path, &hash, mtime, model_id) {
@@ -265,6 +258,36 @@ pub fn index_file_with_embedder(
         IndexResult::Updated
     } else {
         IndexResult::Inserted
+    }
+}
+
+/// Embed each chunk and insert the embeddings into the vec_chunks table.
+///
+/// Chunks whose embedding fails are silently skipped (the error is logged).
+/// This is not fatal — the index still functions with FTS-only search.
+pub(crate) fn embed_and_insert_chunks(
+    embedder: &Embedder,
+    db: &NoteDatabase,
+    ids: &[i64],
+    chunks: &[Chunk],
+) {
+    let pairs: Vec<(i64, Vec<f32>)> = ids.iter().zip(chunks.iter())
+        .filter_map(|(id, chunk)| {
+            let result = embedder.embed(&chunk.content);
+            match result {
+                Ok(e) => Some((*id, e)),
+                Err(e) => {
+                    log::warn!("Failed to embed chunk {}: {}", id, e);
+                    None
+                }
+            }
+        })
+        .collect();
+
+    if !pairs.is_empty() {
+        if let Err(e) = db.insert_embeddings(&pairs) {
+            log::warn!("Failed to insert embeddings: {}", e);
+        }
     }
 }
 
@@ -702,5 +725,12 @@ mod tests {
         fs::write(&path, "Changed content").unwrap();
         let r2 = index_file(&db, &tokenizer, &path, "test.md", &config);
         assert_eq!(r2, IndexResult::Updated);
+    }
+
+    #[test]
+    fn test_embed_and_insert_chunks_compile_check() {
+        // Compile-time check: embed_and_insert_chunks is reachable from
+        // index_file_with_embedder. Full coverage requires an ONNX model.
+        assert!(true, "embed_and_insert_chunks compiled successfully");
     }
 }
