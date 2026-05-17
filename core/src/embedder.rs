@@ -596,4 +596,81 @@ mod tests {
         let result = compute_model_id(dir.path());
         assert!(result.is_err(), "computing hash on a directory should fail");
     }
+
+    // ── resolve_model_path additional edge cases ──────────────────────
+
+    #[test]
+    fn test_resolve_model_path_default_xdg_structure() {
+        let result = resolve_model_path(None);
+        match result {
+            Some(p) => {
+                assert!(p.to_string_lossy().contains("shiotsuchi"));
+            }
+            None => {
+                // OK if no model is available
+            }
+        }
+    }
+
+    // ── mean_pool_l2_normalize edge cases ─────────────────────────────
+
+    #[test]
+    fn test_mean_pool_l2_normalize_all_zeros() {
+        let flat = vec![0.0; 12];
+        let attention_mask = vec![1, 1, 1];
+        let result = mean_pool_l2_normalize(&flat, 0, 1, 12, 3, &attention_mask);
+        assert_eq!(result.len(), 12);
+        assert!(result.iter().all(|x| *x == 0.0 || x.is_nan()), "zero vector should result in zeros or NaN");
+    }
+
+    #[test]
+    fn test_mean_pool_l2_normalize_single_token() {
+        let flat = vec![3.0, 4.0]; // magnitude = 5
+        let attention_mask = vec![1];
+        let result = mean_pool_l2_normalize(&flat, 0, 1, 2, 1, &attention_mask);
+        assert_eq!(result.len(), 2);
+        // After L2 norm: [3/5, 4/5] = [0.6, 0.8]
+        assert!((result[0] - 0.6).abs() < 0.01);
+        assert!((result[1] - 0.8).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_mean_pool_l2_normalize_with_masked_tokens() {
+        let flat = vec![1.0, 0.0, 2.0, 0.0]; // seq_len=2, hidden=2
+        let attention_mask = vec![1, 0]; // Only first token counted
+        let result = mean_pool_l2_normalize(&flat, 0, 2, 2, 2, &attention_mask);
+        assert_eq!(result.len(), 2);
+        // Only the first token [1.0, 0.0] should be averaged → unit vector [1, 0]
+        assert!((result[0] - 1.0).abs() < 0.01);
+        assert!((result[1] - 0.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_mean_pool_l2_normalize_all_masked() {
+        let flat = vec![1.0, 2.0];
+        let attention_mask = vec![0]; // No tokens to count
+        let result = mean_pool_l2_normalize(&flat, 0, 1, 2, 1, &attention_mask);
+        assert_eq!(result.len(), 2);
+        // count=0 → mean stays 0 → L2 norm of 0 → output stays 0
+        assert!(result.iter().all(|x| *x == 0.0), "no counted tokens = zero vector");
+    }
+
+    #[test]
+    fn test_mean_pool_l2_normalize_orthogonal_vectors() {
+        let flat = vec![3.0, 4.0]; // magnitude = 5
+        let attention_mask = vec![1];
+        let result = mean_pool_l2_normalize(&flat, 0, 1, 2, 1, &attention_mask);
+        let magnitude = (result[0] * result[0] + result[1] * result[1]).sqrt();
+        assert!((magnitude - 1.0).abs() < 0.001, "result should be unit vector");
+    }
+
+    #[test]
+    fn test_mean_pool_different_hidden_sizes() {
+        let flat = vec![1.0, 2.0, 3.0]; // hidden=3
+        let attention_mask = vec![1];
+        let result = mean_pool_l2_normalize(&flat, 0, 1, 3, 1, &attention_mask);
+        assert_eq!(result.len(), 3);
+        let mag = (result[0] * result[0] + result[1] * result[1] + result[2] * result[2]).sqrt();
+        assert!((mag - 1.0).abs() < 0.001, "normalized to unit vector");
+    }
 }
