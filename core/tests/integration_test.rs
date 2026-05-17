@@ -37,7 +37,7 @@ fn test_end_to_end_index_and_search() {
     // Index
     let db = NoteDatabase::open_in_memory().unwrap();
     let config = IndexConfig {
-        notes_dir: vault.clone(),
+        vaults: vec![("default".to_string(), vault.clone())],
         ..Default::default()
     };
     let (results, _invalid) = index_directory(&db, &tokenizer, &config, None, None).unwrap();

@@ -310,6 +310,7 @@ impl NoteDatabase {
                 parent_header: r.get(3)?,
                 content: r.get(4)?,
                 tokenized_content: r.get(5)?,
+                vault_name: String::new(),
             })
         })?;
         rows.collect::<SqliteResult<Vec<_>>>().map_err(DbError::Sqlite)
@@ -341,6 +342,7 @@ impl NoteDatabase {
                 parent_header: r.get(3)?,
                 content: r.get(4)?,
                 tokenized_content: r.get(5)?,
+                vault_name: String::new(),
             })
         })?;
         rows.collect::<SqliteResult<Vec<_>>>().map_err(DbError::Sqlite)
@@ -400,8 +402,8 @@ mod tests {
     fn test_insert_and_delete_chunks() {
         let db = NoteDatabase::open_in_memory().unwrap();
         let chunks = vec![
-            Chunk { id: None, file_path: "a.md".into(), chunk_index: 0, parent_header: None, content: "hello world".into(), tokenized_content: "hello world".into() },
-            Chunk { id: None, file_path: "a.md".into(), chunk_index: 1, parent_header: Some("# H1".into()), content: "second chunk".into(), tokenized_content: "second chunk".into() },
+            Chunk { id: None, file_path: "a.md".into(), chunk_index: 0, parent_header: None, content: "hello world".into(), tokenized_content: "hello world".into(), vault_name: String::new() },
+            Chunk { id: None, file_path: "a.md".into(), chunk_index: 1, parent_header: Some("# H1".into()), content: "second chunk".into(), tokenized_content: "second chunk".into(), vault_name: String::new() },
         ];
         let ids = db.insert_chunks(&chunks).unwrap();
         assert_eq!(ids.len(), 2);
@@ -427,7 +429,7 @@ mod tests {
     fn test_fts_search_finds_inserted_chunk() {
         let db = NoteDatabase::open_in_memory().unwrap();
         let chunks = vec![
-            Chunk { id: None, file_path: "b.md".into(), chunk_index: 0, parent_header: None, content: "search engine test".into(), tokenized_content: "search engine test".into() },
+            Chunk { id: None, file_path: "b.md".into(), chunk_index: 0, parent_header: None, content: "search engine test".into(), tokenized_content: "search engine test".into(), vault_name: String::new() },
         ];
         db.insert_chunks(&chunks).unwrap();
         let results = db.fts_search("search AND engine", 10).unwrap();
@@ -441,6 +443,7 @@ mod tests {
             id: None, file_path: "c.md".into(), chunk_index: i,
             parent_header: None, content: format!("chunk {}", i),
             tokenized_content: format!("chunk {}", i),
+            vault_name: String::new(),
         }).collect();
         let ids = db.insert_chunks(&chunks).unwrap();
         let middle_id = ids[2];
@@ -459,6 +462,7 @@ mod tests {
                 parent_header: None,
                 content: "Hello world content with unique marker 98765".into(),
                 tokenized_content: "Hello world content with unique marker 98765".into(),
+                vault_name: String::new(),
             },
             Chunk {
                 id: None,
@@ -467,6 +471,7 @@ mod tests {
                 parent_header: Some("# Section > Subsection".into()),
                 content: "Second chunk with different text ABCDEF".into(),
                 tokenized_content: "Second chunk with different text ABCDEF".into(),
+                vault_name: String::new(),
             },
         ];
         let ids = db.insert_chunks(&chunks).unwrap();
@@ -498,7 +503,7 @@ mod tests {
     fn test_delete_chunks_removes_fts_entries() {
         let db = NoteDatabase::open_in_memory().unwrap();
         let chunks = vec![
-            Chunk { id: None, file_path: "d.md".into(), chunk_index: 0, parent_header: None, content: "unique token xyz987".into(), tokenized_content: "unique token xyz987".into() },
+            Chunk { id: None, file_path: "d.md".into(), chunk_index: 0, parent_header: None, content: "unique token xyz987".into(), tokenized_content: "unique token xyz987".into(), vault_name: String::new() },
         ];
         db.insert_chunks(&chunks).unwrap();
         // Verify findable before delete
@@ -568,6 +573,7 @@ mod tests {
             parent_header: None,
             content: "test".into(),
             tokenized_content: "test".into(),
+            vault_name: String::new(),
         };
         let ids = db.insert_chunks(&[chunk]).unwrap();
         assert_eq!(ids.len(), 1);
@@ -608,6 +614,7 @@ mod tests {
             parent_header: None,
             content: "content1".into(),
             tokenized_content: "content1".into(),
+            vault_name: String::new(),
         };
         let chunk2 = Chunk {
             id: None,
@@ -616,6 +623,7 @@ mod tests {
             parent_header: None,
             content: "content2".into(),
             tokenized_content: "content2".into(),
+            vault_name: String::new(),
         };
 
         let ids1 = db.insert_chunks(&[chunk1]).unwrap();
@@ -635,6 +643,7 @@ mod tests {
                 parent_header: None,
                 content: format!("content{}", i),
                 tokenized_content: format!("content{}", i),
+                vault_name: String::new(),
             });
         }
 
@@ -653,6 +662,7 @@ mod tests {
             parent_header: None,
             content: "search term here".into(),
             tokenized_content: "search term here".into(),
+            vault_name: String::new(),
         };
 
         db.insert_chunks(&[chunk]).unwrap();
@@ -672,6 +682,7 @@ mod tests {
             parent_header: None,
             content: "content".into(),
             tokenized_content: "content".into(),
+            vault_name: String::new(),
         };
 
         let ids = db.insert_chunks(&[chunk]).unwrap();

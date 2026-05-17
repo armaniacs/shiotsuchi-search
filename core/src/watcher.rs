@@ -46,10 +46,10 @@ impl VaultWatcher {
             }
         })?;
 
-        watcher.watch(&self.config.notes_dir, RecursiveMode::Recursive)?;
+        watcher.watch(&self.config.vaults[0].1, RecursiveMode::Recursive)?;
         eprintln!(
             "Watching {} for changes...",
-            self.config.notes_dir.display()
+            self.config.vaults[0].1.display()
         );
 
         loop {
@@ -68,7 +68,7 @@ impl VaultWatcher {
     /// Returns `true` if `path` resolves within `notes_dir` after symlink resolution.
     /// Uses the same canonicalize + starts_with pattern as `search.rs` and `handler.rs`.
     fn is_path_within_vault(&self, path: &Path) -> bool {
-        let vault_canonical = match self.config.notes_dir.canonicalize() {
+        let vault_canonical = match self.config.vaults[0].1.canonicalize() {
             Ok(c) => c,
             Err(_) => return false,
         };
@@ -93,7 +93,7 @@ impl VaultWatcher {
                         );
                         continue;
                     }
-                    if let Ok(rel) = path.strip_prefix(&self.config.notes_dir) {
+                    if let Ok(rel) = path.strip_prefix(&self.config.vaults[0].1) {
                         let rel_str = rel.to_string_lossy();
                         let db = self.db.lock().unwrap();
                         if let IndexResult::Error(e) =
@@ -106,7 +106,7 @@ impl VaultWatcher {
             }
             EventKind::Remove(_) => {
                 for path in &event.paths {
-                    if let Ok(rel) = path.strip_prefix(&self.config.notes_dir) {
+                    if let Ok(rel) = path.strip_prefix(&self.config.vaults[0].1) {
                         let rel_str = rel.to_string_lossy();
                         let db = self.db.lock().unwrap();
                         if let Err(e) = db.delete_chunks_for_file(&rel_str) {
@@ -124,7 +124,7 @@ impl VaultWatcher {
                     let new = &event.paths[1];
                     // Only delete old path if it resolved within the vault
                     if self.is_path_within_vault(old) {
-                        if let Ok(old_rel) = old.strip_prefix(&self.config.notes_dir) {
+                        if let Ok(old_rel) = old.strip_prefix(&self.config.vaults[0].1) {
                             let rel_str = old_rel.to_string_lossy();
                             let db = self.db.lock().unwrap();
                             if let Err(e) = db.delete_chunks_for_file(&rel_str) {
@@ -135,7 +135,7 @@ impl VaultWatcher {
                     }
                     // Symlink-safe vault check for the new path before indexing
                     if self.is_path_within_vault(new) {
-                        if let Ok(new_rel) = new.strip_prefix(&self.config.notes_dir) {
+                        if let Ok(new_rel) = new.strip_prefix(&self.config.vaults[0].1) {
                             let db = self.db.lock().unwrap();
                             if let IndexResult::Error(e) = index_file_with_embedder(
                                 &db,
@@ -182,7 +182,7 @@ mod tests {
         let db = Arc::new(Mutex::new(NoteDatabase::open_in_memory().unwrap()));
         let tokenizer = Arc::new(tokenizer);
         let config = IndexConfig {
-            notes_dir: temp.path().to_path_buf(),
+            vaults: vec![("default".to_string(), temp.path().to_path_buf())],
             ..Default::default()
         };
         let _watcher = VaultWatcher::new(db, tokenizer, config, None);
@@ -199,7 +199,7 @@ mod tests {
         std::fs::create_dir_all(&vault).unwrap();
         let db = Arc::new(Mutex::new(NoteDatabase::open_in_memory().unwrap()));
         let config = IndexConfig {
-            notes_dir: vault,
+            vaults: vec![("default".to_string(), vault)],
             ..Default::default()
         };
         let watcher = VaultWatcher::new(Arc::clone(&db), Arc::clone(&tokenizer), config, None);
@@ -225,7 +225,7 @@ mod tests {
         std::fs::create_dir_all(&vault).unwrap();
         let db = Arc::new(Mutex::new(NoteDatabase::open_in_memory().unwrap()));
         let config = IndexConfig {
-            notes_dir: vault.clone(),
+            vaults: vec![("default".to_string(), vault.clone())],
             ..Default::default()
         };
         let watcher = VaultWatcher::new(db, Arc::clone(&tokenizer), config, None);
@@ -251,7 +251,7 @@ mod tests {
         std::fs::create_dir_all(&vault).unwrap();
         let db = Arc::new(Mutex::new(NoteDatabase::open_in_memory().unwrap()));
         let config = IndexConfig {
-            notes_dir: vault.clone(),
+            vaults: vec![("default".to_string(), vault.clone())],
             ..Default::default()
         };
         let watcher = VaultWatcher::new(db, tokenizer, config, None);
@@ -279,7 +279,7 @@ mod tests {
         std::fs::write(&file, "content").unwrap();
         let db = Arc::new(Mutex::new(NoteDatabase::open_in_memory().unwrap()));
         let config = IndexConfig {
-            notes_dir: vault.clone(),
+            vaults: vec![("default".to_string(), vault.clone())],
             ..Default::default()
         };
         let watcher = VaultWatcher::new(db, tokenizer, config, None);
@@ -297,7 +297,7 @@ mod tests {
         std::fs::create_dir_all(&vault).unwrap();
         let db = Arc::new(Mutex::new(NoteDatabase::open_in_memory().unwrap()));
         let config = IndexConfig {
-            notes_dir: vault.clone(),
+            vaults: vec![("default".to_string(), vault.clone())],
             ..Default::default()
         };
         let watcher = VaultWatcher::new(db, tokenizer, config, None);
@@ -323,7 +323,7 @@ mod tests {
 
         let db = Arc::new(Mutex::new(NoteDatabase::open_in_memory().unwrap()));
         let config = IndexConfig {
-            notes_dir: vault.clone(),
+            vaults: vec![("default".to_string(), vault.clone())],
             ..Default::default()
         };
 
@@ -381,7 +381,7 @@ mod tests {
         std::fs::create_dir_all(&vault).unwrap();
         let db = Arc::new(Mutex::new(NoteDatabase::open_in_memory().unwrap()));
         let config = IndexConfig {
-            notes_dir: vault.clone(),
+            vaults: vec![("default".to_string(), vault.clone())],
             ..Default::default()
         };
         let watcher = VaultWatcher::new(
@@ -423,7 +423,7 @@ mod tests {
 
         let db = Arc::new(Mutex::new(NoteDatabase::open_in_memory().unwrap()));
         let config = IndexConfig {
-            notes_dir: vault.clone(),
+            vaults: vec![("default".to_string(), vault.clone())],
             ..Default::default()
         };
 
@@ -475,7 +475,7 @@ mod tests {
 
         let db = Arc::new(Mutex::new(NoteDatabase::open_in_memory().unwrap()));
         let config = IndexConfig {
-            notes_dir: vault.clone(),
+            vaults: vec![("default".to_string(), vault.clone())],
             ..Default::default()
         };
 

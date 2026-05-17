@@ -18,6 +18,7 @@ fn test_insert_chunks_and_lookup() {
             parent_header: None,
             content: "Title 1 body content".into(),
             tokenized_content: "Title 1 body content".into(),
+            vault_name: String::new(),
         },
     ];
     let ids = db.insert_chunks(&chunks).unwrap();
@@ -54,6 +55,7 @@ fn test_delete_chunks_atomic() {
         parent_header: None,
         content: "body a".into(),
         tokenized_content: "body a".into(),
+        vault_name: String::new(),
     }];
     let chunks_b = vec![Chunk {
         id: None,
@@ -62,6 +64,7 @@ fn test_delete_chunks_atomic() {
         parent_header: None,
         content: "body b".into(),
         tokenized_content: "body b".into(),
+        vault_name: String::new(),
     }];
 
     db.insert_chunks(&chunks_a).unwrap();

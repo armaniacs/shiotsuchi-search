@@ -14,6 +14,7 @@ pub struct Chunk {
     pub content: String,
     /// Vaporetto-tokenized, space-separated text for FTS5 indexing.
     pub tokenized_content: String,
+    pub vault_name: String,
 }
 
 /// A search result backed by the new chunk schema.
@@ -26,6 +27,7 @@ pub struct ChunkSearchResult {
     /// Lower is more relevant for FTS (BM25); higher is more relevant for vec (cosine).
     pub score: f64,
     pub search_mode: SearchMode,
+    pub vault_name: String,
 }
 
 /// Which retrieval strategy was used.
@@ -106,8 +108,8 @@ impl Default for SearchConfig {
 /// Configuration for the indexer.
 #[derive(Debug, Clone)]
 pub struct IndexConfig {
-    /// Root directory containing markdown files.
-    pub notes_dir: PathBuf,
+    /// Named vaults and their root directories. The first vault is the primary one.
+    pub vaults: Vec<(String, PathBuf)>,
     /// File extensions to include (e.g., `["md", "markdown"]`).
     pub include_extensions: Vec<String>,
     /// Directory names to exclude (matched as gitignore-style component globs).
@@ -122,14 +124,27 @@ pub struct IndexConfig {
     pub dynamic_threshold: usize,
 }
 
+impl IndexConfig {
+    pub fn single(notes_dir: PathBuf) -> Self {
+        Self {
+            vaults: vec![("default".to_string(), notes_dir)],
+            ..Default::default()
+        }
+    }
+
+    pub fn with_vaults(vaults: Vec<(String, PathBuf)>) -> Self {
+        Self {
+            vaults,
+            ..Default::default()
+        }
+    }
+}
+
 impl Default for IndexConfig {
     fn default() -> Self {
         Self {
-            notes_dir: PathBuf::from("."),
+            vaults: vec![("default".to_string(), PathBuf::from("."))],
             include_extensions: vec!["md".to_string(), "markdown".to_string()],
-            // .git/.obsidian は auto_exclude_hidden により自動除外されるため、
-            // exclude_dirs から削除（hidden dir 除外を無効にした場合は
-            // ユーザーが明示的に追加する）
             exclude_dirs: vec!["node_modules".to_string()],
             auto_exclude_hidden: true,
             follow_links: false,
@@ -151,6 +166,7 @@ mod tests {
             parent_header: Some("Section > Sub".to_string()),
             content: "Some content".to_string(),
             tokenized_content: "Some content".to_string(),
+            vault_name: "default".to_string(),
         };
         let json = serde_json::to_string(&chunk).unwrap();
         let decoded: Chunk = serde_json::from_str(&json).unwrap();
@@ -181,10 +197,28 @@ mod tests {
     #[test]
     fn default_index_config() {
         let config = IndexConfig::default();
+        assert_eq!(config.vaults, vec![("default".to_string(), PathBuf::from("."))]);
         assert_eq!(config.include_extensions, vec!["md", "markdown"]);
         assert_eq!(config.exclude_dirs, vec!["node_modules"]);
         assert!(config.auto_exclude_hidden);
         assert!(!config.follow_links);
         assert_eq!(config.dynamic_threshold, 5);
+    }
+
+    #[test]
+    fn index_config_single() {
+        let config = IndexConfig::single(PathBuf::from("/tmp/notes"));
+        assert_eq!(config.vaults, vec![("default".to_string(), PathBuf::from("/tmp/notes"))]);
+    }
+
+    #[test]
+    fn index_config_with_vaults() {
+        let config = IndexConfig::with_vaults(vec![
+            ("work".to_string(), PathBuf::from("/work/notes")),
+            ("personal".to_string(), PathBuf::from("/personal/notes")),
+        ]);
+        assert_eq!(config.vaults.len(), 2);
+        assert_eq!(config.vaults[0].0, "work");
+        assert_eq!(config.vaults[1].0, "personal");
     }
 }

@@ -107,7 +107,7 @@ pub fn index_directory(
     embedder: Option<&Embedder>,
     progress: Option<IndexProgress>,
 ) -> Result<(Vec<(String, IndexResult)>, usize), DbError> {
-    let notes_dir = &config.notes_dir;
+    let notes_dir = &config.vaults[0].1;
     let (exclude_globset, invalid_patterns) = build_exclude_globset(&config.exclude_dirs);
 
     let notes_canonical = if config.follow_links {
@@ -200,7 +200,7 @@ pub fn cleanup_deleted(db: &NoteDatabase, config: &IndexConfig) -> Result<Vec<St
     let cached_paths = db.list_cached_paths()?;
     let mut removed = Vec::new();
     for path in cached_paths {
-        let full_path = config.notes_dir.join(&path);
+        let full_path = config.vaults[0].1.join(&path);
         if !full_path.exists() {
             db.delete_chunks_for_file(&path)?;
             db.delete_file_cache(&path)?;
@@ -217,7 +217,7 @@ pub fn index_file_with_embedder(
     embedder: Option<&Embedder>,
     file_path: &Path,
     relative_path: &str,
-    _config: &IndexConfig,
+    config: &IndexConfig,
 ) -> IndexResult {
     let content = match fs::read_to_string(file_path) {
         Ok(c) => c,
@@ -239,7 +239,8 @@ pub fn index_file_with_embedder(
         return IndexResult::Error(e.to_string());
     }
 
-    let chunks = split_into_chunks(&content, tokenizer, relative_path);
+    let vault_name = &config.vaults[0].0;
+    let chunks = split_into_chunks(&content, tokenizer, relative_path, vault_name);
 
     let ids = match db.insert_chunks(&chunks) {
         Ok(ids) => ids,
@@ -319,7 +320,7 @@ mod tests {
         }
         let db = NoteDatabase::open_in_memory().unwrap();
         let config = IndexConfig {
-            notes_dir: vault.clone(),
+            vaults: vec![("default".to_string(), vault.clone())],
             ..Default::default()
         };
         let (results, _invalid) = index_directory(&db, &tokenizer, &config, None, None).unwrap();
@@ -341,7 +342,7 @@ mod tests {
         writeln!(g, "# Main").unwrap();
         let db = NoteDatabase::open_in_memory().unwrap();
         let config = IndexConfig {
-            notes_dir: vault.clone(),
+            vaults: vec![("default".to_string(), vault.clone())],
             exclude_dirs: vec!["templates".to_string()],
             ..Default::default()
         };
@@ -372,7 +373,7 @@ mod tests {
 
         let db = NoteDatabase::open_in_memory().unwrap();
         let config = IndexConfig {
-            notes_dir: vault.clone(),
+            vaults: vec![("default".to_string(), vault.clone())],
             ..Default::default()
         };
 
@@ -394,7 +395,7 @@ mod tests {
 
         let db = NoteDatabase::open_in_memory().unwrap();
         let config = IndexConfig {
-            notes_dir: vault.clone(),
+            vaults: vec![("default".to_string(), vault.clone())],
             ..Default::default()
         };
         index_directory(&db, &tokenizer, &config, None, None).unwrap();
@@ -424,7 +425,7 @@ mod tests {
 
         let db = NoteDatabase::open_in_memory().unwrap();
         let config = IndexConfig {
-            notes_dir: vault.clone(),
+            vaults: vec![("default".to_string(), vault.clone())],
             ..Default::default()
         };
         assert!(config.auto_exclude_hidden);
@@ -448,7 +449,7 @@ mod tests {
 
         let db = NoteDatabase::open_in_memory().unwrap();
         let config = IndexConfig {
-            notes_dir: vault.clone(),
+            vaults: vec![("default".to_string(), vault.clone())],
             auto_exclude_hidden: false,
             ..Default::default()
         };
@@ -480,7 +481,7 @@ mod tests {
 
         let db = NoteDatabase::open_in_memory().unwrap();
         let config = IndexConfig {
-            notes_dir: vault.clone(),
+            vaults: vec![("default".to_string(), vault.clone())],
             exclude_dirs: vec!["templates".to_string()],
             auto_exclude_hidden: false,
             ..Default::default()
@@ -542,7 +543,7 @@ mod tests {
         let db = NoteDatabase::open_in_memory().unwrap();
         let tokenizer = crate::require_tokenizer!(Default::default());
         let config = IndexConfig {
-            notes_dir: vault.clone(),
+            vaults: vec![("default".to_string(), vault.clone())],
             exclude_dirs: vec!["node_modules".to_string()],
             auto_exclude_hidden: false,
             ..Default::default()
@@ -563,7 +564,7 @@ mod tests {
         }
         let db = NoteDatabase::open_in_memory().unwrap();
         let config = IndexConfig {
-            notes_dir: vault.clone(),
+            vaults: vec![("default".to_string(), vault.clone())],
             ..Default::default()
         };
         let (results, _invalid) = index_directory(&db, &tokenizer, &config, None, None).unwrap();
@@ -582,7 +583,7 @@ mod tests {
         fs::create_dir(&vault).unwrap();
         let db = NoteDatabase::open_in_memory().unwrap();
         let config = IndexConfig {
-            notes_dir: vault.clone(),
+            vaults: vec![("default".to_string(), vault.clone())],
             ..Default::default()
         };
         let (results, _invalid) = index_directory(&db, &tokenizer, &config, None, None).unwrap();
@@ -601,7 +602,7 @@ mod tests {
         }
         let db = NoteDatabase::open_in_memory().unwrap();
         let config = IndexConfig {
-            notes_dir: vault.clone(),
+            vaults: vec![("default".to_string(), vault.clone())],
             ..Default::default()
         };
         let (results, _invalid) = index_directory(&db, &tokenizer, &config, None, None).unwrap();
@@ -620,7 +621,7 @@ mod tests {
         fs::write(vault.join("big2.md"), &big_content).unwrap();
         let db = NoteDatabase::open_in_memory().unwrap();
         let config = IndexConfig {
-            notes_dir: vault.clone(),
+            vaults: vec![("default".to_string(), vault.clone())],
             ..Default::default()
         };
         let (results, _invalid) = index_directory(&db, &tokenizer, &config, None, None).unwrap();
@@ -638,7 +639,7 @@ mod tests {
         }
         let db = NoteDatabase::open_in_memory().unwrap();
         let config = IndexConfig {
-            notes_dir: vault.clone(),
+            vaults: vec![("default".to_string(), vault.clone())],
             ..Default::default()
         };
         let (results, _invalid) = index_directory(&db, &tokenizer, &config, None, None).unwrap();
@@ -656,7 +657,7 @@ mod tests {
         }
         let db = NoteDatabase::open_in_memory().unwrap();
         let config = IndexConfig {
-            notes_dir: vault.clone(),
+            vaults: vec![("default".to_string(), vault.clone())],
             ..Default::default()
         };
         let (results, _invalid) = index_directory(&db, &tokenizer, &config, None, None).unwrap();
@@ -676,7 +677,7 @@ mod tests {
         std::os::unix::fs::symlink(&outside, &symlink).unwrap();
         let db = NoteDatabase::open_in_memory().unwrap();
         let config = IndexConfig {
-            notes_dir: vault.clone(),
+            vaults: vec![("default".to_string(), vault.clone())],
             follow_links: true,
             ..Default::default()
         };
@@ -694,7 +695,7 @@ mod tests {
 
         let db = NoteDatabase::open_in_memory().unwrap();
         let config = IndexConfig {
-            notes_dir: vault.clone(),
+            vaults: vec![("default".to_string(), vault.clone())],
             ..Default::default()
         };
         let r1 = index_file(&db, &tokenizer, &vault.join("test.md"), "test.md", &config);
@@ -716,7 +717,7 @@ mod tests {
 
         let db = NoteDatabase::open_in_memory().unwrap();
         let config = IndexConfig {
-            notes_dir: vault.clone(),
+            vaults: vec![("default".to_string(), vault.clone())],
             ..Default::default()
         };
         let r1 = index_file(&db, &tokenizer, &path, "test.md", &config);
@@ -846,7 +847,7 @@ mod tests {
         std::fs::write(sub.join("b.md"), "# B").unwrap();
 
         let config = IndexConfig {
-            notes_dir: vault.clone(),
+            vaults: vec![("default".to_string(), vault.clone())],
             ..Default::default()
         };
         let (_exclude_globset, _) = build_exclude_globset(&config.exclude_dirs);
@@ -873,7 +874,7 @@ mod tests {
 
         let db = NoteDatabase::open_in_memory().unwrap();
         let config = IndexConfig {
-            notes_dir: vault,
+            vaults: vec![("default".to_string(), vault)],
             ..Default::default()
         };
 

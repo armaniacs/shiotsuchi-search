@@ -88,6 +88,7 @@ fn search_fts(
                 content: c.content,
                 score,
                 search_mode: SearchMode::Fts,
+                vault_name: c.vault_name,
             })
         })
         .collect();
@@ -140,6 +141,7 @@ fn search_vec(
                 content: c.content,
                 score,
                 search_mode: SearchMode::Vec,
+                vault_name: c.vault_name,
             })
         })
         .collect();
@@ -248,6 +250,7 @@ fn search_hybrid(
                     content: c.content,
                     score,
                     search_mode: SearchMode::Hybrid,
+                    vault_name: c.vault_name,
                 }
             })
         })
@@ -365,6 +368,7 @@ mod tests {
             parent_header: None,
             content: "search engine test content".into(),
             tokenized_content: "search engine test content".into(),
+            vault_name: String::new(),
         }];
         db.insert_chunks(&chunks).unwrap();
 
@@ -393,6 +397,7 @@ mod tests {
             parent_header: None,
             content: "hybrid fallback test".into(),
             tokenized_content: "hybrid fallback test".into(),
+            vault_name: String::new(),
         }];
         db.insert_chunks(&chunks).unwrap();
 
@@ -412,6 +417,7 @@ mod tests {
                 content: String::new(),
                 score,
                 search_mode: SearchMode::Fts,
+                vault_name: String::new(),
             }
         };
 
@@ -438,6 +444,7 @@ mod tests {
                 content: String::new(),
                 score,
                 search_mode: SearchMode::Fts,
+                vault_name: String::new(),
             }
         };
 
@@ -465,6 +472,7 @@ mod tests {
                 content: String::new(),
                 score,
                 search_mode: SearchMode::Fts,
+                vault_name: String::new(),
             }
         };
 
@@ -491,6 +499,7 @@ mod tests {
                 content: String::new(),
                 score,
                 search_mode: SearchMode::Fts,
+                vault_name: String::new(),
             }
         };
 
