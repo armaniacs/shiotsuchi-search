@@ -9,7 +9,7 @@ use serde_json::json;
 use shiotsuchi_core::paths::default_db_path as core_default_db_path;
 use std::{
     ffi::OsString,
-    io::{self, BufRead, Write},
+    io::{self, BufRead},
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
@@ -138,7 +138,7 @@ pub fn dispatch(req: McpRequest, notes_dir: &Path, db_path: &Path) -> McpRespons
 fn spawn_rebuild(
     notes_dir: &Path,
     db_path: &Path,
-    stdout: &Arc<Mutex<io::Stdout>>,
+    stdout: &Arc<Mutex<dyn io::Write + Send>>,
     _args: &serde_json::Value,
     progress_token: Option<u64>,
 ) {
@@ -218,11 +218,11 @@ fn spawn_rebuild(
 }
 
 /// Helper: serialize a progress notification and write it to stdout.
-fn emit_progress(stdout: &Arc<Mutex<io::Stdout>>, progress_token: u64, progress: u64, total: Option<u64>) {
+fn emit_progress(stdout: &Arc<Mutex<dyn io::Write + Send>>, progress_token: u64, progress: u64, total: Option<u64>) {
     let notif = McpNotification::progress(progress_token, progress, total);
     if let Ok(line) = serde_json::to_string(&notif) {
         if let Ok(mut locked) = stdout.lock() {
-            let _ = writeln!(&*locked, "{}", line);
+            let _ = writeln!(&mut *locked, "{}", line);
             let _ = locked.flush();
         }
     }
@@ -249,13 +249,13 @@ async fn main() {
     }
 
     let stdin = io::stdin();
-    let stdout = Arc::new(Mutex::new(io::stdout()));
+    let stdout: Arc<Mutex<dyn io::Write + Send>> = Arc::new(Mutex::new(io::stdout()));
 
     // Send notifications/initialized on startup
     {
         let notif = McpNotification::new("notifications/initialized", serde_json::Value::Null);
         let mut locked = stdout.lock().unwrap();
-        writeln!(&*locked, "{}", serde_json::to_string(&notif).unwrap()).ok();
+        writeln!(&mut *locked, "{}", serde_json::to_string(&notif).unwrap()).ok();
         locked.flush().ok();
     }
 
@@ -295,7 +295,7 @@ async fn main() {
         };
 
         let mut locked = stdout.lock().unwrap();
-        writeln!(&*locked, "{}", serde_json::to_string(&resp).unwrap()).ok();
+        writeln!(&mut *locked, "{}", serde_json::to_string(&resp).unwrap()).ok();
         locked.flush().ok();
     }
 }
@@ -508,5 +508,69 @@ notes_dir = "/tmp/partial-notes"
         );
         let json = serde_json::to_string(&resp).unwrap();
         assert!(json.contains("\"result\""));
+    }
+
+    #[test]
+    fn test_spawn_rebuild_indexes_vault() {
+        use std::time::Duration;
+        use tokio::runtime::Runtime;
+
+        let temp = TempDir::new().unwrap();
+        let vault = temp.path().join("vault");
+        std::fs::create_dir_all(&vault).unwrap();
+
+        // Create a few markdown files
+        std::fs::write(vault.join("note1.md"), "# Note 1\n\nContent for note one.").unwrap();
+        std::fs::write(vault.join("note2.md"), "# Note 2\n\nContent for note two.").unwrap();
+
+        let db_path = temp.path().join("test.db");
+
+        // Set up model path so tokenizer can load
+        let model_path = std::env::var("SHIOTSUCHI_MODEL_PATH")
+            .unwrap_or_else(|_| {
+                let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+                manifest_dir.parent()
+                    .unwrap()
+                    .join("models/bccwj-suw+unidic_pos+kana.model.zst")
+                    .to_string_lossy()
+                    .into_owned()
+            });
+
+        std::env::set_var("SHIOTSUCHI_MODEL_PATH", &model_path);
+
+        // Clone for the closure
+        let vault_clone = vault.clone();
+        let db_path_clone = db_path.clone();
+
+        // Need tokio runtime for spawn_rebuild (it calls tokio::spawn)
+        let rt = Runtime::new().unwrap();
+        rt.block_on(async move {
+            // Wrap output as dyn Write
+            let writer: Arc<Mutex<dyn io::Write + Send>> = Arc::new(Mutex::new(Vec::new()));
+
+            let args = serde_json::json!({});
+            let progress_token = Some(42u64);
+
+            spawn_rebuild(&vault_clone, &db_path_clone, &writer, &args, progress_token);
+
+            // Wait for rebuild to complete (poll DB)
+            let deadline = std::time::Instant::now() + Duration::from_secs(30);
+            let mut indexed = false;
+            while std::time::Instant::now() < deadline {
+                tokio::time::sleep(Duration::from_millis(200)).await;
+                if db_path_clone.exists() {
+                    if let Ok(db) = shiotsuchi_core::db::NoteDatabase::open(&db_path_clone) {
+                        if let Ok(stats) = db.stats() {
+                            if stats.total_files >= 2 {
+                                indexed = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
+            assert!(indexed, "rebuild should index 2 files within 30s");
+        });
     }
 }
