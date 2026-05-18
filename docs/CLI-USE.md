@@ -77,6 +77,7 @@ shiotsuchi dive "weekly review"
 shiotsuchi dive "Q3 budget" --limit 5
 shiotsuchi dive "meeting" --json        # legacy alias for --format json
 shiotsuchi dive "meeting" --format json-pretty
+shiotsuchi search "project plan"        # alias for dive
 ```
 
 | Option | Default | Description |
@@ -218,7 +219,7 @@ shiotsuchi log
 
 Create `~/.config/shiotsuchi/config.toml` (or `$XDG_CONFIG_HOME/shiotsuchi/config.toml`) to avoid repeating flags on every command.
 
-### New format (v0.3.7+)
+### New format (v0.4.0+)
 
 ```toml
 [database]

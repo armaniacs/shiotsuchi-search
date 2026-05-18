@@ -56,9 +56,7 @@ pub fn run_clean(
     indexing_cfg: &IndexingConfig,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if !db_path.exists() {
-        eprintln!("Error: database not found at {}", db_path.display());
-        eprintln!("Run `shiotsuchi chart` to create the index first.");
-        std::process::exit(1);
+        return Err(format!("Database not found at {}. Run `shiotsuchi chart` to create the index first.", db_path.display()).into());
     }
 
     // 1. Backup

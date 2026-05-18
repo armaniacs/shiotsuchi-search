@@ -21,11 +21,13 @@ Powered by [Vaporetto](https://github.com/daac-tools/vaporetto) × SQLite FTS5.
 | Command | Description |
 |---------|-------------|
 | `chart` | Index/re-index all Markdown files |
-| `dive <query>` | Search notes (AND search, JSON output) |
-| `tide` | Show vault statistics |
-| `scan` | Watch for file changes and auto-re-index |
-| `log` | Show indexing history |
+| `clean` | Backup database, delete, and re-index from scratch |
+| `config-migrate` | Upgrade config from legacy `[vault]` to new format |
 | `delete <path>` | Remove a note from the index (does not delete the file) |
+| `dive <query>` / `search <query>` | Search notes (AND search, JSON output) |
+| `log` | Show indexing history |
+| `scan` | Watch for file changes and auto-re-index |
+| `tide` | Show vault statistics |
 
 ## Claude Desktop Integration (MCP)
 

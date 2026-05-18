@@ -63,7 +63,15 @@ fn search_fts(
         return Ok(vec![]);
     }
 
-    let hits = db.fts_search(&fts5_query, limit)?;
+    // When vault_filter is active, expand the internal limit so that
+    // post-filtering doesn't starve the target vault of results.
+    let internal_limit = if vault_filter.is_some() {
+        limit.saturating_mul(3).max(limit)
+    } else {
+        limit
+    };
+
+    let hits = db.fts_search(&fts5_query, internal_limit)?;
     if hits.is_empty() {
         return Ok(vec![]);
     }
@@ -98,6 +106,7 @@ fn search_fts(
     if let Some(vault) = vault_filter {
         results.retain(|r| r.vault_name == vault);
     }
+    results.truncate(limit);
 
     // FTS5 BM25 rank: lower = more relevant; sort ascending
     results.sort_by(|a, b| a.score.partial_cmp(&b.score).unwrap_or(std::cmp::Ordering::Equal));
@@ -121,7 +130,15 @@ fn search_vec(
         .embed(query)
         .map_err(|e| DbError::Other(e.to_string()))?;
 
-    let hits = db.vec_search(&embedding, limit)?;
+    // When vault_filter is active, expand the internal limit so that
+    // post-filtering doesn't starve the target vault of results.
+    let internal_limit = if vault_filter.is_some() {
+        limit.saturating_mul(3).max(limit)
+    } else {
+        limit
+    };
+
+    let hits = db.vec_search(&embedding, internal_limit)?;
     if hits.is_empty() {
         return Ok(vec![]);
     }
@@ -156,6 +173,7 @@ fn search_vec(
     if let Some(vault) = vault_filter {
         results.retain(|r| r.vault_name == vault);
     }
+    results.truncate(limit);
 
     // Vec distance: lower = more relevant; sort ascending
     results.sort_by(|a, b| a.score.partial_cmp(&b.score).unwrap_or(std::cmp::Ordering::Equal));

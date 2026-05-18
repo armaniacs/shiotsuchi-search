@@ -359,8 +359,10 @@ impl NoteDatabase {
     /// Fetch chunks surrounding a given chunk_id (for MCP get_surrounding_context).
     pub fn get_surrounding_chunks(&self, chunk_id: i64, window: usize) -> Result<Vec<Chunk>, DbError> {
         let conn = self.write_conn.borrow();
-        let file_path: String = conn.query_row(
-            "SELECT file_path FROM chunks WHERE id = ?1", [chunk_id], |r| r.get(0)
+        let (file_path, vault_name): (String, String) = conn.query_row(
+            "SELECT file_path, vault_name FROM chunks WHERE id = ?1", [chunk_id], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            }
         ).map_err(|e| match e {
             rusqlite::Error::QueryReturnedNoRows => DbError::NotFound(chunk_id.to_string()),
             other => DbError::Sqlite(other),
@@ -371,10 +373,10 @@ impl NoteDatabase {
         let w = window as i64;
         let mut stmt = conn.prepare(
             "SELECT id, file_path, chunk_index, parent_header, content, tokenized_content, vault_name FROM chunks
-             WHERE file_path = ?1 AND chunk_index BETWEEN ?2 AND ?3
+             WHERE vault_name = ?1 AND file_path = ?2 AND chunk_index BETWEEN ?3 AND ?4
              ORDER BY chunk_index"
         )?;
-        let rows = stmt.query_map(params![file_path, chunk_index - w, chunk_index + w], |r| {
+        let rows = stmt.query_map(params![vault_name, file_path, chunk_index - w, chunk_index + w], |r| {
             Ok(Chunk {
                 id: Some(r.get(0)?),
                 file_path: r.get(1)?,
