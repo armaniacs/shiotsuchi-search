@@ -134,3 +134,168 @@ pub fn run_clean(
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use tempfile::TempDir;
+
+    // ---------------------------------------------------------------------------
+    // backup_file tests
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn test_backup_file_creates_bak_with_timestamp() {
+        let tmp = TempDir::new().unwrap();
+        let file = tmp.path().join("test.db");
+        fs::write(&file, "hello").unwrap();
+        let result = backup_file(&file);
+        assert!(result.is_some(), "backup should succeed");
+        let backup = result.unwrap();
+        assert!(backup.exists(), "backup file should exist");
+        // Read back content
+        let content = fs::read_to_string(&backup).unwrap();
+        assert_eq!(content, "hello");
+        // Original should still exist
+        assert!(file.exists());
+        // Backup name should be "test.db.bak.<timestamp>"
+        let name = backup.file_name().unwrap().to_string_lossy();
+        assert!(name.starts_with("test.db.bak."), "backup name mismatch: {}", name);
+    }
+
+    #[test]
+    fn test_backup_file_nonexistent_returns_none() {
+        let tmp = TempDir::new().unwrap();
+        let file = tmp.path().join("nonexistent.db");
+        let result = backup_file(&file);
+        assert!(result.is_none(), "backup of nonexistent file should return None");
+    }
+
+    #[test]
+    fn test_backup_file_preserves_content() {
+        let tmp = TempDir::new().unwrap();
+        let file = tmp.path().join("data.bin");
+        let data = vec![0u8, 1, 2, 3, 255, 254];
+        fs::write(&file, &data).unwrap();
+        let result = backup_file(&file);
+        assert!(result.is_some());
+        let backed = std::fs::read(&result.unwrap()).unwrap();
+        assert_eq!(backed, data, "backed-up content should match original");
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_backup_file_preserves_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = TempDir::new().unwrap();
+        let file = tmp.path().join("secret.db");
+        fs::write(&file, "secret").unwrap();
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let result = backup_file(&file).unwrap();
+        let meta = std::fs::metadata(&result).unwrap();
+        assert_eq!(
+            meta.permissions().mode() & 0o777,
+            0o600,
+            "backup should preserve 0o600 permissions"
+        );
+    }
+
+    // ---------------------------------------------------------------------------
+    // delete_db_files tests
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn test_delete_db_files_removes_all_companions() {
+        let tmp = TempDir::new().unwrap();
+        let db = tmp.path().join("test.db");
+        let wal = tmp.path().join("test.db-wal");
+        let shm = tmp.path().join("test.db-shm");
+        fs::write(&db, "db").unwrap();
+        fs::write(&wal, "wal").unwrap();
+        fs::write(&shm, "shm").unwrap();
+        delete_db_files(&db);
+        assert!(!db.exists(), "db should be deleted");
+        assert!(!wal.exists(), "wal should be deleted");
+        assert!(!shm.exists(), "shm should be deleted");
+    }
+
+    #[test]
+    fn test_delete_db_files_handles_missing_companions() {
+        let tmp = TempDir::new().unwrap();
+        let db = tmp.path().join("test.db");
+        fs::write(&db, "db").unwrap();
+        // No -wal or -shm files
+        delete_db_files(&db);
+        assert!(!db.exists(), "db should be deleted");
+    }
+
+    #[test]
+    fn test_delete_db_files_does_not_panic_on_nonexistent_db() {
+        let tmp = TempDir::new().unwrap();
+        let db = tmp.path().join("never-created.db");
+        // Should not panic
+        delete_db_files(&db);
+    }
+
+    // ---------------------------------------------------------------------------
+    // run_clean error path
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn test_run_clean_full_flow() {
+        // Create vault with markdown files, pre-populate a DB,
+        // then run clean and verify backup + re-index.
+        let tmp = TempDir::new().unwrap();
+        let vault = tmp.path().join("vault");
+        fs::create_dir_all(&vault).unwrap();
+        fs::write(vault.join("a.md"), "# A\n\nContent A").unwrap();
+        fs::write(vault.join("b.md"), "# B\n\nContent B").unwrap();
+
+        let db_path = tmp.path().join("test.db");
+
+        // Pre-populate DB (doesn't need a tokenizer for a bare open)
+        let _db = match shiotsuchi_core::db::NoteDatabase::open(&db_path) {
+            Ok(db) => db,
+            Err(e) => {
+                eprintln!("[SKIPPED] clean::test_run_clean_full_flow — DB open failed: {}", e);
+                return;
+            }
+        };
+        assert!(db_path.exists(), "DB should exist before clean");
+
+        let idx_cfg = IndexingConfig::default();
+        let vaults = vec![("default".to_string(), vault.clone())];
+
+        // Run clean (may skip if no tokenizer model)
+        if let Err(e) = super::run_clean(&vaults, &db_path, &idx_cfg) {
+            let msg = format!("{}", e);
+            if msg.contains("no model") || msg.contains("NoModel") {
+                eprintln!("[SKIPPED] clean::test_run_clean_full_flow — Vaporetto model not available");
+                return;
+            }
+            panic!("clean failed: {}", e);
+        }
+
+        // After clean, DB should exist (re-created by indexing)
+        assert!(db_path.exists(), "DB should exist after clean");
+
+        // Backup file should exist alongside the re-created DB
+        let parent = db_path.parent().unwrap();
+        let backups: Vec<_> = std::fs::read_dir(parent)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_name().to_string_lossy().contains(".bak."))
+            .collect();
+        assert!(!backups.is_empty(), "backup file should exist after clean");
+
+        // Verify the new DB is usable
+        match shiotsuchi_core::db::NoteDatabase::open(&db_path) {
+            Ok(db) => {
+                let stats = db.stats().unwrap();
+                assert!(stats.total_files >= 2, "should have indexed at least 2 files, got {}", stats.total_files);
+            }
+            Err(e) => panic!("DB should be openable after clean: {}", e),
+        }
+    }
+}
