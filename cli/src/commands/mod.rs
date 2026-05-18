@@ -1,5 +1,6 @@
 pub mod chart;
 pub mod config;
+pub mod config_migrate;
 pub mod delete;
 pub mod dive;
 pub mod dredge;

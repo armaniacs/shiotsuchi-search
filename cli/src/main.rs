@@ -31,6 +31,7 @@ struct Cli {
 enum Commands {
     Chart(commands::chart::ChartArgs),
     Config(commands::config::ConfigArgs),
+    ConfigMigrate(commands::config_migrate::ConfigMigrateArgs),
     Delete(commands::delete::DeleteArgs),
     Dive(commands::dive::DiveArgs),
     Dredge(commands::dredge::DredgeArgs),
@@ -148,6 +149,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 cfg.indexing.auto_exclude_hidden,
                 cfg.indexing.dynamic_threshold,
             )?;
+        }
+        Commands::ConfigMigrate(args) => {
+            commands::config_migrate::run_config_migrate(&args)?;
         }
     }
 
