@@ -93,6 +93,13 @@ impl BuildInfo {
             (None, None)
         };
 
+        let vaults = cfg.resolved_vaults();
+        let primary_notes_dir = vaults
+            .first()
+            .map(|(_, d)| d.clone())
+            .unwrap_or_default();
+        let db_path = cfg.resolved_db_path();
+
         Ok(BuildInfo {
             build: BuildFeatures {
                 watcher: shiotsuchi_core::build_info::FEATURE_WATCHER,
@@ -111,8 +118,8 @@ impl BuildInfo {
                 rusqlite_bundled: shiotsuchi_core::build_info::DEP_RUSQLITE_BUNDLED,
             },
             runtime: RuntimeInfo {
-                notes_dir: cfg.vault.notes_dir.clone(),
-                db_path: cfg.vault.db_path.clone(),
+                notes_dir: primary_notes_dir,
+                db_path,
                 model_path,
                 model_hash,
                 model_hash_verified,

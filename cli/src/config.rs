@@ -1,21 +1,20 @@
 use serde::{Deserialize, Serialize};
 use shiotsuchi_core::paths::default_db_path as core_default_db_path;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
-pub struct VaultConfig {
-    pub notes_dir: PathBuf,
-    pub db_path: PathBuf,
+pub struct DatabaseConfig {
+    pub db_path: Option<PathBuf>,
 }
 
-impl Default for VaultConfig {
-    fn default() -> Self {
-        Self {
-            notes_dir: PathBuf::from("."),
-            db_path: core_default_db_path(),
-        }
-    }
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct VaultEntry {
+    pub notes_dir: Option<PathBuf>,
+    #[serde(default)]
+    pub db_path: Option<PathBuf>,
 }
 
 pub(crate) fn xdg_config_home() -> PathBuf {
@@ -79,12 +78,49 @@ impl Default for WatcherConfig {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct ShiotsuchiConfig {
-    pub vault: VaultConfig,
+    pub database: DatabaseConfig,
+    pub vaults: HashMap<String, VaultEntry>,
+    pub vault: Option<VaultEntry>,
     pub indexing: IndexingConfig,
     pub watcher: WatcherConfig,
 }
 
 impl ShiotsuchiConfig {
+    /// Resolve vault entries: merge legacy [vault] + new [vaults.xxx]
+    pub fn resolved_vaults(&self) -> Vec<(String, PathBuf)> {
+        let mut vaults: Vec<(String, PathBuf)> = Vec::new();
+
+        if let Some(ref v) = self.vault {
+            if let Some(ref dir) = v.notes_dir {
+                vaults.push(("default".to_string(), dir.clone()));
+            }
+        }
+
+        let mut names_seen = std::collections::HashSet::new();
+        for (name, entry) in &self.vaults {
+            if let Some(ref dir) = entry.notes_dir {
+                vaults.push((name.clone(), dir.clone()));
+                names_seen.insert(name.clone());
+            }
+        }
+
+        if vaults.is_empty() {
+            vaults.push(("default".to_string(), PathBuf::from(".")));
+            eprintln!("[warn] No vaults configured. Using current directory as 'default' vault.");
+        }
+
+        vaults
+    }
+
+    /// Resolve db_path from [database] or legacy [vault]
+    pub fn resolved_db_path(&self) -> PathBuf {
+        self.database
+            .db_path
+            .clone()
+            .or_else(|| self.vault.as_ref().and_then(|v| v.db_path.clone()))
+            .unwrap_or_else(core_default_db_path)
+    }
+
     pub fn load_from(path: &Path) -> Result<Self, config::ConfigError> {
         config::Config::builder()
             .add_source(config::File::from(path))
@@ -102,14 +138,20 @@ impl ShiotsuchiConfig {
     pub fn load() -> Self {
         let default_path = xdg_config_home().join("shiotsuchi").join("config.toml");
         if default_path.exists() {
-            Self::load_from(&default_path).unwrap_or_else(|e| {
+            let cfg = Self::load_from(&default_path).unwrap_or_else(|e| {
                 eprintln!(
                     "Warning: failed to load config from {}: {}. Using defaults.",
                     default_path.display(),
                     e
                 );
                 Self::default()
-            })
+            });
+            if cfg.vault.is_some() {
+                eprintln!(
+                    "[hint] Your config uses the old [vault] format. Run 'shiotsuchi config-migrate' to upgrade."
+                );
+            }
+            cfg
         } else {
             Self::default()
         }
@@ -125,11 +167,14 @@ mod tests {
     #[test]
     fn test_default_config() {
         let config = ShiotsuchiConfig::default();
+        assert!(config.vaults.is_empty());
+        assert!(config.vault.is_none());
+        assert!(config.database.db_path.is_none());
         assert_eq!(config.indexing.include_extensions, vec!["md", "markdown"]);
     }
 
     #[test]
-    fn test_load_from_toml() {
+    fn test_load_from_toml_old_format() {
         let temp = TempDir::new().unwrap();
         let config_path = temp.path().join("config.toml");
         fs::write(
@@ -145,8 +190,44 @@ mod tests {
         .unwrap();
 
         let config = ShiotsuchiConfig::load_from(&config_path).unwrap();
-        assert_eq!(config.vault.notes_dir.to_string_lossy(), "/tmp/notes");
+        let legacy = config.vault.as_ref().unwrap();
+        assert_eq!(
+            legacy.notes_dir.as_ref().unwrap().to_string_lossy(),
+            "/tmp/notes"
+        );
         assert_eq!(config.indexing.snippet_lines, 5);
+    }
+
+    #[test]
+    fn test_load_from_toml_new_format() {
+        let temp = TempDir::new().unwrap();
+        let config_path = temp.path().join("config.toml");
+        fs::write(
+            &config_path,
+            r#"
+            [database]
+            db_path = "/tmp/shiotsuchi.db"
+
+            [vaults.work]
+            notes_dir = "/work/notes"
+
+            [indexing]
+            snippet_lines = 10
+        "#,
+        )
+        .unwrap();
+
+        let config = ShiotsuchiConfig::load_from(&config_path).unwrap();
+        assert!(config.vault.is_none());
+        assert_eq!(
+            config.database.db_path.as_ref().unwrap().to_string_lossy(),
+            "/tmp/shiotsuchi.db"
+        );
+        assert_eq!(
+            config.vaults.get("work").unwrap().notes_dir.as_ref().unwrap().to_string_lossy(),
+            "/work/notes"
+        );
+        assert_eq!(config.indexing.snippet_lines, 10);
     }
 
     #[test]
@@ -183,10 +264,110 @@ mod tests {
 
     #[test]
     fn test_max_snippet_chars_clamped_by_search_config() {
-        // The SearchConfig::new clamps values; verify CLI config integrates correctly
         let result = toml::from_str::<ShiotsuchiConfig>("[indexing]\nmax_snippet_chars = 65555");
         assert!(result.is_ok(), "oversized value should deserialize");
-        // Actual clamping happens at SearchConfig construction time, not deserialization
         assert_eq!(result.unwrap().indexing.max_snippet_chars, 65555);
+    }
+
+    #[test]
+    fn test_resolved_vaults_empty_defaults_to_current_dir() {
+        let config = ShiotsuchiConfig::default();
+        let vaults = config.resolved_vaults();
+        assert_eq!(vaults.len(), 1);
+        assert_eq!(vaults[0].0, "default");
+        assert_eq!(vaults[0].1, PathBuf::from("."));
+    }
+
+    #[test]
+    fn test_resolved_vaults_legacy_format() {
+        let mut config = ShiotsuchiConfig::default();
+        config.vault = Some(VaultEntry {
+            notes_dir: Some(PathBuf::from("/tmp/notes")),
+            db_path: None,
+        });
+        let vaults = config.resolved_vaults();
+        assert_eq!(vaults.len(), 1);
+        assert_eq!(vaults[0].0, "default");
+        assert_eq!(vaults[0].1, PathBuf::from("/tmp/notes"));
+    }
+
+    #[test]
+    fn test_resolved_vaults_new_format() {
+        let mut config = ShiotsuchiConfig::default();
+        config.vaults.insert(
+            "work".to_string(),
+            VaultEntry {
+                notes_dir: Some(PathBuf::from("/work/notes")),
+                db_path: None,
+            },
+        );
+        config.vaults.insert(
+            "personal".to_string(),
+            VaultEntry {
+                notes_dir: Some(PathBuf::from("/personal/notes")),
+                db_path: None,
+            },
+        );
+        let vaults = config.resolved_vaults();
+        assert_eq!(vaults.len(), 2);
+        let names: Vec<&str> = vaults.iter().map(|(n, _)| n.as_str()).collect();
+        assert!(names.contains(&"work"));
+        assert!(names.contains(&"personal"));
+    }
+
+    #[test]
+    fn test_resolved_vaults_legacy_and_new_merged() {
+        let mut config = ShiotsuchiConfig::default();
+        config.vault = Some(VaultEntry {
+            notes_dir: Some(PathBuf::from("/legacy/notes")),
+            db_path: None,
+        });
+        config.vaults.insert(
+            "work".to_string(),
+            VaultEntry {
+                notes_dir: Some(PathBuf::from("/work/notes")),
+                db_path: None,
+            },
+        );
+        let vaults = config.resolved_vaults();
+        assert_eq!(vaults.len(), 2);
+        assert_eq!(vaults[0].0, "default");
+        assert_eq!(vaults[0].1, PathBuf::from("/legacy/notes"));
+        assert_eq!(vaults[1].0, "work");
+        assert_eq!(vaults[1].1, PathBuf::from("/work/notes"));
+    }
+
+    #[test]
+    fn test_resolved_db_path_from_database() {
+        let mut config = ShiotsuchiConfig::default();
+        config.database.db_path = Some(PathBuf::from("/custom/db.sqlite"));
+        assert_eq!(config.resolved_db_path(), PathBuf::from("/custom/db.sqlite"));
+    }
+
+    #[test]
+    fn test_resolved_db_path_from_legacy_vault() {
+        let mut config = ShiotsuchiConfig::default();
+        config.vault = Some(VaultEntry {
+            notes_dir: None,
+            db_path: Some(PathBuf::from("/legacy/db.sqlite")),
+        });
+        assert_eq!(config.resolved_db_path(), PathBuf::from("/legacy/db.sqlite"));
+    }
+
+    #[test]
+    fn test_resolved_db_path_database_overrides_legacy() {
+        let mut config = ShiotsuchiConfig::default();
+        config.database.db_path = Some(PathBuf::from("/new/db.sqlite"));
+        config.vault = Some(VaultEntry {
+            notes_dir: None,
+            db_path: Some(PathBuf::from("/old/db.sqlite")),
+        });
+        assert_eq!(config.resolved_db_path(), PathBuf::from("/new/db.sqlite"));
+    }
+
+    #[test]
+    fn test_resolved_db_path_default_fallback() {
+        let config = ShiotsuchiConfig::default();
+        assert_eq!(config.resolved_db_path(), core_default_db_path());
     }
 }

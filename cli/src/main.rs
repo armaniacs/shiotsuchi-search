@@ -54,30 +54,40 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut cfg = config::ShiotsuchiConfig::load();
     if let Some(ref dir) = cli.notes_dir {
-        cfg.vault.notes_dir = dir.clone();
+        cfg.vaults.insert(
+            "default".to_string(),
+            config::VaultEntry {
+                notes_dir: Some(dir.clone()),
+                db_path: None,
+            },
+        );
     }
     if let Some(ref db) = cli.db_path {
-        cfg.vault.db_path = db.clone();
+        cfg.database.db_path = Some(db.clone());
     }
+
+    let resolved_vaults = cfg.resolved_vaults();
+    let primary_notes_dir = resolved_vaults.first().map(|(_, d)| d.clone()).unwrap_or_default();
+    let db_path = cfg.resolved_db_path();
 
     match cli.command {
         Commands::Chart(args) => {
             commands::chart::run_chart(
                 &args,
-                &cfg.vault.notes_dir,
-                &cfg.vault.db_path,
+                &primary_notes_dir,
+                &db_path,
                 &cfg.indexing,
             )?;
         }
         Commands::Dive(args) => {
-            if !cfg.vault.db_path.exists() {
+            if !db_path.exists() {
                 eprintln!(
                     "Error: database not found. Run `shiotsuchi chart` to index your vault first."
                 );
                 std::process::exit(1);
             }
             let start = Instant::now();
-            match commands::dive::run_dive(&args, &cfg.vault.db_path) {
+            match commands::dive::run_dive(&args, &db_path) {
                 Ok(results) => {
                     let elapsed = start.elapsed();
                     let fmt = args.effective_format();
@@ -90,14 +100,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
         Commands::Tide => {
-            let stats = commands::tide::run_tide(&cfg.vault.db_path)?;
+            let stats = commands::tide::run_tide(&db_path)?;
             commands::tide::print_stats(&stats);
         }
         Commands::Scan(args) => {
             commands::scan::run_scan(
                 &args,
-                &cfg.vault.notes_dir,
-                &cfg.vault.db_path,
+                &primary_notes_dir,
+                &db_path,
                 &cfg.watcher,
                 &cfg.indexing,
             )?;
@@ -105,17 +115,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Commands::Dredge(args) => {
             commands::dredge::run_dredge(
                 &args,
-                &cfg.vault.notes_dir,
-                &cfg.vault.db_path,
+                &primary_notes_dir,
+                &db_path,
                 &cfg.indexing,
             )?;
         }
-        Commands::Log => commands::log::run_log(&cfg.vault.db_path, "default")?,
+        Commands::Log => commands::log::run_log(&db_path, "default")?,
         Commands::Setup(args) => {
             commands::setup::run_setup(&args)?;
         }
         Commands::Delete(args) => {
-            commands::delete::run_delete(&args, &cfg.vault.notes_dir, &cfg.vault.db_path, "default")?;
+            commands::delete::run_delete(&args, &primary_notes_dir, &db_path, "default")?;
         }
         Commands::Init(args) => {
             let config_path = config::default_config_path();
@@ -133,7 +143,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Commands::Config(args) => {
             commands::config::run_config(
                 &args,
-                &cfg.vault.notes_dir,
+                &primary_notes_dir,
                 &cfg.indexing.include_extensions,
                 cfg.indexing.auto_exclude_hidden,
                 cfg.indexing.dynamic_threshold,
