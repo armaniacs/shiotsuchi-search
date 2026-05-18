@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use shiotsuchi_core::paths::default_db_path as core_default_db_path;
 use std::{
+    collections::HashMap,
     ffi::OsString,
     io::{self, BufRead},
     path::{Path, PathBuf},
@@ -39,16 +40,35 @@ fn resolve_path_env(var: &str, default: PathBuf) -> PathBuf {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+struct McpDatabaseConfig {
+    db_path: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct McpVaultEntry {
+    notes_dir: Option<PathBuf>,
+    #[serde(default)]
+    db_path: Option<PathBuf>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 struct McpConfig {
-    notes_dir: PathBuf,
-    db_path: PathBuf,
+    database: McpDatabaseConfig,
+    vaults: HashMap<String, McpVaultEntry>,
+    vault: Option<McpVaultEntry>,       // legacy
+    notes_dir: PathBuf,                  // legacy flat field (old config format)
+    db_path: PathBuf,                    // legacy flat field (old config format)
 }
 
 impl Default for McpConfig {
     fn default() -> Self {
         Self {
+            database: McpDatabaseConfig { db_path: None },
+            vaults: HashMap::new(),
+            vault: None,
             notes_dir: PathBuf::from("."),
             db_path: core_default_db_path(),
         }
@@ -56,6 +76,46 @@ impl Default for McpConfig {
 }
 
 impl McpConfig {
+    fn resolved_vaults(&self) -> Vec<(String, PathBuf)> {
+        let mut vaults: Vec<(String, PathBuf)> = Vec::new();
+
+        // Legacy single vault formats
+        if let Some(ref v) = self.vault {
+            if let Some(ref dir) = v.notes_dir {
+                vaults.push(("default".to_string(), dir.clone()));
+            }
+        }
+        if self.vault.is_none() {
+            // Check the flat notes_dir field (old format without [vault] section)
+            let nd = &self.notes_dir;
+            if nd != &PathBuf::from(".") || vaults.is_empty() {
+                vaults.push(("default".to_string(), nd.clone()));
+            }
+        }
+
+        // Named vaults (new format)
+        for (name, entry) in &self.vaults {
+            if let Some(ref dir) = entry.notes_dir {
+                vaults.push((name.clone(), dir.clone()));
+            }
+        }
+
+        if vaults.is_empty() {
+            vaults.push(("default".to_string(), PathBuf::from(".")));
+        }
+        vaults
+    }
+
+    fn resolved_db_path(&self) -> PathBuf {
+        self.database.db_path.clone()
+            .or_else(|| self.vault.as_ref().and_then(|v| v.db_path.clone()))
+            .or_else(|| {
+                let default_p = core_default_db_path();
+                if self.db_path != default_p { Some(self.db_path.clone()) } else { None }
+            })
+            .unwrap_or_else(core_default_db_path)
+    }
+
     fn load(path: &Path) -> Self {
         match config::Config::builder()
             .add_source(config::File::from(path))
@@ -104,7 +164,7 @@ struct Cli {
     config: Option<PathBuf>,
 }
 
-pub fn dispatch(req: McpRequest, notes_dir: &Path, db_path: &Path) -> McpResponse {
+pub fn dispatch(req: McpRequest, vaults: &[(String, PathBuf)], db_path: &Path) -> McpResponse {
     let params = req.params.clone().unwrap_or(serde_json::Value::Null);
 
     match req.method.as_str() {
@@ -123,7 +183,7 @@ pub fn dispatch(req: McpRequest, notes_dir: &Path, db_path: &Path) -> McpRespons
         "tools/call" => {
             let name = params["name"].as_str().unwrap_or("");
             let args = &params["arguments"];
-            match handler::call_tool(name, args, notes_dir, db_path) {
+            match handler::call_tool(name, args, vaults, db_path) {
                 Ok(result) => McpResponse::success(req.id, result),
                 Err(_) => McpResponse::error(req.id, -32000, "Internal tool execution error"),
             }
@@ -136,13 +196,13 @@ pub fn dispatch(req: McpRequest, notes_dir: &Path, db_path: &Path) -> McpRespons
 /// Spawn a background task that calls `shiotsuchi_core::indexer::index_directory`
 /// and sends MCP `notifications/progress` notifications on stdout.
 fn spawn_rebuild(
-    notes_dir: &Path,
+    vaults: Vec<(String, PathBuf)>,
     db_path: &Path,
     stdout: &Arc<Mutex<dyn io::Write + Send>>,
     _args: &serde_json::Value,
     progress_token: Option<u64>,
 ) {
-    let n_dir = notes_dir.to_path_buf();
+    let v = vaults;
     let d_path = db_path.to_path_buf();
     let out = Arc::clone(stdout);
 
@@ -175,7 +235,7 @@ fn spawn_rebuild(
 
         // Build IndexConfig (defaults: .md/.markdown, exclude node_modules, auto-exclude hidden)
         let config = shiotsuchi_core::models::IndexConfig {
-            vaults: vec![("default".to_string(), n_dir)],
+            vaults: v,
             ..Default::default()
         };
 
@@ -238,8 +298,14 @@ async fn main() {
         None => McpConfig::load_default(),
     };
 
-    let notes_dir = resolve_path_env("SHIOTSUCHI_NOTES_DIR", cfg.notes_dir);
-    let db_path = resolve_path_env("SHIOTSUCHI_DB_PATH", cfg.db_path);
+    let mut vaults = cfg.resolved_vaults();
+    let notes_dir_override = resolve_path_env("SHIOTSUCHI_NOTES_DIR", PathBuf::new());
+    if notes_dir_override != PathBuf::new() {
+        if let Some(first) = vaults.first_mut() {
+            first.1 = notes_dir_override;
+        }
+    }
+    let db_path = resolve_path_env("SHIOTSUCHI_DB_PATH", cfg.resolved_db_path());
 
     if let Some(parent) = db_path.parent() {
         if !parent.exists() {
@@ -274,7 +340,7 @@ async fn main() {
                     if name == "rebuild_index" {
                         let args = &params["arguments"];
                         let progress_token = params["_meta"]["progressToken"].as_u64();
-                        spawn_rebuild(&notes_dir, &db_path, &stdout, args, progress_token);
+                        spawn_rebuild(vaults.clone(), &db_path, &stdout, args, progress_token);
                         McpResponse::success(
                             req.id,
                             json!({
@@ -285,10 +351,10 @@ async fn main() {
                             }),
                         )
                     } else {
-                        dispatch(req, &notes_dir, &db_path)
+                        dispatch(req, &vaults, &db_path)
                     }
                 } else {
-                    dispatch(req, &notes_dir, &db_path)
+                    dispatch(req, &vaults, &db_path)
                 }
             }
             Err(_) => McpResponse::error(0, -32700, "Parse error"),
@@ -392,7 +458,9 @@ db_path   = "/tmp/my-notes/search.db"
         );
         let cfg = McpConfig::load(&path);
         assert_eq!(cfg.notes_dir, PathBuf::from("/tmp/my-notes"));
-        assert_eq!(cfg.db_path, PathBuf::from("/tmp/my-notes/search.db"));
+        let vaults = cfg.resolved_vaults();
+        assert_eq!(vaults, vec![("default".to_string(), PathBuf::from("/tmp/my-notes"))]);
+        assert_eq!(cfg.resolved_db_path(), PathBuf::from("/tmp/my-notes/search.db"));
     }
 
     #[test]
@@ -401,6 +469,8 @@ db_path   = "/tmp/my-notes/search.db"
         let default = McpConfig::default();
         assert_eq!(cfg.notes_dir, default.notes_dir);
         assert_eq!(cfg.db_path, default.db_path);
+        assert_eq!(cfg.resolved_vaults(), default.resolved_vaults());
+        assert_eq!(cfg.resolved_db_path(), default.resolved_db_path());
     }
 
     #[test]
@@ -414,7 +484,9 @@ notes_dir = "/tmp/partial-notes"
         );
         let cfg = McpConfig::load(&path);
         assert_eq!(cfg.notes_dir, PathBuf::from("/tmp/partial-notes"));
-        assert_eq!(cfg.db_path, McpConfig::default().db_path);
+        assert_eq!(cfg.resolved_db_path(), McpConfig::default().db_path);
+        let vaults = cfg.resolved_vaults();
+        assert_eq!(vaults, vec![("default".to_string(), PathBuf::from("/tmp/partial-notes"))]);
     }
 
     #[test]
@@ -425,24 +497,26 @@ notes_dir = "/tmp/partial-notes"
         let default = McpConfig::default();
         assert_eq!(cfg.notes_dir, default.notes_dir);
         assert_eq!(cfg.db_path, default.db_path);
+        assert_eq!(cfg.resolved_vaults(), default.resolved_vaults());
+        assert_eq!(cfg.resolved_db_path(), default.resolved_db_path());
     }
 
     #[test]
     fn test_config_load_default_returns_defaults_when_no_file() {
-        // XDG_CONFIG_HOME を存在しないディレクトリに向けることで
-        // ~/.config/shiotsuchi/config.toml を回避しデフォルト値が返ることを確認
-        // 注意: 並列テスト実行時の環境変数競合を避けるため直接パスをテスト
         let path = McpConfig::default_config_path();
         if !path.exists() {
             let cfg = McpConfig::load_default();
             let default = McpConfig::default();
             assert_eq!(cfg.notes_dir, default.notes_dir);
             assert_eq!(cfg.db_path, default.db_path);
+            assert_eq!(cfg.resolved_vaults(), default.resolved_vaults());
+            assert_eq!(cfg.resolved_db_path(), default.resolved_db_path());
         }
     }
 
     #[test]
     fn test_dispatch_tools_list() {
+        let vaults = vec![("default".to_string(), PathBuf::from("/tmp"))];
         let req = crate::protocol::McpRequest {
             jsonrpc: "2.0".to_string(),
             id: serde_json::json!(1),
@@ -451,7 +525,7 @@ notes_dir = "/tmp/partial-notes"
         };
         let resp = dispatch(
             req,
-            std::path::Path::new("/tmp"),
+            &vaults,
             std::path::Path::new("/tmp/db"),
         );
         let json = serde_json::to_string(&resp).unwrap();
@@ -460,6 +534,7 @@ notes_dir = "/tmp/partial-notes"
 
     #[test]
     fn test_dispatch_unknown_method() {
+        let vaults = vec![("default".to_string(), PathBuf::from("/tmp"))];
         let req = crate::protocol::McpRequest {
             jsonrpc: "2.0".to_string(),
             id: serde_json::json!(2),
@@ -468,7 +543,7 @@ notes_dir = "/tmp/partial-notes"
         };
         let resp = dispatch(
             req,
-            std::path::Path::new("/tmp"),
+            &vaults,
             std::path::Path::new("/tmp/db"),
         );
         let json = serde_json::to_string(&resp).unwrap();
@@ -477,6 +552,7 @@ notes_dir = "/tmp/partial-notes"
 
     #[test]
     fn test_dispatch_initialize() {
+        let vaults = vec![("default".to_string(), PathBuf::from("/tmp"))];
         let req = crate::protocol::McpRequest {
             jsonrpc: "2.0".to_string(),
             id: serde_json::json!(1),
@@ -485,7 +561,7 @@ notes_dir = "/tmp/partial-notes"
         };
         let resp = dispatch(
             req,
-            std::path::Path::new("/tmp"),
+            &vaults,
             std::path::Path::new("/tmp/db"),
         );
         let json = serde_json::to_string(&resp).unwrap();
@@ -495,6 +571,7 @@ notes_dir = "/tmp/partial-notes"
 
     #[test]
     fn test_dispatch_ping() {
+        let vaults = vec![("default".to_string(), PathBuf::from("/tmp"))];
         let req = crate::protocol::McpRequest {
             jsonrpc: "2.0".to_string(),
             id: serde_json::json!(3),
@@ -503,7 +580,7 @@ notes_dir = "/tmp/partial-notes"
         };
         let resp = dispatch(
             req,
-            std::path::Path::new("/tmp"),
+            &vaults,
             std::path::Path::new("/tmp/db"),
         );
         let json = serde_json::to_string(&resp).unwrap();
@@ -539,7 +616,7 @@ notes_dir = "/tmp/partial-notes"
         std::env::set_var("SHIOTSUCHI_MODEL_PATH", &model_path);
 
         // Clone for the closure
-        let vault_clone = vault.clone();
+        let vaults = vec![("default".to_string(), vault.clone())];
         let db_path_clone = db_path.clone();
 
         // Need tokio runtime for spawn_rebuild (it calls tokio::spawn)
@@ -551,7 +628,7 @@ notes_dir = "/tmp/partial-notes"
             let args = serde_json::json!({});
             let progress_token = Some(42u64);
 
-            spawn_rebuild(&vault_clone, &db_path_clone, &writer, &args, progress_token);
+            spawn_rebuild(vaults, &db_path_clone, &writer, &args, progress_token);
 
             // Wait for rebuild to complete (poll DB)
             let deadline = std::time::Instant::now() + Duration::from_secs(30);

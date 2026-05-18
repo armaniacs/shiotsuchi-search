@@ -5,7 +5,7 @@ use shiotsuchi_core::{
     search::{extract_snippet, search},
     tokenizer::get_tokenizer,
 };
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 fn format_results_markdown(results: &[shiotsuchi_core::models::ChunkSearchResult], query: &str) -> String {
     if results.is_empty() {
@@ -33,7 +33,7 @@ fn format_results_markdown(results: &[shiotsuchi_core::models::ChunkSearchResult
 pub fn call_tool(
     name: &str,
     args: &Value,
-    notes_dir: &Path,
+    vaults: &[(String, PathBuf)],
     db_path: &Path,
 ) -> Result<Value, Box<dyn std::error::Error>> {
     match name {
@@ -42,6 +42,7 @@ pub fn call_tool(
             let limit = args["limit"].as_u64().unwrap_or(10).min(50) as usize;
             let mode_str = args["mode"].as_str().unwrap_or("hybrid");
             let min_score = args["min_score"].as_f64();
+            let vault_filter = args["vault"].as_str();
 
             // MCP server runs without an embedder. Return a guidance message for vec-only mode.
             // hybrid and fts both work — search() auto-falls-back to Fts when embedder is None.
@@ -56,8 +57,10 @@ pub fn call_tool(
 
             let mode = if mode_str == "fts" { SearchMode::Fts } else { SearchMode::Hybrid };
 
-            // Validate notes_dir is reachable (path traversal check)
-            let _canonical_vault = notes_dir.canonicalize()?;
+            // Validate vault dir is reachable (path traversal check)
+            if let Some((_, notes_dir)) = vaults.first() {
+                let _canonical_vault = notes_dir.canonicalize()?;
+            }
 
             let db = NoteDatabase::open(db_path)?;
             let tokenizer = match get_tokenizer() {
@@ -66,7 +69,7 @@ pub fn call_tool(
                     "content": [{"type": "text", "text": "Full-text search requires a tokenizer model. Run 'shiotsuchi setup' to configure one, or set SHIOTSUCHI_MODEL_PATH."}]
                 })),
             };
-            let results = search(&db, &tokenizer, &query, limit, mode, None, min_score, None)?;
+            let results = search(&db, &tokenizer, &query, limit, mode, None, min_score, vault_filter)?;
 
             let markdown = format_results_markdown(&results, &query);
             Ok(json!({
@@ -148,9 +151,10 @@ mod tests {
     #[test]
     fn test_search_local_notes_fts_returns_content() {
         let temp = TempDir::new().unwrap();
+        let vaults = vec![("default".to_string(), temp.path().to_path_buf())];
         let Some(db_path) = setup_db(&temp) else { return; };
         let args = serde_json::json!({"query": "Rust programming", "mode": "fts"});
-        let result = call_tool("search_local_notes", &args, temp.path(), &db_path);
+        let result = call_tool("search_local_notes", &args, &vaults, &db_path);
         assert!(result.is_ok(), "search_local_notes failed: {:?}", result.err());
         let text = result.unwrap()["content"][0]["text"].as_str().unwrap().to_string();
         assert!(text.contains("### RETRIEVED CONTEXT ###"),
@@ -162,10 +166,11 @@ mod tests {
     fn test_search_local_notes_vec_without_embedder_returns_message() {
         // vec guard fires before tokenizer is needed — no model required for this test
         let temp = TempDir::new().unwrap();
+        let vaults = vec![("default".to_string(), temp.path().to_path_buf())];
         let db_path = temp.path().join("test.db");
         shiotsuchi_core::db::NoteDatabase::open(&db_path).unwrap();
         let args = serde_json::json!({"query": "Rust", "mode": "vec"});
-        let result = call_tool("search_local_notes", &args, temp.path(), &db_path).unwrap();
+        let result = call_tool("search_local_notes", &args, &vaults, &db_path).unwrap();
         let text = result["content"][0]["text"].as_str().unwrap();
         assert!(text.contains("fts") || text.contains("model") || text.contains("setup"),
             "Expected guidance message, got: {}", text);
@@ -173,12 +178,10 @@ mod tests {
 
     #[test]
     fn test_index_status_returns_counts() {
-        // Uses setup_db (requires model) so chunk count is non-zero and the assertion is meaningful.
-        // In model-absent environments this test is skipped — that is intentional.
-        // To test index_status on an empty DB without a model, use NoteDatabase::open directly.
         let temp = TempDir::new().unwrap();
+        let vaults = vec![("default".to_string(), temp.path().to_path_buf())];
         let Some(db_path) = setup_db(&temp) else { return; };
-        let result = call_tool("index_status", &serde_json::json!({}), temp.path(), &db_path).unwrap();
+        let result = call_tool("index_status", &serde_json::json!({}), &vaults, &db_path).unwrap();
         let text = result["content"][0]["text"].as_str().unwrap();
         assert!(text.contains("Total chunks"), "Expected 'Total chunks' in output, got: {}", text);
         assert!(text.contains("Indexed files"), "Expected 'Indexed files' in output, got: {}", text);
@@ -186,11 +189,11 @@ mod tests {
 
     #[test]
     fn test_rebuild_index_returns_guidance() {
-        // rebuild_index never touches the DB — no model required
         let temp = TempDir::new().unwrap();
+        let vaults = vec![("default".to_string(), temp.path().to_path_buf())];
         let db_path = temp.path().join("test.db");
         shiotsuchi_core::db::NoteDatabase::open(&db_path).unwrap();
-        let result = call_tool("rebuild_index", &serde_json::json!({}), temp.path(), &db_path).unwrap();
+        let result = call_tool("rebuild_index", &serde_json::json!({}), &vaults, &db_path).unwrap();
         let text = result["content"][0]["text"].as_str().unwrap();
         assert!(text.contains("shiotsuchi chart"));
     }
@@ -198,6 +201,7 @@ mod tests {
     #[test]
     fn test_get_surrounding_context_returns_chunks() {
         let temp = TempDir::new().unwrap();
+        let vaults = vec![("default".to_string(), temp.path().to_path_buf())];
         use shiotsuchi_core::{db::NoteDatabase, chunker::split_into_chunks};
         let tok = match shiotsuchi_core::tokenizer::get_tokenizer() {
             Ok(t) => t,
@@ -216,7 +220,7 @@ mod tests {
 
         let middle_id = ids[ids.len() / 2];
         let args = serde_json::json!({"chunk_id": middle_id, "window": 1});
-        let result = call_tool("get_surrounding_context", &args, temp.path(), &db_path);
+        let result = call_tool("get_surrounding_context", &args, &vaults, &db_path);
         assert!(result.is_ok(), "get_surrounding_context failed: {:?}", result.err());
         let text = result.unwrap()["content"][0]["text"].as_str().unwrap().to_string();
         assert!(text.contains("### Context around chunk"),
@@ -226,10 +230,10 @@ mod tests {
 
     #[test]
     fn test_unknown_tool_returns_error() {
-        // No DB interaction needed — unknown tool returns Err before any DB open
         let temp = TempDir::new().unwrap();
+        let vaults = vec![("default".to_string(), temp.path().to_path_buf())];
         let db_path = temp.path().join("nonexistent.db");
-        let result = call_tool("nonexistent_tool", &serde_json::json!({}), temp.path(), &db_path);
+        let result = call_tool("nonexistent_tool", &serde_json::json!({}), &vaults, &db_path);
         assert!(result.is_err());
     }
 }
