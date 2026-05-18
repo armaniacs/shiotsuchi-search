@@ -143,6 +143,39 @@ shiotsuchi tide
 
 ---
 
+### `clean` — Backup and re-index from scratch
+
+Backs up the current database file (with timestamp), deletes it, and then re-indexes all vaults from scratch.
+
+```sh
+shiotsuchi clean
+```
+
+Backup files are created alongside the database file:
+- `db.sqlite3.bak.<timestamp>`
+- `db.sqlite3-wal.bak.<timestamp>` (if exists)
+- `db.sqlite3-shm.bak.<timestamp>` (if exists)
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--db-path` | `~/.cache/shiotsuchi/db.sqlite3` | Database to back up and re-create |
+
+---
+
+### `config-migrate` — Upgrade config format
+
+Converts the config file from the old `[vault]` format to the new `[database]` + `[vaults.xxx]` format. Creates a timestamped `.bak` backup before rewriting.
+
+```sh
+shiotsuchi config-migrate
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--config` | `~/.config/shiotsuchi/config.toml` | Path to config file |
+
+---
+
 ### `config detect-noise` — Scan for exclusion candidates
 
 Scans the vault for directories matching known noise patterns or containing many markdown files, and prints a human-readable report. Does **not** modify the config file — use `shiotsuchi init --force` to update the config with the detected candidates.
@@ -185,7 +218,15 @@ shiotsuchi log
 
 Create `~/.config/shiotsuchi/config.toml` (or `$XDG_CONFIG_HOME/shiotsuchi/config.toml`) to avoid repeating flags on every command.
 
+### New format (v0.3.7+)
+
 ```toml
+[database]
+db_path = "/home/name/.cache/shiotsuchi/db.sqlite3"
+
+[vaults.default]
+notes_dir = "/home/name/Notes"
+
 [indexing]
 snippet_lines       = 3
 max_snippet_chars   = 1000
@@ -194,6 +235,30 @@ exclude_dirs        = ["node_modules"]
 auto_exclude_hidden = true
 follow_links        = false
 dynamic_threshold   = 5
+```
+
+### Old format (pre-v0.3.7, still readable)
+
+```toml
+[vault]
+notes_dir = "/home/name/Notes"
+db_path = "/home/name/.cache/shiotsuchi/db.sqlite3"
+```
+
+> **Migration:** Run `shiotsuchi config-migrate` to upgrade from the old `[vault]` format.
+> A timestamped `.bak` backup is created before rewriting.
+
+### Multi-vault example
+
+```toml
+[database]
+db_path = "/home/name/.cache/shiotsuchi/db.sqlite3"
+
+[vaults.personal]
+notes_dir = "/home/name/Documents/Personal"
+
+[vaults.work]
+notes_dir = "/home/name/Documents/Work"
 ```
 
 > **Note:** The field `exclude_patterns` was renamed to `exclude_dirs` in v0.2.9.
@@ -205,29 +270,49 @@ CLI flags always take precedence over config file values.
 
 ## Using multiple vaults
 
-One index = one vault. Use `--db-path` to point each command at the correct index.
+Multiple vaults share a single SQLite database. Each chunk is tagged with a `vault_name` so search results indicate which vault they came from. All commands operate on all configured vaults by default.
 
-### Example: Personal and Work vaults
+### Setup in config
 
-Index:
+```toml
+[database]
+db_path = "~/.cache/shiotsuchi/db.sqlite3"
 
-```sh
-shiotsuchi chart --notes-dir ~/Personal --db-path ~/.cache/shiotsuchi/personal.db
-shiotsuchi chart --notes-dir ~/Work     --db-path ~/.cache/shiotsuchi/work.db
+[vaults.personal]
+notes_dir = "/Users/name/Documents/Personal"
+
+[vaults.work]
+notes_dir = "/Users/name/Documents/Work"
 ```
 
-Search:
+### Indexing
 
 ```sh
-shiotsuchi dive "photo trip"   --db-path ~/.cache/shiotsuchi/personal.db
-shiotsuchi dive "Q3 budget"    --db-path ~/.cache/shiotsuchi/work.db
+# Indexes both vaults
+shiotsuchi chart
 ```
 
-Watch both vaults (run each in a separate terminal or background process):
+### Search
+
+Search works across all vaults. The MCP handler accepts an optional `vault` parameter for filtering.
 
 ```sh
-shiotsuchi scan --notes-dir ~/Personal --db-path ~/.cache/shiotsuchi/personal.db
-shiotsuchi scan --notes-dir ~/Work     --db-path ~/.cache/shiotsuchi/work.db
+# Searches all vaults
+shiotsuchi dive "Q3 budget"
+```
+
+### Watching
+
+```sh
+# Watches all configured vaults
+shiotsuchi scan
+```
+
+### Clean (backup + re-index)
+
+```sh
+# Backs up DB, deletes, re-indexes all vaults
+shiotsuchi clean
 ```
 
 ---
