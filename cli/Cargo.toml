@@ -25,6 +25,7 @@ env_logger = "0.11"
 toml = "0.8"
 dialoguer = "0.11"
 walkdir = "2"
+rusqlite = { version = "0.39", features = ["bundled"] }
 
 [dev-dependencies]
 tempfile = "3"

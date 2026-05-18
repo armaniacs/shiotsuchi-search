@@ -81,25 +81,7 @@ pub fn run_clean(
         return Err(format!("Database not found at {}. Run `shiotsuchi chart` to create the index first.", db_path.display()).into());
     }
 
-    // 1. Backup
-    let backed_up = backup_file(db_path);
-    let base = db_path.to_string_lossy();
-    for suffix in ["-wal", "-shm"] {
-        let companion = PathBuf::from(format!("{}{}", base, suffix));
-        backup_file(&companion);
-    }
-
-    // 2. Delete originals
-    delete_db_files(db_path);
-
-    // 3. Re-index from scratch
-    if let Some(parent) = db_path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    crate::util::secure_parent_dir(db_path);
-
-    let db = NoteDatabase::open(db_path)?;
-    let tokenizer = get_tokenizer()?;
+    // Build IndexConfig
     let config = IndexConfig {
         vaults: vaults.to_vec(),
         include_extensions: indexing_cfg.include_extensions.clone(),
@@ -108,6 +90,8 @@ pub fn run_clean(
         follow_links: indexing_cfg.follow_links,
         dynamic_threshold: indexing_cfg.dynamic_threshold,
     };
+
+    let tokenizer = get_tokenizer()?;
 
     let embedder = resolve_model_path(None).and_then(|p| match Embedder::load(&p) {
         Ok(e) => {
@@ -120,29 +104,81 @@ pub fn run_clean(
         }
     });
 
-    let (results, invalid_patterns) =
-        index_directory(&db, &tokenizer, &config, embedder.as_ref(), None)?;
+    // Build new DB at a temporary path (same directory, for atomic rename)
+    let tmp_path = db_path.with_extension(format!(
+        "sqlite3.tmp.{}",
+        std::process::id()
+    ));
+    // Clean up any stale temp file from a previous crash
+    let _ = std::fs::remove_file(&tmp_path);
+    let tmp_base = tmp_path.to_string_lossy();
+    for suffix in ["-wal", "-shm"] {
+        let _ = std::fs::remove_file(PathBuf::from(format!("{}{}", tmp_base, suffix)));
+    }
 
-    let mut indexed = 0usize;
-    let mut skipped = 0usize;
-    let mut errors = 0usize;
-    for (_, _, result) in &results {
-        match result {
-            IndexResult::Inserted | IndexResult::Updated => indexed += 1,
-            IndexResult::Skipped => skipped += 1,
-            IndexResult::Error(_) => errors += 1,
+    if let Some(parent) = db_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    crate::util::secure_parent_dir(db_path);
+
+    // Index into temp DB first (before touching original)
+    {
+        let db = NoteDatabase::open(&tmp_path)?;
+        let (results, invalid_patterns) =
+            index_directory(&db, &tokenizer, &config, embedder.as_ref(), None)?;
+
+        // Checkpoint WAL so all data is in the main .db file before rename
+        drop(db);
+        let checkpoint_conn = rusqlite::Connection::open(&tmp_path)?;
+        checkpoint_conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE)")?;
+        drop(checkpoint_conn);
+
+        let mut indexed = 0usize;
+        let mut skipped = 0usize;
+        let mut errors = 0usize;
+        for (_, _, result) in &results {
+            match result {
+                IndexResult::Inserted | IndexResult::Updated => indexed += 1,
+                IndexResult::Skipped => skipped += 1,
+                IndexResult::Error(_) => errors += 1,
+            }
         }
+        println!(
+            "Re-indexed {} files ({} skipped, {} errors)",
+            indexed, skipped, errors
+        );
+        if invalid_patterns > 0 {
+            println!("  {} invalid pattern(s) in exclude_dirs", invalid_patterns);
+        }
+    }
+
+    // Backup the old DB (now that indexing succeeded)
+    let backed_up = backup_file(db_path);
+    let base = db_path.to_string_lossy();
+    for suffix in ["-wal", "-shm"] {
+        let companion = PathBuf::from(format!("{}{}", base, suffix));
+        backup_file(&companion);
+    }
+
+    // Delete old DB files (free the file name for rename)
+    delete_db_files(db_path);
+
+    // Atomic rename: temp → real path.
+    // On the same filesystem this is an atomic metadata swap.
+    // Cross-device fallback: copy + delete.
+    if let Err(e) = std::fs::rename(&tmp_path, db_path) {
+        eprintln!("Warning: rename failed (cross-device?), falling back to copy: {}", e);
+        std::fs::copy(&tmp_path, db_path)?;
+        std::fs::remove_file(&tmp_path)?;
+    }
+
+    // Clean up any temp companions
+    for suffix in ["-wal", "-shm"] {
+        let _ = std::fs::remove_file(PathBuf::from(format!("{}{}", tmp_base, suffix)));
     }
 
     if let Some(ref backup_path) = backed_up {
         println!("Backup saved to: {}", backup_path.display());
-    }
-    println!(
-        "Re-indexed {} files ({} skipped, {} errors)",
-        indexed, skipped, errors
-    );
-    if invalid_patterns > 0 {
-        println!("  {} invalid pattern(s) in exclude_dirs", invalid_patterns);
     }
 
     if embedder.is_none() {
@@ -174,12 +210,9 @@ mod tests {
         assert!(result.is_some(), "backup should succeed");
         let backup = result.unwrap();
         assert!(backup.exists(), "backup file should exist");
-        // Read back content
         let content = fs::read_to_string(&backup).unwrap();
         assert_eq!(content, "hello");
-        // Original should still exist
         assert!(file.exists());
-        // Backup name should be "test.db.bak.<timestamp>"
         let name = backup.file_name().unwrap().to_string_lossy();
         assert!(name.starts_with("test.db.bak."), "backup name mismatch: {}", name);
     }
@@ -245,7 +278,6 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let db = tmp.path().join("test.db");
         fs::write(&db, "db").unwrap();
-        // No -wal or -shm files
         delete_db_files(&db);
         assert!(!db.exists(), "db should be deleted");
     }
@@ -253,19 +285,15 @@ mod tests {
     #[test]
     fn test_delete_db_files_does_not_panic_on_nonexistent_db() {
         let tmp = TempDir::new().unwrap();
-        let db = tmp.path().join("never-created.db");
-        // Should not panic
-        delete_db_files(&db);
+        delete_db_files(&tmp.path().join("never-created.db"));
     }
 
     // ---------------------------------------------------------------------------
-    // run_clean error path
+    // run_clean integration test
     // ---------------------------------------------------------------------------
 
     #[test]
     fn test_run_clean_full_flow() {
-        // Create vault with markdown files, pre-populate a DB,
-        // then run clean and verify backup + re-index.
         let tmp = TempDir::new().unwrap();
         let vault = tmp.path().join("vault");
         fs::create_dir_all(&vault).unwrap();
@@ -273,8 +301,6 @@ mod tests {
         fs::write(vault.join("b.md"), "# B\n\nContent B").unwrap();
 
         let db_path = tmp.path().join("test.db");
-
-        // Pre-populate DB (doesn't need a tokenizer for a bare open)
         let _db = match shiotsuchi_core::db::NoteDatabase::open(&db_path) {
             Ok(db) => db,
             Err(e) => {
@@ -287,7 +313,6 @@ mod tests {
         let idx_cfg = IndexingConfig::default();
         let vaults = vec![("default".to_string(), vault.clone())];
 
-        // Run clean (may skip if no tokenizer model)
         if let Err(e) = super::run_clean(&vaults, &db_path, &idx_cfg) {
             let msg = format!("{}", e);
             if msg.contains("no model") || msg.contains("NoModel") {
@@ -297,10 +322,8 @@ mod tests {
             panic!("clean failed: {}", e);
         }
 
-        // After clean, DB should exist (re-created by indexing)
         assert!(db_path.exists(), "DB should exist after clean");
 
-        // Backup file should exist alongside the re-created DB
         let parent = db_path.parent().unwrap();
         let backups: Vec<_> = std::fs::read_dir(parent)
             .unwrap()
@@ -309,7 +332,13 @@ mod tests {
             .collect();
         assert!(!backups.is_empty(), "backup file should exist after clean");
 
-        // Verify the new DB is usable
+        let temps: Vec<_> = std::fs::read_dir(parent)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_name().to_string_lossy().contains(".tmp."))
+            .collect();
+        assert!(temps.is_empty(), "no stale temp files after clean: {:?}", temps);
+
         match shiotsuchi_core::db::NoteDatabase::open(&db_path) {
             Ok(db) => {
                 let stats = db.stats().unwrap();
