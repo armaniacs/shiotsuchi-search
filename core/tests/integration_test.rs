@@ -37,19 +37,19 @@ fn test_end_to_end_index_and_search() {
     // Index
     let db = NoteDatabase::open_in_memory().unwrap();
     let config = IndexConfig {
-        notes_dir: vault.clone(),
+        vaults: vec![("default".to_string(), vault.clone())],
         ..Default::default()
     };
     let (results, _invalid) = index_directory(&db, &tokenizer, &config, None, None).unwrap();
     assert_eq!(results.len(), 3);
 
     // FTS search
-    let search_results = search(&db, &tokenizer, "search engine", 10, SearchMode::Fts, None, None).unwrap();
+    let search_results = search(&db, &tokenizer, "search engine", 10, SearchMode::Fts, None, None, None).unwrap();
     assert!(!search_results.is_empty());
     assert!(search_results[0].file_path.contains("project"));
 
     // Japanese FTS search
-    let ja_results = search(&db, &tokenizer, "形態素", 10, SearchMode::Fts, None, None).unwrap();
+    let ja_results = search(&db, &tokenizer, "形態素", 10, SearchMode::Fts, None, None, None).unwrap();
     assert!(!ja_results.is_empty());
 
     // Stats

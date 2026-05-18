@@ -1,4 +1,4 @@
-use crate::commands::noise::{scan_vault, CANDIDATE_LIMIT};
+use crate::commands::noise::{scan_vault, ExclusionCandidate, CANDIDATE_LIMIT};
 use clap::{Args, Subcommand};
 use std::path::PathBuf;
 
@@ -16,45 +16,20 @@ pub enum ConfigCommands {
 
 #[derive(Args, Debug)]
 pub struct DetectNoiseArgs {
-    /// Vault root to scan (defaults to config's notes_dir).
+    /// Vault root to scan (defaults to all configured vaults).
     #[arg(long)]
     pub notes_dir: Option<PathBuf>,
 }
 
-pub fn run_config(
-    args: &ConfigArgs,
-    notes_dir: &std::path::Path,
-    include_extensions: &[String],
-    auto_exclude_hidden: bool,
-    dynamic_threshold: usize,
-) -> Result<(), Box<dyn std::error::Error>> {
-    // Dispatch on subcommand. Currently only DetectNoise is supported.
-    let detect_notes_dir = match &args.command {
-        ConfigCommands::DetectNoise(detect_args) => {
-            detect_args.notes_dir.as_deref().unwrap_or(notes_dir)
-        }
-    };
-
-    let (candidates, _truncated) = scan_vault(
-        detect_notes_dir,
-        include_extensions,
-        auto_exclude_hidden,
-        dynamic_threshold,
-        CANDIDATE_LIMIT,
-    );
-
+fn print_noise_candidates(candidates: &[ExclusionCandidate], label: &str) {
     if candidates.is_empty() {
-        println!(
-            "No exclusion candidates detected in {}",
-            detect_notes_dir.display()
-        );
-        return Ok(());
+        println!("No exclusion candidates detected in {}", label);
+        return;
     }
 
-    println!("Exclusion candidates in {}:", detect_notes_dir.display());
-    println!();
+    println!("Exclusion candidates in {}:", label);
     for (i, candidate) in candidates.iter().enumerate() {
-        let label = if candidate.is_known_pattern {
+        let l = if candidate.is_known_pattern {
             "known"
         } else {
             "dynamic"
@@ -63,11 +38,46 @@ pub fn run_config(
             "  {}. {} [{}] ({} file{})",
             i + 1,
             candidate.relative_path,
-            label,
+            l,
             candidate.file_count,
             if candidate.file_count == 1 { "" } else { "s" }
         );
     }
+}
+
+pub fn run_config(
+    args: &ConfigArgs,
+    vaults: &[(String, PathBuf)],
+    include_extensions: &[String],
+    auto_exclude_hidden: bool,
+    dynamic_threshold: usize,
+) -> Result<(), Box<dyn std::error::Error>> {
+    match &args.command {
+        ConfigCommands::DetectNoise(detect_args) => {
+            if let Some(custom_dir) = &detect_args.notes_dir {
+                let (candidates, _truncated) = scan_vault(
+                    custom_dir,
+                    include_extensions,
+                    auto_exclude_hidden,
+                    dynamic_threshold,
+                    CANDIDATE_LIMIT,
+                );
+                print_noise_candidates(&candidates, &custom_dir.display().to_string());
+            } else {
+                for (name, vault_dir) in vaults {
+                    let (candidates, _truncated) = scan_vault(
+                        vault_dir,
+                        include_extensions,
+                        auto_exclude_hidden,
+                        dynamic_threshold,
+                        CANDIDATE_LIMIT,
+                    );
+                    print_noise_candidates(&candidates, name);
+                }
+            }
+        }
+    }
+
     println!();
     println!("Run `shiotsuchi init --force` to regenerate config with these exclusions.");
     println!("Or add them manually to the [indexing] section of your config file.");

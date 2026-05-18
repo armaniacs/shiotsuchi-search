@@ -7,7 +7,7 @@ use shiotsuchi_core::{
     models::IndexConfig,
     tokenizer::get_tokenizer,
 };
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 #[derive(Args, Debug)]
 pub struct ChartArgs {
@@ -27,7 +27,7 @@ pub struct ChartSummary {
 
 pub fn run_chart(
     args: &ChartArgs,
-    notes_dir: &Path,
+    vaults: &[(String, PathBuf)],
     db_path: &Path,
     indexing_cfg: &IndexingConfig,
 ) -> Result<ChartSummary, Box<dyn std::error::Error>> {
@@ -41,7 +41,7 @@ pub fn run_chart(
     let db = NoteDatabase::open(db_path)?;
     let tokenizer = get_tokenizer()?;
     let config = IndexConfig {
-        notes_dir: notes_dir.to_path_buf(),
+        vaults: vaults.to_vec(),
         include_extensions: indexing_cfg.include_extensions.clone(),
         exclude_dirs: indexing_cfg.exclude_dirs.clone(),
         auto_exclude_hidden: indexing_cfg.auto_exclude_hidden,
@@ -72,7 +72,7 @@ pub fn run_chart(
         errors: 0,
         invalid_patterns,
     };
-    for (_, result) in &results {
+    for (_, _, result) in &results {
         match result {
             IndexResult::Inserted | IndexResult::Updated => summary.indexed += 1,
             IndexResult::Skipped => summary.skipped += 1,
@@ -127,7 +127,7 @@ mod tests {
             quiet: true,
         };
         let idx_cfg = IndexingConfig::default();
-        let result = run_chart(&args, temp.path(), &db_file, &idx_cfg);
+        let result = run_chart(&args, &[("default".to_string(), temp.path().to_path_buf())], &db_file, &idx_cfg);
         match result {
             Ok(summary) => {
                 assert_eq!(summary.indexed, 1);
@@ -160,7 +160,7 @@ mod tests {
             quiet: true,
         };
         let idx_cfg = IndexingConfig::default();
-        let _result = run_chart(&args, &vault, &db_path, &idx_cfg);
+        let _result = run_chart(&args, &[("default".to_string(), vault.clone())], &db_path, &idx_cfg);
 
         let parent = db_path.parent().unwrap();
         if parent.exists() {
@@ -186,7 +186,7 @@ mod tests {
             quiet: true,
         };
         let idx_cfg = IndexingConfig::default();
-        let _result = run_chart(&args, vault, &db_path, &idx_cfg);
+        let _result = run_chart(&args, &[("default".to_string(), vault.to_path_buf())], &db_path, &idx_cfg);
 
         // secure_parent_dir sets 0o700 on the immediate parent (c)
         // ancestor directories (a, b) are not modified by the utility

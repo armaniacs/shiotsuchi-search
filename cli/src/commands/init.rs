@@ -38,10 +38,16 @@ pub fn run_init(
     let effective_notes_dir: PathBuf = match raw_notes_dir {
         Some(dir) => dir.to_path_buf(),
         None => {
-            // When --force is used, preserve the existing notes_dir if it was
-            // explicitly set (not the default ".").
-            if args.force && cfg.vault.notes_dir != std::path::Path::new(".") {
-                cfg.vault.notes_dir.clone()
+            // When --force is used, preserve the existing notes_dir from the resolved
+            // first vault if it was explicitly set (not the default ".").
+            let use_existing = args.force
+                && cfg
+                    .resolved_vaults()
+                    .first()
+                    .map(|(_, d)| d.as_path() != Path::new("."))
+                    .unwrap_or(false);
+            if use_existing {
+                cfg.resolved_vaults().into_iter().next().unwrap().1
             } else {
                 let cwd = std::env::current_dir()?;
                 eprintln!(
@@ -59,11 +65,18 @@ pub fn run_init(
         std::fs::create_dir_all(parent)?;
     }
 
-    // --- Build the output config ---
+    // --- Build the output config (new format) ---
     let mut out_cfg = cfg.clone();
-    out_cfg.vault.notes_dir = effective_notes_dir.clone();
+    out_cfg.vault = None;
+    out_cfg.vaults.insert(
+        "default".to_string(),
+        crate::config::VaultEntry {
+            notes_dir: Some(effective_notes_dir.clone()),
+            db_path: None,
+        },
+    );
     if let Some(db) = raw_db_path {
-        out_cfg.vault.db_path = db.to_path_buf();
+        out_cfg.database.db_path = Some(db.to_path_buf());
     }
 
     // --- Validate and scan vault ---
@@ -278,7 +291,7 @@ mod tests {
 
         assert!(config_path.exists());
         let contents = fs::read_to_string(&config_path).unwrap();
-        assert!(contents.contains("[vault]"));
+        assert!(contents.contains("[vaults.default]"));
         assert!(contents.contains("[indexing]"));
         assert!(contents.contains("[watcher]"));
     }
@@ -317,7 +330,7 @@ mod tests {
         run_init(&args, &cfg, &config_path, None, None).unwrap();
 
         let contents = fs::read_to_string(&config_path).unwrap();
-        assert!(contents.contains("[vault]"));
+        assert!(contents.contains("[vaults.default]"));
         // The original file should be replaced
         assert!(contents.contains("[indexing]"));
     }

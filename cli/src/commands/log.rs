@@ -1,9 +1,9 @@
 use shiotsuchi_core::db::NoteDatabase;
 use std::path::Path;
 
-pub fn run_log(db_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
+pub fn run_log(db_path: &Path, vault_name: &str) -> Result<(), Box<dyn std::error::Error>> {
     let db = NoteDatabase::open(db_path)?;
-    let paths = db.list_cached_paths()?;
+    let paths = db.list_cached_paths(vault_name)?;
 
     if paths.is_empty() {
         println!("No files indexed yet. Run `shiotsuchi chart` first.");

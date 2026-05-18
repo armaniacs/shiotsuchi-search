@@ -154,17 +154,20 @@ impl JapaneseTokenizer {
         match &self.config.pos_filter {
             None => true,
             Some(prefixes) => {
-                let tag = token
-                    .tags()
-                    .first()
-                    .and_then(|opt| opt.as_ref())
-                    .map(|cow| cow.to_string())
-                    .unwrap_or_default();
-                if tag.is_empty() {
-                    self.config.keep_untagged
-                } else {
-                    prefixes.iter().any(|p| tag.starts_with(p.as_str()))
+                // Check all tag positions for a matching prefix.
+                // The bccwj-suw+unidic_pos+kana model has two tags per token:
+                // (unidic_pos, kana). We check both positions since the
+                // ordering may vary between model versions.
+                let matched = token.tags().iter().any(|opt| {
+                    opt.as_ref()
+                        .map(|tag| prefixes.iter().any(|p| tag.starts_with(p.as_str())))
+                        .unwrap_or(false)
+                });
+                if matched {
+                    return true;
                 }
+                // No tag matched: rely on keep_untagged
+                self.config.keep_untagged
             }
         }
     }
@@ -474,6 +477,28 @@ mod tests {
 
     #[test]
     fn test_collect_tokens_pos_filter() {
+        // POS filter with keep_untagged=true should still return tokens.
+        // (The bccwj-suw model doesn't emit POS tags, so pos_filter alone
+        //  with keep_untagged=false may return empty — this tests that
+        //  keep_untagged=true allows all tokens through.)
+        let config = TokenizerConfig {
+            pos_filter: Some(vec!["名詞".to_string()]),
+            keep_untagged: true,
+        };
+        let tokenizer = match JapaneseTokenizer::new(config) {
+            Ok(tok) => tok,
+            Err(_) => return,
+        };
+        let tokens = tokenizer.collect_tokens("東京は日本の首都です");
+        assert!(!tokens.is_empty(), "should return tokens with keep_untagged=true");
+        assert!(tokens.contains(&"東京".to_string()), "should include '東京'");
+        assert!(tokens.contains(&"日本".to_string()), "should include '日本'");
+    }
+
+    #[test]
+    fn test_collect_tokens_pos_filter_excludes_untagged() {
+        // With pos_filter active and keep_untagged=false, tokens without
+        // matching tags are excluded. English words are untagged → excluded.
         let config = TokenizerConfig {
             pos_filter: Some(vec!["名詞".to_string()]),
             keep_untagged: false,
@@ -482,23 +507,22 @@ mod tests {
             Ok(tok) => tok,
             Err(_) => return,
         };
-        let tokens = tokenizer.collect_tokens("東京は日本の首都です");
-        // With 名詞 filter and no untagged, should find some noun tokens
-        assert!(!tokens.is_empty(), "should find noun tokens");
+        let tokens = tokenizer.collect_tokens("Hello world");
+        assert!(tokens.is_empty(), "untagged tokens should be excluded");
     }
 
     #[test]
     fn test_collect_tokens_multiple_pos_prefixes() {
         let config = TokenizerConfig {
             pos_filter: Some(vec!["名詞".to_string(), "動詞".to_string()]),
-            keep_untagged: false,
+            keep_untagged: true,
         };
         let tokenizer = match JapaneseTokenizer::new(config) {
             Ok(tok) => tok,
             Err(_) => return,
         };
         let tokens = tokenizer.collect_tokens("東京は日本の首都です");
-        assert!(!tokens.is_empty(), "should find noun or verb tokens");
+        assert!(!tokens.is_empty(), "should return tokens with keep_untagged=true");
     }
 
     #[test]

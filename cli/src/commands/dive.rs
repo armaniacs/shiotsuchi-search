@@ -128,6 +128,7 @@ pub fn run_dive(
         search_mode,
         embedder.as_ref(),
         None,
+        None,
     )?;
     Ok(results)
 }
@@ -208,7 +209,7 @@ mod tests {
             quiet: true,
         };
         let chart_result =
-            crate::commands::chart::run_chart(&chart_args, temp.path(), &db_file, &idx_cfg);
+            crate::commands::chart::run_chart(&chart_args, &[("default".to_string(), temp.path().to_path_buf())], &db_file, &idx_cfg);
         if chart_result.is_err() {
             return; // Model not available — skip
         }
@@ -292,6 +293,7 @@ mod tests {
             content: "snippet a".into(),
             score: 0.1,
             search_mode: SearchMode::Fts,
+            vault_name: "default".into(),
         }];
         let json = serde_json::to_string(&results).unwrap();
         let decoded: Vec<ChunkSearchResult> = serde_json::from_str(&json).unwrap();

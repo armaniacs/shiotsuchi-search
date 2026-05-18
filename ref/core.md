@@ -9,27 +9,32 @@ Published name: `shiotsuchi-core`
 
 **Type**: `NoteDatabase { write_conn: RefCell<Connection> }`
 
-**Schema** (all tables created by `create_schema()`):
+**Schema** (v3, created by `create_schema()` + migrations):
 
 ```sql
 -- File cache for incremental indexing (hash + mtime tracking)
+-- v3: added vault_name for multi-vault support
 CREATE TABLE IF NOT EXISTS file_cache (
-    path     TEXT PRIMARY KEY,
-    hash     TEXT NOT NULL,
-    mtime    INTEGER NOT NULL,
-    model_id TEXT NOT NULL
+    vault_name TEXT NOT NULL,
+    path       TEXT NOT NULL,
+    hash       TEXT NOT NULL,
+    mtime      INTEGER NOT NULL,
+    model_id   TEXT NOT NULL,
+    PRIMARY KEY (vault_name, path)
 );
 
 -- Chunk storage
+-- v3: added vault_name column
 CREATE TABLE IF NOT EXISTS chunks (
     id                INTEGER PRIMARY KEY,
+    vault_name        TEXT NOT NULL DEFAULT 'default',
     file_path         TEXT NOT NULL,
     chunk_index       INTEGER NOT NULL,
     parent_header     TEXT,
     content           TEXT NOT NULL,
     tokenized_content TEXT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_chunks_file_path ON chunks(file_path);
+CREATE INDEX IF NOT EXISTS idx_chunks_file_path ON chunks(vault_name, file_path);
 
 -- FTS5 virtual table for keyword search (external content table)
 CREATE VIRTUAL TABLE IF NOT EXISTS fts_chunks USING fts5(
@@ -49,17 +54,17 @@ CREATE VIRTUAL TABLE IF NOT EXISTS vec_chunks USING vec0(
 **Key Methods**:
 - `open(path)` / `open_in_memory()` — Open SQLite DB, enable WAL, register sqlite-vec extension, run migrations
 - `open_readonly(path)` — Read-only connection (for MCP search handlers)
-- `insert_chunks(chunks)` — Insert chunk batch in transaction, returns assigned IDs
+- `insert_chunks(chunks)` — Insert chunk batch in transaction, returns assigned IDs (reads `vault_name` from each chunk)
 - `insert_embeddings(pairs)` — Insert (chunk_id, embedding) pairs for vector search
-- `delete_chunks_for_file(file_path)` — Remove all chunks/FTS/vec entries for a file (transaction-wrapped)
-- `fts_search(fts5_query, limit)` — Execute FTS5 MATCH with BM25 ranking
+- `delete_chunks_for_file(vault_name, file_path)` — Remove all chunks/FTS/vec entries for a file in a specific vault
+- `fts_search(fts5_query, limit)` — Execute FTS5 MATCH with BM25 ranking (results joined with chunks for vault_name)
 - `vec_search(embedding, limit)` — Execute vec0 KNN search with cosine distance
-- `get_chunks_by_ids(ids)` — Fetch chunks by IDs, preserving order
-- `get_surrounding_chunks(chunk_id, window)` — Fetch chunks before/after a given chunk (for context)
-- `cached_hash(path)` / `upsert_file_cache(...)` / `delete_file_cache(path)` — Incremental index tracking
-- `list_cached_paths()` — All indexed file paths
+- `get_chunks_by_ids(ids)` — Fetch chunks by IDs, preserving order (includes vault_name)
+- `get_surrounding_chunks(chunk_id, window)` — Fetch chunks before/after a given chunk (for context, includes vault_name)
+- `cached_hash(vault_name, path)` / `upsert_file_cache(vault_name, ...)` / `delete_file_cache(vault_name, path)` — Per-vault incremental index tracking
+- `list_cached_paths(vault_name)` — Indexed file paths for a specific vault
 - `stats()` — Vault statistics (total_chunks, total_files, vec_indexed_chunks, db_path, etc.)
-- `migrate()` — Schema migration (v1→v2: from old notes_fts/notes_meta to chunk schema)
+- `migrate()` — Schema migration (v1→v2: old notes_fts/notes_meta to chunk schema; v2→v3: add vault_name)
 
 **Error Type**: `DbError { Sqlite(rusqlite::Error), NotFound(String), Io(std::io::Error), Other(String) }`
 
@@ -90,13 +95,14 @@ CREATE VIRTUAL TABLE IF NOT EXISTS vec_chunks USING vec0(
 **Type**: Free functions only.
 
 **Key Function**:
-- `split_into_chunks(markdown, tokenizer, file_path)` → `Vec<Chunk>`
+- `split_into_chunks(markdown, tokenizer, file_path, vault_name)` → `Vec<Chunk>`
 
 **Algorithm**:
 1. **Level 1**: Split on Markdown headers (`#`, `##`, `###`). Builds a hierarchy stack of parent headers.
 2. **Level 2**: Sections exceeding 1000 chars are further split on blank-line boundaries (paragraphs).
 3. Fenced code blocks (` ``` `) are never split internally.
 4. Each chunk receives `parent_header` set to the ancestor heading path (e.g. `"Section 1 > Subsection A"`).
+5. Each chunk receives `vault_name` for multi-vault tracking.
 
 ### `embedder.rs` — ONNX Embedding Inference (RAG)
 
@@ -123,9 +129,9 @@ CREATE VIRTUAL TABLE IF NOT EXISTS vec_chunks USING vec0(
 ### `indexer.rs` — File Indexing (Chunk-aware)
 
 **Key Functions**:
-- `index_directory(db, tokenizer, config, file_limit, progress)` → Walk vault, index all matching files. Optional `file_limit` caps files processed. Optional `progress` callback reports (current, total).
-- `index_file(db, tokenizer, embedder, file_path, relative_path, config)` → Index single file: read → split into chunks → FTS insert → optional embedding insert
-- `cleanup_deleted(db, config)` → Remove DB entries for deleted files (checks file_cache)
+- `index_directory(db, tokenizer, config, embedder, progress)` → Walk all configured vaults, index all matching files. Progress is cumulative across vaults.
+- `index_file(db, tokenizer, embedder, file_path, vault_name, relative_path, config)` → Index single file: read → split into chunks → FTS insert → optional embedding insert
+- `cleanup_deleted(db, config)` → Remove DB entries for deleted files across all vaults (checks file_cache per vault)
 - `extract_frontmatter(content)` → Parse YAML frontmatter, extract title
 - `markdown_to_text(markdown)` → Strip markup to plain text
 - `title_from_path(path)` → Derive title from filename
@@ -133,15 +139,20 @@ CREATE VIRTUAL TABLE IF NOT EXISTS vec_chunks USING vec0(
 
 **Flow**:
 ```
-Read file → Extract frontmatter → Split into chunks → Tokenize each chunk → Delete old chunks → Insert new chunks → Insert embeddings (if embedder available)
+For each (vault_name, notes_dir) in config.vaults:
+  WalkDir(notes_dir) → filter extensions/excludes
+  For each file:
+    Read → Extract frontmatter → Split into chunks (with vault_name)
+    → Delete old chunks for vault+path → Insert new chunks → Insert embeddings
 ```
 
 **Progress type**: `IndexProgress = Box<dyn Fn(usize, usize) + Send + 'static>`
+Progress is cumulative: `(processed_so_far, total_across_all_vaults)`.
 
 ### `search.rs` — Search Engine
 
 **Key Function**:
-- `search(db, tokenizer, query, limit, mode, embedder, min_score)` → `Result<Vec<ChunkSearchResult>>`
+- `search(db, tokenizer, query, limit, mode, embedder, min_score, vault_filter)` → `Result<Vec<ChunkSearchResult>>`
 
 **Modes** (`SearchMode` enum):
 - `Fts` — Keyword search via FTS5 BM25 (works without model). Lower score = more relevant.
@@ -154,6 +165,7 @@ Read file → Extract frontmatter → Split into chunks → Tokenize each chunk 
 - `mode`: Search strategy
 - `embedder`: Optional ONNX embedder (required for Vec/Hybrid modes)
 - `min_score`: Optional threshold — FTS/Vec excludes `score > min_score`, Hybrid excludes `score < min_score`
+- `vault_filter`: Optional vault name to restrict results to a single vault (`None` = all vaults)
 
 **Snippet Extraction** (`extract_snippet`):
 - Finds first matching token position
@@ -167,24 +179,26 @@ Read file → Extract frontmatter → Split into chunks → Tokenize each chunk 
 
 | Type | Fields |
 |------|--------|
-| `Chunk` | id, file_path, chunk_index, parent_header, content, tokenized_content |
-| `ChunkSearchResult` | chunk_id, file_path, parent_header, content, score, search_mode |
+| `Chunk` | id, vault_name, file_path, chunk_index, parent_header, content, tokenized_content |
+| `ChunkSearchResult` | vault_name, chunk_id, file_path, parent_header, content, score, search_mode |
 | `SearchMode` | `Fts` / `Vec` / `Hybrid` (default) |
 | `EmbedderStatus` | `Ready` / `Unavailable(String)` |
 | `NoteMetadata` | path, hash, mtime, indexed_at, title |
 | `VaultStats` | total_chunks, total_files, total_size_bytes, last_indexed_at, db_path, vec_indexed_chunks, embedder_status |
 | `SearchConfig` | max_snippet_chars (128–65535, default 1000) |
-| `IndexConfig` | notes_dir, include_extensions, exclude_dirs, auto_exclude_hidden, follow_links, dynamic_threshold |
+| `IndexConfig` | vaults, include_extensions, exclude_dirs, auto_exclude_hidden, follow_links, dynamic_threshold |
 | `IndexResult` | `Inserted` / `Updated` / `Skipped` / `Error(String)` |
 
 ### `watcher.rs` — File System Watcher
 
-**Type**: `VaultWatcher { db: Arc<Mutex<NoteDatabase>>, tokenizer: Arc<JapaneseTokenizer>, config: IndexConfig }`
+**Type**: `VaultWatcher { db, tokenizer, config: IndexConfig, embedder, watchers }`
 
 **Behavior**:
-- Uses `notify` crate for cross-platform file watching
+- Creates one `notify` watcher per configured vault
+- Events carry vault_name for correct routing to DB operations
 - Handles: Create, Modify (data), Remove, Rename
 - Incremental re-indexing on change by calling `index_file()`
+- `resolve_vault_for_path(path)` → finds which vault a path belongs to (symlink-safe)
 - Requires `watcher` feature flag (enabled by default)
 
 ### `build_info.rs` — Compile-time Build Information
@@ -210,10 +224,20 @@ Read file → Extract frontmatter → Split into chunks → Tokenize each chunk 
 | `watcher` | yes | Enables file system watcher via `notify` crate |
 | `async-index` | yes | Enables parallel indexing via `rayon` |
 
+## Schema Migrations
+
+| Version | Change |
+|---------|--------|
+| v1 | Original schema with `notes_meta` + `notes_fts` tables (dropped) |
+| v2 | Current chunk-based schema: `chunks`, `file_cache`, `fts_chunks`, `vec_chunks` |
+| v3 | Added `vault_name` column to `chunks` and `file_cache`; composite PK on `file_cache(vault_name, path)` |
+
+The v2→v3 migration is crash-safe: it checks for the column before adding it, and wraps the full migration in a transaction.
+
 ## Testing Strategy
 
 - Model-optional tests: Try `JapaneseTokenizer::new()`, skip if `Err`
 - CI: Set `SHIOTSUCHI_MODEL_PATH` for full tests
 - In-memory DB for unit tests
 - `tempfile` for disk-based DB tests
-- 84 unit tests + 7 integration tests (transaction safety, migration, integrity checks)
+- 194+ unit tests + 8 integration tests (transaction safety, migration, integrity checks)

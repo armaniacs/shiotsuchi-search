@@ -1,6 +1,6 @@
 use clap::Args;
 use shiotsuchi_core::{db::NoteDatabase, indexer::cleanup_deleted, models::IndexConfig};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 #[derive(Args, Debug)]
 pub struct DredgeArgs {
@@ -15,7 +15,7 @@ pub struct DredgeArgs {
 
 pub fn run_dredge(
     args: &DredgeArgs,
-    notes_dir: &Path,
+    vaults: &[(String, PathBuf)],
     db_path: &Path,
     indexing_cfg: &crate::config::IndexingConfig,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -26,7 +26,7 @@ pub fn run_dredge(
 
     let db = NoteDatabase::open(db_path)?;
     let config = IndexConfig {
-        notes_dir: notes_dir.to_path_buf(),
+        vaults: vaults.to_vec(),
         include_extensions: indexing_cfg.include_extensions.clone(),
         exclude_dirs: indexing_cfg.exclude_dirs.clone(),
         auto_exclude_hidden: indexing_cfg.auto_exclude_hidden,
@@ -77,7 +77,7 @@ mod tests {
             vacuum: false,
         };
         let idx_cfg = IndexingConfig::default();
-        let result = run_dredge(&args, temp.path(), &db_file, &idx_cfg);
+        let result = run_dredge(&args, &[("default".to_string(), temp.path().to_path_buf())], &db_file, &idx_cfg);
         assert!(result.is_ok());
     }
 
@@ -92,7 +92,7 @@ mod tests {
             vacuum: false,
         };
         let idx_cfg = IndexingConfig::default();
-        let result = run_dredge(&args, temp.path(), &db_file, &idx_cfg);
+        let result = run_dredge(&args, &[("default".to_string(), temp.path().to_path_buf())], &db_file, &idx_cfg);
         assert!(result.is_ok());
     }
 
@@ -109,7 +109,7 @@ mod tests {
             vacuum: true,
         };
         let idx_cfg = IndexingConfig::default();
-        let result = run_dredge(&args, temp.path(), &db_file, &idx_cfg);
+        let result = run_dredge(&args, &[("default".to_string(), temp.path().to_path_buf())], &db_file, &idx_cfg);
         assert!(result.is_ok());
     }
 }

@@ -63,9 +63,11 @@ Restart Claude Desktop and ask: "Search my notes for project"
 `~/.config/shiotsuchi/config.toml` (`$XDG_CONFIG_HOME/shiotsuchi/config.toml` if set):
 
 ```toml
-[vault]
-notes_dir = "/home/name/Notes"
+[database]
 db_path = "/home/name/.cache/shiotsuchi/db.sqlite3"
+
+[vaults.default]
+notes_dir = "/home/name/Notes"
 
 [indexing]
 snippet_lines = 3
@@ -73,6 +75,22 @@ max_snippet_chars = 1000
 include_extensions = ["md", "markdown"]
 exclude_dirs = ["node_modules"]
 ```
+
+Multiple vaults can share a single database:
+
+```toml
+[database]
+db_path = "/home/name/.cache/shiotsuchi/db.sqlite3"
+
+[vaults.personal]
+notes_dir = "/home/name/Documents/Personal"
+
+[vaults.work]
+notes_dir = "/home/name/Documents/Work"
+```
+
+> **Legacy format:** Pre-v0.3.7 configs use `[vault] notes_dir` / `[vault] db_path` and are still readable.
+> Run `shiotsuchi config-migrate` to upgrade to the new format.
 
 ## Performance
 

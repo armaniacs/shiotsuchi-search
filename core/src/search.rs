@@ -20,26 +20,27 @@ pub fn search(
     mode: SearchMode,
     embedder: Option<&crate::embedder::Embedder>,
     min_score: Option<f64>,
+    vault_filter: Option<&str>,
 ) -> Result<Vec<ChunkSearchResult>, DbError> {
     if query.trim().is_empty() {
         return Ok(vec![]);
     }
 
-    let effective_mode = if embedder.is_none() && matches!(mode, SearchMode::Vec | SearchMode::Hybrid) {
+    let effective_mode = if embedder.is_none() && matches!(mode, SearchMode::Hybrid) {
         SearchMode::Fts
     } else {
         mode
     };
 
     match effective_mode {
-        SearchMode::Fts => search_fts(db, tokenizer, query, limit, min_score),
+        SearchMode::Fts => search_fts(db, tokenizer, query, limit, min_score, vault_filter),
         SearchMode::Vec => {
             let emb = embedder.ok_or_else(|| DbError::Other("Vec mode requires embedder — model not loaded".into()))?;
-            search_vec(db, emb, query, limit, min_score)
+            search_vec(db, emb, query, limit, min_score, vault_filter)
         }
         SearchMode::Hybrid => {
             let emb = embedder.ok_or_else(|| DbError::Other("Hybrid mode requires embedder — model not loaded".into()))?;
-            search_hybrid(db, tokenizer, emb, query, limit, min_score)
+            search_hybrid(db, tokenizer, emb, query, limit, min_score, vault_filter)
         }
     }
 }
@@ -50,6 +51,7 @@ fn search_fts(
     query: &str,
     limit: usize,
     min_score: Option<f64>,
+    vault_filter: Option<&str>,
 ) -> Result<Vec<ChunkSearchResult>, DbError> {
     let fts5_query = tokenizer.and_query(query);
     let fts5_query = if fts5_query.is_empty() {
@@ -88,9 +90,14 @@ fn search_fts(
                 content: c.content,
                 score,
                 search_mode: SearchMode::Fts,
+                vault_name: c.vault_name,
             })
         })
         .collect();
+
+    if let Some(vault) = vault_filter {
+        results.retain(|r| r.vault_name == vault);
+    }
 
     // FTS5 BM25 rank: lower = more relevant; sort ascending
     results.sort_by(|a, b| a.score.partial_cmp(&b.score).unwrap_or(std::cmp::Ordering::Equal));
@@ -108,6 +115,7 @@ fn search_vec(
     query: &str,
     limit: usize,
     min_score: Option<f64>,
+    vault_filter: Option<&str>,
 ) -> Result<Vec<ChunkSearchResult>, DbError> {
     let embedding = embedder
         .embed(query)
@@ -140,9 +148,14 @@ fn search_vec(
                 content: c.content,
                 score,
                 search_mode: SearchMode::Vec,
+                vault_name: c.vault_name,
             })
         })
         .collect();
+
+    if let Some(vault) = vault_filter {
+        results.retain(|r| r.vault_name == vault);
+    }
 
     // Vec distance: lower = more relevant; sort ascending
     results.sort_by(|a, b| a.score.partial_cmp(&b.score).unwrap_or(std::cmp::Ordering::Equal));
@@ -206,11 +219,12 @@ fn search_hybrid(
     query: &str,
     limit: usize,
     min_score: Option<f64>,
+    vault_filter: Option<&str>,
 ) -> Result<Vec<ChunkSearchResult>, DbError> {
     const K: f64 = 60.0;
 
-    let fts_results = search_fts(db, tokenizer, query, limit * 2, None)?;
-    let vec_results = search_vec(db, embedder, query, limit * 2, None)?;
+    let fts_results = search_fts(db, tokenizer, query, limit * 2, None, vault_filter)?;
+    let vec_results = search_vec(db, embedder, query, limit * 2, None, vault_filter)?;
 
     let rrf_scores = compute_rrf(&fts_results, &vec_results, limit, K);
 
@@ -248,11 +262,13 @@ fn search_hybrid(
                     content: c.content,
                     score,
                     search_mode: SearchMode::Hybrid,
+                    vault_name: c.vault_name,
                 }
             })
         })
         .collect();
 
+    // Already filtered by vault via search_fts/search_vec; no need to refilter.
     results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
 
     if let Some(ms) = min_score {
@@ -365,10 +381,11 @@ mod tests {
             parent_header: None,
             content: "search engine test content".into(),
             tokenized_content: "search engine test content".into(),
+            vault_name: String::new(),
         }];
         db.insert_chunks(&chunks).unwrap();
 
-        let results = search(&db, &tokenizer, "search engine", 10, SearchMode::Fts, None, None).unwrap();
+        let results = search(&db, &tokenizer, "search engine", 10, SearchMode::Fts, None, None, None).unwrap();
         assert!(!results.is_empty());
         assert_eq!(results[0].file_path, "test.md");
         assert!(matches!(results[0].search_mode, SearchMode::Fts));
@@ -378,7 +395,7 @@ mod tests {
     fn test_search_empty_query_returns_empty() {
         let db = NoteDatabase::open_in_memory().unwrap();
         let tokenizer = crate::require_tokenizer!(crate::tokenizer::TokenizerConfig::default());
-        let results = search(&db, &tokenizer, "  ", 10, SearchMode::Fts, None, None).unwrap();
+        let results = search(&db, &tokenizer, "  ", 10, SearchMode::Fts, None, None, None).unwrap();
         assert!(results.is_empty());
     }
 
@@ -393,11 +410,12 @@ mod tests {
             parent_header: None,
             content: "hybrid fallback test".into(),
             tokenized_content: "hybrid fallback test".into(),
+            vault_name: String::new(),
         }];
         db.insert_chunks(&chunks).unwrap();
 
         // Hybrid with no embedder → falls back to FTS
-        let results = search(&db, &tokenizer, "hybrid fallback", 10, SearchMode::Hybrid, None, None).unwrap();
+        let results = search(&db, &tokenizer, "hybrid fallback", 10, SearchMode::Hybrid, None, None, None).unwrap();
         assert!(!results.is_empty());
         assert!(matches!(results[0].search_mode, SearchMode::Fts));
     }
@@ -412,6 +430,7 @@ mod tests {
                 content: String::new(),
                 score,
                 search_mode: SearchMode::Fts,
+                vault_name: String::new(),
             }
         };
 
@@ -438,6 +457,7 @@ mod tests {
                 content: String::new(),
                 score,
                 search_mode: SearchMode::Fts,
+                vault_name: String::new(),
             }
         };
 
@@ -465,6 +485,7 @@ mod tests {
                 content: String::new(),
                 score,
                 search_mode: SearchMode::Fts,
+                vault_name: String::new(),
             }
         };
 
@@ -491,6 +512,7 @@ mod tests {
                 content: String::new(),
                 score,
                 search_mode: SearchMode::Fts,
+                vault_name: String::new(),
             }
         };
 
@@ -506,7 +528,7 @@ mod tests {
             Ok(tok) => tok,
             Err(_) => return,
         };
-        let result = search(&db, &tokenizer, "test", 10, SearchMode::Vec, None, None);
+        let result = search(&db, &tokenizer, "test", 10, SearchMode::Vec, None, None, None);
         match result {
             Err(crate::db::DbError::Other(msg)) => {
                 assert!(msg.contains("embedder"), "error should mention embedder");
@@ -522,7 +544,7 @@ mod tests {
             Ok(tok) => tok,
             Err(_) => return,
         };
-        let result = search(&db, &tokenizer, "test", 10, SearchMode::Hybrid, None, None);
+        let result = search(&db, &tokenizer, "test", 10, SearchMode::Hybrid, None, None, None);
         assert!(result.is_ok(), "Hybrid without embedder should fall back to FTS, got error");
     }
 
@@ -533,7 +555,7 @@ mod tests {
             Ok(tok) => tok,
             Err(_) => return,
         };
-        let result = search(&db, &tokenizer, "test", 10, SearchMode::Fts, None, None);
+        let result = search(&db, &tokenizer, "test", 10, SearchMode::Fts, None, None, None);
         assert!(result.is_ok());
     }
 

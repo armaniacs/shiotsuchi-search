@@ -51,7 +51,9 @@ shiotsuchi-search/
 5. **Dual retrieval**: FTS5 BM25 for keyword search + sqlite-vec `vec0` for semantic search, combinable via Hybrid RRF.
 6. **WAL mode**: Enabled on database open for concurrent read/write between CLI and MCP server.
 7. **tokio runtime in MCP**: Enables async MCP progress notifications during background `rebuild_index`.
-8. **Model embedding at compile time**: Vaporetto tokenizer model can be embedded via `build.rs` for zero-runtime-dependency deployment.
+8. **Vaporetto model embedding at build time**: Tokenizer model can be embedded via `build.rs` for zero-runtime-dependency deployment.
+9. **Multi-vault support**: Single SQLite database can serve multiple notes directories. Each chunk and file_cache entry carries a `vault_name` column to distinguish origins. Config uses `[vaults.xxx]` sections (see config format below).
+10. **Crash-safe migration**: Schema upgrades (v2→v3) are wrapped in transactions with pre-checks to handle mid-migration crashes.
 
 ## Data Flow
 
@@ -100,7 +102,7 @@ Search flow:
 
 | Binary | File | Purpose |
 |--------|------|---------|
-| `shiotsuchi` | `cli/src/main.rs` | CLI tool (chart, dive, tide, scan, log, init, setup, dredge) |
+| `shiotsuchi` | `cli/src/main.rs` | CLI tool (chart, clean, config-migrate, dive, tide, scan, log, init, setup, dredge, delete) |
 | `shiotsuchi-mcp` | `mcp/src/main.rs` | MCP server for Claude Desktop (tokio async) |
 
 ## Crate Dependencies
@@ -117,11 +119,12 @@ mcp ──► core
 
 | Source | Key | Example |
 |--------|-----|---------|
-| Config file | `vault.notes_dir` | `~/.config/shiotsuchi/config.toml` |
-| Config file | `vault.db_path` | `~/.cache/shiotsuchi/db.sqlite3` |
+| Config file | `vaults.*.notes_dir` | `~/.config/shiotsuchi/config.toml` → `[vaults.default] notes_dir` |
+| Config file | `database.db_path` | `~/.config/shiotsuchi/config.toml` → `[database] db_path` |
+| Config file (legacy) | `vault.notes_dir` / `vault.db_path` | Pre-v0.3.7 format, auto-detected with migration hint |
 | Env var | `SHIOTSUCHI_MODEL_PATH` | `models/bccwj-suw+unidic_pos+kana.model.zst` |
 | Env var | `SHIOTSUCHI_EMBED_MODEL` | `/path/to/model.onnx` (build-time embedding) |
-| Env var | `SHIOTSUCHI_NOTES_DIR` | `/Users/name/Notes` |
+| Env var | `SHIOTSUCHI_NOTES_DIR` | `/Users/name/Notes` (overrides first vault's notes_dir) |
 | Env var | `SHIOTSUCHI_DB_PATH` | `~/.cache/shiotsuchi/db.sqlite3` |
 
 ## Feature Flags (core)

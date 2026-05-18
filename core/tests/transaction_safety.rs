@@ -18,21 +18,22 @@ fn test_insert_chunks_and_lookup() {
             parent_header: None,
             content: "Title 1 body content".into(),
             tokenized_content: "Title 1 body content".into(),
+            vault_name: "default".to_string(),
         },
     ];
     let ids = db.insert_chunks(&chunks).unwrap();
     assert_eq!(ids.len(), 1);
 
-    db.upsert_file_cache("note1.md", "hash1", 1_000, "none").unwrap();
+    db.upsert_file_cache("default", "note1.md", "hash1", 1_000, "none").unwrap();
 
-    let cached = db.cached_hash("note1.md").unwrap();
+    let cached = db.cached_hash("default", "note1.md").unwrap();
     assert_eq!(cached, Some("hash1".to_string()));
 
     // Second insert with same hash — caller would skip before calling insert
-    let cached2 = db.cached_hash("note1.md").unwrap();
+    let cached2 = db.cached_hash("default", "note1.md").unwrap();
     assert_eq!(cached2, Some("hash1".to_string()));
 
-    let paths = db.list_cached_paths().unwrap();
+    let paths = db.list_cached_paths("default").unwrap();
     assert_eq!(paths.len(), 1);
     assert!(paths.contains(&"note1.md".to_string()));
 
@@ -54,6 +55,7 @@ fn test_delete_chunks_atomic() {
         parent_header: None,
         content: "body a".into(),
         tokenized_content: "body a".into(),
+        vault_name: "default".to_string(),
     }];
     let chunks_b = vec![Chunk {
         id: None,
@@ -62,21 +64,22 @@ fn test_delete_chunks_atomic() {
         parent_header: None,
         content: "body b".into(),
         tokenized_content: "body b".into(),
+        vault_name: "default".to_string(),
     }];
 
     db.insert_chunks(&chunks_a).unwrap();
-    db.upsert_file_cache("a.md", "hash_a", 1, "none").unwrap();
+    db.upsert_file_cache("default", "a.md", "hash_a", 1, "none").unwrap();
     db.insert_chunks(&chunks_b).unwrap();
-    db.upsert_file_cache("b.md", "hash_b", 2, "none").unwrap();
+    db.upsert_file_cache("default", "b.md", "hash_b", 2, "none").unwrap();
 
     assert_eq!(db.stats().unwrap().total_files, 2);
 
     // Delete a.md
-    db.delete_chunks_for_file("a.md").unwrap();
-    db.delete_file_cache("a.md").unwrap();
+    db.delete_chunks_for_file("default", "a.md").unwrap();
+    db.delete_file_cache("default", "a.md").unwrap();
 
     // a.md should be gone, b.md should remain
-    assert_eq!(db.cached_hash("a.md").unwrap(), None);
-    assert_eq!(db.cached_hash("b.md").unwrap(), Some("hash_b".to_string()));
+    assert_eq!(db.cached_hash("default", "a.md").unwrap(), None);
+    assert_eq!(db.cached_hash("default", "b.md").unwrap(), Some("hash_b".to_string()));
     assert_eq!(db.stats().unwrap().total_files, 1);
 }
