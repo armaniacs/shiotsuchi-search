@@ -292,6 +292,7 @@ mod tests {
             content: "snippet a".into(),
             score: 0.1,
             search_mode: SearchMode::Fts,
+            vault_name: "default".into(),
         }];
         let json = serde_json::to_string(&results).unwrap();
         let decoded: Vec<ChunkSearchResult> = serde_json::from_str(&json).unwrap();

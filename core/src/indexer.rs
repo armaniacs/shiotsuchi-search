@@ -89,10 +89,11 @@ pub fn index_file(
     db: &NoteDatabase,
     tokenizer: &JapaneseTokenizer,
     file_path: &Path,
+    vault_name: &str,
     relative_path: &str,
-    _config: &IndexConfig,
+    config: &IndexConfig,
 ) -> IndexResult {
-    index_file_with_embedder(db, tokenizer, None, file_path, relative_path, _config)
+    index_file_with_embedder(db, tokenizer, None, file_path, vault_name, relative_path, config)
 }
 
 /// Walk `vault_dir`, chunk and index all Markdown files.
@@ -106,31 +107,60 @@ pub fn index_directory(
     config: &IndexConfig,
     embedder: Option<&Embedder>,
     progress: Option<IndexProgress>,
-) -> Result<(Vec<(String, IndexResult)>, usize), DbError> {
-    let notes_dir = &config.vaults[0].1;
+) -> Result<(Vec<(String, String, IndexResult)>, usize), DbError> {
     let (exclude_globset, invalid_patterns) = build_exclude_globset(&config.exclude_dirs);
+    let mut all_results = Vec::new();
 
-    let notes_canonical = if config.follow_links {
-        Some(notes_dir.canonicalize().map_err(|e| {
-            DbError::Io(std::io::Error::new(
-                std::io::ErrorKind::NotFound,
-                format!("cannot canonicalize notes_dir: {}", e),
-            ))
-        })?)
-    } else {
-        None
-    };
+    for (vault_name, notes_dir) in &config.vaults {
+        let notes_canonical = if config.follow_links {
+            Some(notes_dir.canonicalize().map_err(|e| {
+                DbError::Io(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    format!(
+                        "cannot canonicalize notes_dir '{}': {}",
+                        vault_name, e
+                    ),
+                ))
+            })?)
+        } else {
+            None
+        };
 
-    let entries: Vec<_> = WalkDir::new(notes_dir)
-        .follow_links(config.follow_links)
-        .into_iter()
-        .filter_entry(|e| {
-            if e.file_type().is_dir() && e.depth() > 0 {
-                if config.auto_exclude_hidden && e.file_name().to_string_lossy().starts_with('.') {
+        let entries: Vec<_> = WalkDir::new(notes_dir)
+            .follow_links(config.follow_links)
+            .into_iter()
+            .filter_entry(|e| {
+                if e.file_type().is_dir() && e.depth() > 0 {
+                    if config.auto_exclude_hidden && e.file_name().to_string_lossy().starts_with('.') {
+                        return false;
+                    }
+                    if let Some(ref canonical_root) = notes_canonical {
+                        match e.path().canonicalize() {
+                            Ok(canonical) => {
+                                if !canonical.starts_with(canonical_root) {
+                                    return false;
+                                }
+                            }
+                            Err(_) => return false,
+                        }
+                    }
+                }
+                true
+            })
+            .filter_map(|e| match e {
+                Ok(entry) => Some(entry),
+                Err(err) => {
+                    log::warn!("Directory scan error: {}", err);
+                    None
+                }
+            })
+            .filter(|entry| {
+                let path = entry.path();
+                if !path.is_file() {
                     return false;
                 }
                 if let Some(ref canonical_root) = notes_canonical {
-                    match e.path().canonicalize() {
+                    match path.canonicalize() {
                         Ok(canonical) => {
                             if !canonical.starts_with(canonical_root) {
                                 return false;
@@ -139,57 +169,33 @@ pub fn index_directory(
                         Err(_) => return false,
                     }
                 }
-            }
-            true
-        })
-        .filter_map(|e| match e {
-            Ok(entry) => Some(entry),
-            Err(err) => {
-                log::warn!("Directory scan error: {}", err);
-                None
-            }
-        })
-        .filter(|entry| {
-            let path = entry.path();
-            if !path.is_file() {
-                return false;
-            }
-            if let Some(ref canonical_root) = notes_canonical {
-                match path.canonicalize() {
-                    Ok(canonical) => {
-                        if !canonical.starts_with(canonical_root) {
-                            return false;
-                        }
-                    }
-                    Err(_) => return false,
+                let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+                if !config.include_extensions.iter().any(|e| e == ext) {
+                    return false;
                 }
-            }
-            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if !config.include_extensions.iter().any(|e| e == ext) {
-                return false;
-            }
-            let relative = if path.starts_with(notes_dir) {
-                path.strip_prefix(notes_dir).unwrap_or(path)
-            } else {
-                log::warn!("File path {:?} outside vault root {:?}", path, notes_dir);
-                return false;
-            };
-            let rel_str = relative.to_string_lossy();
-            !exclude_globset.is_match(rel_str.as_ref())
-        })
-        .collect();
+                let relative = if path.starts_with(notes_dir) {
+                    path.strip_prefix(notes_dir).unwrap_or(path)
+                } else {
+                    log::warn!("File path {:?} outside vault root {:?}", path, notes_dir);
+                    return false;
+                };
+                let rel_str = relative.to_string_lossy();
+                !exclude_globset.is_match(rel_str.as_ref())
+            })
+            .collect();
 
-    let total = entries.len();
-    let mut all_results = Vec::new();
-    for (i, entry) in entries.iter().enumerate() {
-        if let Some(ref cb) = progress {
-            cb(i + 1, total);
+        for (i, entry) in entries.iter().enumerate() {
+            if let Some(ref cb) = progress {
+                cb(i + 1, entries.len());
+            }
+            let path = entry.path();
+            let relative = path.strip_prefix(notes_dir).unwrap_or(path);
+            let rel_str = relative.to_string_lossy().replace('\\', "/");
+            let result = index_file_with_embedder(
+                db, tokenizer, embedder, path, vault_name, &rel_str, config,
+            );
+            all_results.push((vault_name.clone(), rel_str, result));
         }
-        let path = entry.path();
-        let relative = path.strip_prefix(notes_dir).unwrap_or(path);
-        let rel_str = relative.to_string_lossy().replace('\\', "/");
-        let result = index_file_with_embedder(db, tokenizer, embedder, path, &rel_str, config);
-        all_results.push((rel_str, result));
     }
 
     Ok((all_results, invalid_patterns))
@@ -197,15 +203,16 @@ pub fn index_directory(
 
 /// Remove indexed files from DB that no longer exist on disk.
 pub fn cleanup_deleted(db: &NoteDatabase, config: &IndexConfig) -> Result<Vec<String>, DbError> {
-    let vault_name = &config.vaults[0].0;
-    let cached_paths = db.list_cached_paths(vault_name)?;
     let mut removed = Vec::new();
-    for path in cached_paths {
-        let full_path = config.vaults[0].1.join(&path);
-        if !full_path.exists() {
-            db.delete_chunks_for_file(vault_name, &path)?;
-            db.delete_file_cache(vault_name, &path)?;
-            removed.push(path);
+    for (vault_name, notes_dir) in &config.vaults {
+        let cached_paths = db.list_cached_paths(vault_name)?;
+        for path in cached_paths {
+            let full_path = notes_dir.join(&path);
+            if !full_path.exists() {
+                db.delete_chunks_for_file(vault_name, &path)?;
+                db.delete_file_cache(vault_name, &path)?;
+                removed.push(path);
+            }
         }
     }
     Ok(removed)
@@ -217,8 +224,9 @@ pub fn index_file_with_embedder(
     tokenizer: &JapaneseTokenizer,
     embedder: Option<&Embedder>,
     file_path: &Path,
+    vault_name: &str,
     relative_path: &str,
-    config: &IndexConfig,
+    _config: &IndexConfig,
 ) -> IndexResult {
     let content = match fs::read_to_string(file_path) {
         Ok(c) => c,
@@ -228,8 +236,6 @@ pub fn index_file_with_embedder(
     let hash = sha256_hex(&content);
     let mtime = file_mtime(file_path);
     let model_id = embedder.map_or("none", |e| e.model_id());
-
-    let vault_name = &config.vaults[0].0;
 
     let is_update = match db.cached_hash(vault_name, relative_path) {
         Ok(Some(cached)) if cached == hash => return IndexResult::Skipped,
@@ -349,7 +355,7 @@ mod tests {
         };
         let (results, _invalid) = index_directory(&db, &tokenizer, &config, None, None).unwrap();
         assert_eq!(results.len(), 1);
-        assert_eq!(results[0].0, "main.md");
+        assert_eq!(results[0].1, "main.md");
         assert_eq!(db.stats().unwrap().total_files, 1);
     }
 
@@ -433,7 +439,7 @@ mod tests {
 
         let (results, _invalid) = index_directory(&db, &tokenizer, &config, None, None).unwrap();
         assert_eq!(results.len(), 1);
-        assert_eq!(results[0].0, "notes/visible.md");
+        assert_eq!(results[0].1, "notes/visible.md");
     }
 
     #[test]
@@ -457,7 +463,7 @@ mod tests {
 
         let (results, _invalid) = index_directory(&db, &tokenizer, &config, None, None).unwrap();
         assert_eq!(results.len(), 1);
-        assert_eq!(results[0].0, ".hidden_notes/secret.md");
+        assert_eq!(results[0].1, ".hidden_notes/secret.md");
     }
 
     #[test]
@@ -494,7 +500,7 @@ mod tests {
             2,
             "templates_extra and notes should be indexed, templates excluded"
         );
-        let paths: Vec<&str> = results.iter().map(|r| r.0.as_str()).collect();
+        let paths: Vec<&str> = results.iter().map(|r| r.1.as_str()).collect();
         assert!(paths.contains(&"notes/main.md"));
         assert!(paths.contains(&"templates_extra/extra.md"));
         assert!(!paths.contains(&"templates/daily.md"));
@@ -570,7 +576,7 @@ mod tests {
         };
         let (results, _invalid) = index_directory(&db, &tokenizer, &config, None, None).unwrap();
         assert_eq!(results.len(), 300);
-        let mut paths: Vec<&str> = results.iter().map(|(p, _)| p.as_str()).collect();
+        let mut paths: Vec<&str> = results.iter().map(|(_, p, _)| p.as_str()).collect();
         paths.sort();
         paths.dedup();
         assert_eq!(paths.len(), 300, "no duplicate paths");
@@ -699,11 +705,11 @@ mod tests {
             vaults: vec![("default".to_string(), vault.clone())],
             ..Default::default()
         };
-        let r1 = index_file(&db, &tokenizer, &vault.join("test.md"), "test.md", &config);
+        let r1 = index_file(&db, &tokenizer, &vault.join("test.md"), "default", "test.md", &config);
         assert_eq!(r1, IndexResult::Inserted);
 
         // Second call with same content → skipped
-        let r2 = index_file(&db, &tokenizer, &vault.join("test.md"), "test.md", &config);
+        let r2 = index_file(&db, &tokenizer, &vault.join("test.md"), "default", "test.md", &config);
         assert_eq!(r2, IndexResult::Skipped);
     }
 
@@ -721,11 +727,11 @@ mod tests {
             vaults: vec![("default".to_string(), vault.clone())],
             ..Default::default()
         };
-        let r1 = index_file(&db, &tokenizer, &path, "test.md", &config);
+        let r1 = index_file(&db, &tokenizer, &path, "default", "test.md", &config);
         assert_eq!(r1, IndexResult::Inserted);
 
         fs::write(&path, "Changed content").unwrap();
-        let r2 = index_file(&db, &tokenizer, &path, "test.md", &config);
+        let r2 = index_file(&db, &tokenizer, &path, "default", "test.md", &config);
         assert_eq!(r2, IndexResult::Updated);
     }
 
@@ -883,7 +889,7 @@ mod tests {
 
         let (results, invalid) = index_directory(&db, &tokenizer, &config, None, Some(progress)).unwrap();
         assert_eq!(results.len(), 1, "should index 1 file");
-        assert!(!results[0].0.is_empty(), "should have a relative path");
+        assert!(!results[0].1.is_empty(), "should have a relative path");
         assert_eq!(invalid, 0, "no invalid patterns");
     }
 

@@ -139,6 +139,7 @@ mod tests {
             "# Title\n\nThis is a searchable note about Rust programming.",
             &tok,
             "note.md",
+            "default",
         );
         db.insert_chunks(&chunks).unwrap();
         Some(db_path)
@@ -208,6 +209,7 @@ mod tests {
             "# Intro\n\nFirst chunk.\n\n# Body\n\nSecond chunk.\n\n# End\n\nThird chunk.",
             &tok,
             "multi.md",
+            "default",
         );
         let ids = db.insert_chunks(&chunks).unwrap();
         drop(db);

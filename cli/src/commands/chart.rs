@@ -72,7 +72,7 @@ pub fn run_chart(
         errors: 0,
         invalid_patterns,
     };
-    for (_, result) in &results {
+    for (_, _, result) in &results {
         match result {
             IndexResult::Inserted | IndexResult::Updated => summary.indexed += 1,
             IndexResult::Skipped => summary.skipped += 1,

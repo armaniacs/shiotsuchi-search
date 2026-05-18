@@ -336,6 +336,7 @@ mod tests {
                                     &db,
                                     &tokenizer,
                                     path,
+                                    "default",
                                     &rel.to_string_lossy(),
                                     &config,
                                 );

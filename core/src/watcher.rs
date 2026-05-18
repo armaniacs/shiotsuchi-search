@@ -96,8 +96,9 @@ impl VaultWatcher {
                     if let Ok(rel) = path.strip_prefix(&self.config.vaults[0].1) {
                         let rel_str = rel.to_string_lossy();
                         let db = self.db.lock().unwrap();
+                        let vault_name = &self.config.vaults[0].0;
                         if let IndexResult::Error(e) =
-                            index_file_with_embedder(&db, &self.tokenizer, self.embedder.as_ref(), path, &rel_str, &self.config)
+                            index_file_with_embedder(&db, &self.tokenizer, self.embedder.as_ref(), path, vault_name, &rel_str, &self.config)
                         {
                             log::warn!("watcher: failed to index {}: {}", rel_str, e);
                         }
@@ -139,11 +140,13 @@ impl VaultWatcher {
                     if self.is_path_within_vault(new) {
                         if let Ok(new_rel) = new.strip_prefix(&self.config.vaults[0].1) {
                             let db = self.db.lock().unwrap();
+                            let vault_name = &self.config.vaults[0].0;
                             if let IndexResult::Error(e) = index_file_with_embedder(
                                 &db,
                                 &self.tokenizer,
                                 self.embedder.as_ref(),
                                 new,
+                                vault_name,
                                 &new_rel.to_string_lossy(),
                                 &self.config,
                             ) {
@@ -333,7 +336,7 @@ mod tests {
         {
             let db = db.lock().unwrap();
             let _ = index_file_with_embedder(
-                &db, &tokenizer, None, &src_path, "old_name.md", &config,
+                &db, &tokenizer, None, &src_path, "default", "old_name.md", &config,
             );
         }
         assert_eq!(db.lock().unwrap().stats().unwrap().total_files, 1);
@@ -433,7 +436,7 @@ mod tests {
         {
             let db = db.lock().unwrap();
             let _ = index_file_with_embedder(
-                &db, &tokenizer, None, &src_path, "to_delete.md", &config,
+                &db, &tokenizer, None, &src_path, "default", "to_delete.md", &config,
             );
         }
         assert_eq!(db.lock().unwrap().stats().unwrap().total_files, 1);
@@ -485,7 +488,7 @@ mod tests {
         {
             let db = db.lock().unwrap();
             let _ = index_file_with_embedder(
-                &db, &tokenizer, None, &src_path, "update.md", &config,
+                &db, &tokenizer, None, &src_path, "default", "update.md", &config,
             );
         }
         assert_eq!(db.lock().unwrap().stats().unwrap().total_files, 1);

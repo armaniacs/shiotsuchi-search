@@ -191,15 +191,15 @@ fn spawn_rebuild(
             Ok((results, _invalid)) => {
                 let inserted = results
                     .iter()
-                    .filter(|(_, r)| matches!(r, shiotsuchi_core::IndexResult::Inserted))
+                    .filter(|(_, _, r)| matches!(r, shiotsuchi_core::IndexResult::Inserted))
                     .count();
                 let updated = results
                     .iter()
-                    .filter(|(_, r)| matches!(r, shiotsuchi_core::IndexResult::Updated))
+                    .filter(|(_, _, r)| matches!(r, shiotsuchi_core::IndexResult::Updated))
                     .count();
                 let skipped = results
                     .iter()
-                    .filter(|(_, r)| matches!(r, shiotsuchi_core::IndexResult::Skipped))
+                    .filter(|(_, _, r)| matches!(r, shiotsuchi_core::IndexResult::Skipped))
                     .count();
                 let errors = results.len() - inserted - updated - skipped;
                 log::info!(
