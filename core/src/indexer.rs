@@ -110,6 +110,23 @@ pub fn index_directory(
 ) -> Result<(Vec<(String, String, IndexResult)>, usize), DbError> {
     let (exclude_globset, invalid_patterns) = build_exclude_globset(&config.exclude_dirs);
     let mut all_results = Vec::new();
+    let mut global_count = 0usize;
+
+    // Pre-compute total file count across all vaults for accurate progress
+    let grand_total: usize = config
+        .vaults
+        .iter()
+        .map(|(_, notes_dir)| {
+            // Count files without building them all in memory (WalkDir is lazy until collected)
+            // This is an approximate upper bound; the actual filtered count may differ slightly.
+            WalkDir::new(notes_dir)
+                .follow_links(config.follow_links)
+                .into_iter()
+                .filter_map(|e| e.ok())
+                .filter(|e| e.file_type().is_file())
+                .count()
+        })
+        .sum();
 
     for (vault_name, notes_dir) in &config.vaults {
         let notes_canonical = if config.follow_links {
@@ -184,9 +201,10 @@ pub fn index_directory(
             })
             .collect();
 
-        for (i, entry) in entries.iter().enumerate() {
+        for entry in entries.iter() {
+            global_count += 1;
             if let Some(ref cb) = progress {
-                cb(i + 1, entries.len());
+                cb(global_count, grand_total);
             }
             let path = entry.path();
             let relative = path.strip_prefix(notes_dir).unwrap_or(path);

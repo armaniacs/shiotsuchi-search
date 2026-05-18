@@ -9,10 +9,15 @@ pub struct DatabaseConfig {
     pub db_path: Option<PathBuf>,
 }
 
+/// A single vault entry, used by both old `[vault]` and new `[vaults.xxx]`.
+/// Only `notes_dir` is consumed from `[vaults.xxx]` entries.
+/// `db_path` is legacy-only (old `[vault]` section) and ignored in `[vaults.xxx]`.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct VaultEntry {
     pub notes_dir: Option<PathBuf>,
+    /// Legacy: old [vault] held db_path here; ignored in [vaults.xxx].
+    /// Use [database].db_path instead.
     #[serde(default)]
     pub db_path: Option<PathBuf>,
 }
