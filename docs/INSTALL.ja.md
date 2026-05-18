@@ -100,16 +100,21 @@ shiotsuchi dive "プロジェクト計画"
 毎回フラグを渡さなくて済むよう、`~/.config/shiotsuchi/config.toml` を作成できます：
 
 ```toml
-[vault]
+[database]
+db_path = "/Users/yourname/.cache/shiotsuchi/db.sqlite3"
+
+[vaults.default]
 notes_dir = "/Users/yourname/Notes"
 ```
 
 利用可能なすべての設定：
 
 ```toml
-[vault]
+[database]
+db_path = "/Users/yourname/.cache/shiotsuchi/db.sqlite3"
+
+[vaults.default]
 notes_dir  = "/Users/yourname/Notes"
-db_path    = "/Users/yourname/.cache/shiotsuchi/db.sqlite3"
 
 [indexing]
 snippet_lines       = 3

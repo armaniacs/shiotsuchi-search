@@ -100,16 +100,21 @@ Results include file paths, titles, and matching snippets.
 Create `~/.config/shiotsuchi/config.toml` to avoid passing flags every time:
 
 ```toml
-[vault]
+[database]
+db_path = "/Users/yourname/.cache/shiotsuchi/db.sqlite3"
+
+[vaults.default]
 notes_dir = "/Users/yourname/Notes"
 ```
 
 Other available settings:
 
 ```toml
-[vault]
+[database]
+db_path = "/Users/yourname/.cache/shiotsuchi/db.sqlite3"
+
+[vaults.default]
 notes_dir  = "/Users/yourname/Notes"
-db_path    = "/Users/yourname/.cache/shiotsuchi/db.sqlite3"
 
 [indexing]
 snippet_lines       = 3

@@ -21,11 +21,13 @@ Markdownノートvault（Obsidianなど）向けの高性能日本語対応全�
 | コマンド | 説明 |
 |---------|------|
 | `chart` | Markdownファイルをインデックス（または再インデックス） |
-| `dive <query>` | ノートを検索（AND検索、JSON出力） |
-| `tide` | vault の統計情報を表示 |
-| `scan` | ファイル変更を監視して自動再インデックス |
-| `log` | インデックス履歴を表示 |
+| `clean` | データベースをバックアップ・削除し、全 vault を再インデックス |
+| `config-migrate` | 設定ファイルを旧形式から新形式に変換 |
 | `delete <path>` | インデックスからノートを削除（ファイル自体は削除されません） |
+| `dive <query>` / `search <query>` | ノートを検索（AND検索、JSON出力） |
+| `log` | インデックス履歴を表示 |
+| `scan` | ファイル変更を監視して自動再インデックス |
+| `tide` | vault の統計情報を表示 |
 
 ## Claude Desktop 連携（MCP）
 
@@ -63,9 +65,11 @@ Claude Desktopを再起動して「プロジェクトについてノートを検
 `~/.config/shiotsuchi/config.toml`（`$XDG_CONFIG_HOME` が設定されている場合は `$XDG_CONFIG_HOME/shiotsuchi/config.toml`）:
 
 ```toml
-[vault]
-notes_dir = "/home/name/Notes"
+[database]
 db_path = "/home/name/.cache/shiotsuchi/db.sqlite3"
+
+[vaults.default]
+notes_dir = "/home/name/Notes"
 
 [indexing]
 snippet_lines = 3
@@ -73,6 +77,22 @@ max_snippet_chars = 1000
 include_extensions = ["md", "markdown"]
 exclude_dirs = ["node_modules"]
 ```
+
+複数の vault を単一のデータベースで管理することもできます:
+
+```toml
+[database]
+db_path = "/home/name/.cache/shiotsuchi/db.sqlite3"
+
+[vaults.personal]
+notes_dir = "/home/name/Documents/Personal"
+
+[vaults.work]
+notes_dir = "/home/name/Documents/Work"
+```
+
+> **旧形式:** v0.4.0 未満の設定ファイルは `[vault] notes_dir` / `[vault] db_path` 形式で、引き続き読み取り可能です。
+> `shiotsuchi config-migrate` を実行すると新形式にアップグレードできます。
 
 ## パフォーマンス
 

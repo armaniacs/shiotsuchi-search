@@ -77,6 +77,7 @@ shiotsuchi dive "週次レビュー"
 shiotsuchi dive "Q3 予算" --limit 5
 shiotsuchi dive "ミーティング" --json        # レガシー: --format json と同等
 shiotsuchi dive "ミーティング" --format json-pretty
+shiotsuchi search "プロジェクト計画"          # dive のエイリアス
 ```
 
 | オプション | デフォルト | 説明 |
@@ -143,6 +144,39 @@ shiotsuchi tide
 
 ---
 
+### `clean` — データベースをバックアップして再インデックス
+
+現在のデータベースファイルをタイムスタンプ付きでバックアップし、削除した上で全 vault をゼロから再インデックスします。
+
+```sh
+shiotsuchi clean
+```
+
+バックアップファイルはデータベースと同じディレクトリに作成されます:
+- `db.sqlite3.bak.<タイムスタンプ>`
+- `db.sqlite3-wal.bak.<タイムスタンプ>`（存在する場合）
+- `db.sqlite3-shm.bak.<タイムスタンプ>`（存在する場合）
+
+| オプション | デフォルト | 説明 |
+|-----------|-----------|------|
+| `--db-path` | `~/.cache/shiotsuchi/db.sqlite3` | バックアップ・再作成対象のデータベース |
+
+---
+
+### `config-migrate` — 設定ファイルの形式をアップグレード
+
+設定ファイルを旧 `[vault]` 形式から新 `[database]` + `[vaults.xxx]` 形式に変換します。書き換え前にタイムスタンプ付きの `.bak` バックアップを作成します。
+
+```sh
+shiotsuchi config-migrate
+```
+
+| オプション | デフォルト | 説明 |
+|-----------|-----------|------|
+| `--config` | `~/.config/shiotsuchi/config.toml` | 設定ファイルのパス |
+
+---
+
 ### `config detect-noise` — 除外候補をスキャンする
 
 vault をスキャンして既知のノイズパターンに一致するディレクトリ、または多くの Markdown ファイルを含むディレクトリを検出し、人間が読める形式でレポートを出力します。設定ファイルは**変更しません** — 検出した候補を反映するには `shiotsuchi init --force` を実行してください。
@@ -185,7 +219,15 @@ shiotsuchi log
 
 `~/.config/shiotsuchi/config.toml`（または `$XDG_CONFIG_HOME/shiotsuchi/config.toml`）を作成しておくと、毎回フラグを指定する手間が省けます。
 
+### 新形式（v0.4.0+）
+
 ```toml
+[database]
+db_path = "/home/name/.cache/shiotsuchi/db.sqlite3"
+
+[vaults.default]
+notes_dir = "/home/name/Notes"
+
 [indexing]
 snippet_lines       = 3
 max_snippet_chars   = 1000
@@ -194,6 +236,30 @@ exclude_dirs        = ["node_modules"]
 auto_exclude_hidden = true
 follow_links        = false
 dynamic_threshold   = 5
+```
+
+### 旧形式（v0.4.0 未満、読み取り互換あり）
+
+```toml
+[vault]
+notes_dir = "/home/name/Notes"
+db_path = "/home/name/.cache/shiotsuchi/db.sqlite3"
+```
+
+> **移行:** `shiotsuchi config-migrate` を実行すると旧 `[vault]` 形式から新形式にアップグレードできます。
+> 書き換え前にタイムスタンプ付きの `.bak` バックアップが作成されます。
+
+### 複数 vault の例
+
+```toml
+[database]
+db_path = "/home/name/.cache/shiotsuchi/db.sqlite3"
+
+[vaults.personal]
+notes_dir = "/home/name/Documents/Personal"
+
+[vaults.work]
+notes_dir = "/home/name/Documents/Work"
 ```
 
 > **注:** `exclude_patterns` フィールドは v0.2.9 で `exclude_dirs` にリネームされました。
@@ -205,29 +271,49 @@ CLI フラグは常に設定ファイルの値より優先されます。
 
 ## 複数の vault を使い分ける
 
-インデックス 1 つ = vault 1 つです。`--db-path` で各コマンドを正しいインデックスに向けます。
+複数の vault は単一の SQLite データベースを共有します。各チャンクは `vault_name` でタグ付けされ、検索結果にはどの vault に属するかが表示されます。すべてのコマンドはデフォルトで設定済みの全 vault を対象に動作します。
 
-### 例: Personal と Work の vault
+### 設定例
 
-インデックス作成:
+```toml
+[database]
+db_path = "~/.cache/shiotsuchi/db.sqlite3"
 
-```sh
-shiotsuchi chart --notes-dir ~/Personal --db-path ~/.cache/shiotsuchi/personal.db
-shiotsuchi chart --notes-dir ~/Work     --db-path ~/.cache/shiotsuchi/work.db
+[vaults.personal]
+notes_dir = "/Users/name/Documents/Personal"
+
+[vaults.work]
+notes_dir = "/Users/name/Documents/Work"
 ```
 
-検索:
+### インデックス作成
 
 ```sh
-shiotsuchi dive "写真旅行"  --db-path ~/.cache/shiotsuchi/personal.db
-shiotsuchi dive "Q3 予算"   --db-path ~/.cache/shiotsuchi/work.db
+# 両方の vault をインデックス化
+shiotsuchi chart
 ```
 
-ウォッチャー（それぞれ別のターミナルまたはバックグラウンドで実行）:
+### 検索
+
+すべての vault を横断して検索します。MCP ハンドラはオプションの `vault` パラメータでフィルタリングできます。
 
 ```sh
-shiotsuchi scan --notes-dir ~/Personal --db-path ~/.cache/shiotsuchi/personal.db
-shiotsuchi scan --notes-dir ~/Work     --db-path ~/.cache/shiotsuchi/work.db
+# 全 vault を検索
+shiotsuchi dive "Q3 予算"
+```
+
+### ウォッチャー
+
+```sh
+# 設定済みの全 vault を監視
+shiotsuchi scan
+```
+
+### クリーン（バックアップ + 再インデックス）
+
+```sh
+# DB をバックアップ・削除し、全 vault を再インデックス
+shiotsuchi clean
 ```
 
 ---
