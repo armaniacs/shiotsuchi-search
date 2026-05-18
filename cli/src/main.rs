@@ -68,14 +68,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let resolved_vaults = cfg.resolved_vaults();
-    let primary_notes_dir = resolved_vaults.first().map(|(_, d)| d.clone()).unwrap_or_default();
     let db_path = cfg.resolved_db_path();
 
     match cli.command {
         Commands::Chart(args) => {
             commands::chart::run_chart(
                 &args,
-                &primary_notes_dir,
+                &resolved_vaults,
                 &db_path,
                 &cfg.indexing,
             )?;
@@ -107,7 +106,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Commands::Scan(args) => {
             commands::scan::run_scan(
                 &args,
-                &primary_notes_dir,
+                &resolved_vaults,
                 &db_path,
                 &cfg.watcher,
                 &cfg.indexing,
@@ -116,7 +115,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Commands::Dredge(args) => {
             commands::dredge::run_dredge(
                 &args,
-                &primary_notes_dir,
+                &resolved_vaults,
                 &db_path,
                 &cfg.indexing,
             )?;
@@ -126,7 +125,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             commands::setup::run_setup(&args)?;
         }
         Commands::Delete(args) => {
-            commands::delete::run_delete(&args, &primary_notes_dir, &db_path, "default")?;
+            commands::delete::run_delete(&args, &resolved_vaults, &db_path)?;
         }
         Commands::Init(args) => {
             let config_path = config::default_config_path();
@@ -144,7 +143,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Commands::Config(args) => {
             commands::config::run_config(
                 &args,
-                &primary_notes_dir,
+                &resolved_vaults,
                 &cfg.indexing.include_extensions,
                 cfg.indexing.auto_exclude_hidden,
                 cfg.indexing.dynamic_threshold,

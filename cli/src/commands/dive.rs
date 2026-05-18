@@ -209,7 +209,7 @@ mod tests {
             quiet: true,
         };
         let chart_result =
-            crate::commands::chart::run_chart(&chart_args, temp.path(), &db_file, &idx_cfg);
+            crate::commands::chart::run_chart(&chart_args, &[("default".to_string(), temp.path().to_path_buf())], &db_file, &idx_cfg);
         if chart_result.is_err() {
             return; // Model not available — skip
         }
