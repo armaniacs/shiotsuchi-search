@@ -34,6 +34,7 @@ enum Commands {
     Config(commands::config::ConfigArgs),
     ConfigMigrate(commands::config_migrate::ConfigMigrateArgs),
     Delete(commands::delete::DeleteArgs),
+    #[command(alias = "search")]
     Dive(commands::dive::DiveArgs),
     Dredge(commands::dredge::DredgeArgs),
     Init(commands::init::InitArgs),
