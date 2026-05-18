@@ -5,7 +5,46 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.3.7] - 2026-05-17
+## [0.4.0] - 2026-05-18
+
+### Added
+- **Multi-vault support**: Config now supports `[database]` + `[vaults.xxx]` sections.
+  Legacy `[vault]` format remains readable with a migration hint.
+  - `shiotsuchi config-migrate` — auto-convert old config to new format
+- **`shiotsuchi clean`** — backup database to `.bak.<timestamp>`, delete, and re-index from scratch
+- **`shiotsuchi search`** — alias for `shiotsuchi dive`
+- **DB schema v3**: `vault_name` column added to `chunks` and `file_cache` tables for per-vault tracking.
+  Migration is crash-safe (transaction-wrapped, idempotent re-entry)
+- **Cumulative progress tracking** across all vaults during `index_directory`
+- **`is_path_in_notes_dir_lenient()`** — handles non-existent file paths for rename/delete watcher events
+- **Tests**: 8 new tests for `clean` command (backup, delete, full integration flow)
+- **Documentation**: All reference docs updated for multi-vault features
+
+### Changed
+- **Config format**: `[vault]` → `[database]` with `[vaults.*]` sections. Old format auto-detected
+- **IndexConfig**: `notes_dir: PathBuf` replaced with `vaults: Vec<(String, PathBuf)>`
+- **Core types**: `Chunk.vault_name`, `ChunkSearchResult.vault_name` fields added
+- **Search**: `search()` accepts optional `vault_filter` parameter
+- **Watcher**: Creates one `notify` watcher per vault instead of a single watcher
+- **Indexer**: `index_directory()` iterates over all vaults; `cleanup_deleted()` operates per-vault
+- **Vec mode**: Without embedder now returns an error (only Hybrid falls back to FTS gracefully)
+- **DB methods**: `delete_chunks_for_file`, `cached_hash`, `upsert_file_cache`, `delete_file_cache`,
+  `list_cached_paths` — all accept `vault_name: &str` as first parameter
+- **CLI subcommands**: `run_chart`, `run_scan`, `run_dredge`, `run_delete`, `run_config` accept
+  `vaults: &[(String, PathBuf)]` instead of `notes_dir: &Path`
+- **MCP**: `call_tool()` accepts vaults list; optional `vault` argument for `search_local_notes`
+- **`split_into_chunks()`** — accepts `vault_name: &str` parameter (set on each chunk)
+- **Dependencies**: notify 6 → 9.0.0-rc.4
+
+### Fixed
+- **6 pre-existing test failures**:
+  - Tokenizer POS filter tests: model does not emit tags via `tags()` API —
+    tests now verify `keep_untagged` behavior instead of POS matching
+  - `test_frontmatter_with_body_after`: frontmatter before heading creates a preamble chunk (2 chunks, not 1)
+  - `test_long_paragraph_splits_at_byte_threshold`: input now uses blank-line-separated paragraphs
+  - `test_search_vec_mode_without_embedder_returns_error`: Vec without embedder returns error (regression from v0.3.7)
+  - `test_handle_event_rename_reindexes_new_path`: rename handler uses lenient path check for deleted files
+- **DB migration crash-safety**: v2→v3 migration checks column existence before ALTER TABLE, wraps in transaction
 
 ### Added
 - **58 new unit tests** across all core modules, closing coverage gaps in helper functions, edge cases, and security-critical paths:
