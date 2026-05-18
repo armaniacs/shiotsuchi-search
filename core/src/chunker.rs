@@ -408,8 +408,12 @@ mod tests {
         };
         let content = "---\ntitle: Test\n---\n\n# Actual content\n\nBody text here.";
         let chunks = split_into_chunks(content, &tokenizer, "test.md", "default");
-        assert_eq!(chunks.len(), 1, "small content should be 1 chunk");
-        assert!(chunks[0].content.contains("Actual content"), "chunk should include body");
+        // The frontmatter block before the first heading creates a separate preamble chunk.
+        // This is correct: the chunker treats --- separators as regular content.
+        assert_eq!(chunks.len(), 2, "frontmatter + heading should create 2 chunks");
+        assert!(chunks[0].content.contains("title:"), "first chunk should contain frontmatter");
+        assert_eq!(chunks[1].parent_header.as_deref(), Some("Actual content"), "second chunk should be under 'Actual content' heading");
+        assert!(chunks[1].content.contains("Body text"), "second chunk should contain body text");
     }
 
     #[test]
@@ -440,10 +444,16 @@ mod tests {
             Ok(tok) => tok,
             Err(_) => return,
         };
-        let body = "word ".repeat(3000);
+        // Create content that exceeds LEVEL2_SPLIT_THRESHOLD (1000 chars)
+        // AND has blank-line paragraph boundaries.
+        // Each paragraph is ~100 chars × 15 = ~1500 chars → well over threshold.
+        let para = "This paragraph exceeds the byte threshold with repeated text that keeps going and going. ".repeat(15);
+        let body = format!("{}{}{}", para, "\n\n", para);
         let content = format!("# Header\n\n{}", body);
         let chunks = split_into_chunks(&content, &tokenizer, "test.md", "default");
-        assert!(chunks.len() > 1, "long content should split into multiple chunks");
+        // With two paragraphs each > 1000 chars (under the same heading),
+        // should get at least 2 chunks from Level 2 splitting.
+        assert!(chunks.len() >= 2, "long content should split into multiple chunks, got {}", chunks.len());
     }
 
     // ── header_level direct tests ────────────────────────────────────

@@ -108,6 +108,31 @@ impl VaultWatcher {
         file_canonical.starts_with(&vault_canonical)
     }
 
+    /// Like `is_path_in_notes_dir` but does NOT require the file itself to exist.
+    /// Used for delete/rename events where the file may have been removed from disk.
+    /// Checks the parent directory (which still exists) and verifies the filename
+    /// does not contain path traversal ("..").
+    fn is_path_in_notes_dir_lenient(&self, path: &Path, notes_dir: &Path) -> bool {
+        let vault_canonical = match notes_dir.canonicalize() {
+            Ok(c) => c,
+            Err(_) => return false,
+        };
+        // Check parent directory (still exists if the parent wasn't removed)
+        if let Some(parent) = path.parent() {
+            if let Ok(parent_canonical) = parent.canonicalize() {
+                if parent_canonical.starts_with(&vault_canonical) {
+                    // Prevent path traversal via ".." in filename
+                    if let Some(file_name) = path.file_name() {
+                        if !file_name.to_string_lossy().contains("..") {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        false
+    }
+
     fn handle_event(
         &self,
         vault_name: &str,
@@ -176,8 +201,10 @@ impl VaultWatcher {
                 {
                     let old = &event.paths[0];
                     let new = &event.paths[1];
-                    // Only delete old path if it resolved within the vault
-                    if self.is_path_in_notes_dir(old, &notes_dir) {
+                    // Use lenient check for the old path: the file no longer exists
+                    // (it was renamed), so canonicalize() would fail. Instead check
+                    // the parent directory's canonical path + no-filename-traversal.
+                    if self.is_path_in_notes_dir_lenient(old, &notes_dir) {
                         if let Ok(old_rel) = old.strip_prefix(&notes_dir) {
                             let rel_str = old_rel.to_string_lossy();
                             let db = self.db.lock().unwrap();

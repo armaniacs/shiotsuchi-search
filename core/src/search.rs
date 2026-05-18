@@ -26,7 +26,7 @@ pub fn search(
         return Ok(vec![]);
     }
 
-    let effective_mode = if embedder.is_none() && matches!(mode, SearchMode::Vec | SearchMode::Hybrid) {
+    let effective_mode = if embedder.is_none() && matches!(mode, SearchMode::Hybrid) {
         SearchMode::Fts
     } else {
         mode
