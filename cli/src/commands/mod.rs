@@ -1,4 +1,5 @@
 pub mod chart;
+pub mod clean;
 pub mod config;
 pub mod config_migrate;
 pub mod delete;

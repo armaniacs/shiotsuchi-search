@@ -30,6 +30,7 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     Chart(commands::chart::ChartArgs),
+    Clean(commands::clean::CleanArgs),
     Config(commands::config::ConfigArgs),
     ConfigMigrate(commands::config_migrate::ConfigMigrateArgs),
     Delete(commands::delete::DeleteArgs),
@@ -78,6 +79,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 &db_path,
                 &cfg.indexing,
             )?;
+        }
+        Commands::Clean(_args) => {
+            commands::clean::run_clean(&resolved_vaults, &db_path, &cfg.indexing)?;
         }
         Commands::Dive(args) => {
             if !db_path.exists() {
