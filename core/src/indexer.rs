@@ -112,21 +112,24 @@ pub fn index_directory(
     let mut all_results = Vec::new();
     let mut global_count = 0usize;
 
-    // Pre-compute total file count across all vaults for accurate progress
-    let grand_total: usize = config
-        .vaults
-        .iter()
-        .map(|(_, notes_dir)| {
-            // Count files without building them all in memory (WalkDir is lazy until collected)
-            // This is an approximate upper bound; the actual filtered count may differ slightly.
-            WalkDir::new(notes_dir)
-                .follow_links(config.follow_links)
-                .into_iter()
-                .filter_map(|e| e.ok())
-                .filter(|e| e.file_type().is_file())
-                .count()
-        })
-        .sum();
+    // Pre-compute total file count across all vaults for accurate progress.
+    // Only done when a progress callback is provided to avoid double WalkDir I/O.
+    let grand_total: usize = if progress.is_some() {
+        config
+            .vaults
+            .iter()
+            .map(|(_, notes_dir)| {
+                WalkDir::new(notes_dir)
+                    .follow_links(config.follow_links)
+                    .into_iter()
+                    .filter_map(|e| e.ok())
+                    .filter(|e| e.file_type().is_file())
+                    .count()
+            })
+            .sum()
+    } else {
+        0
+    };
 
     for (vault_name, notes_dir) in &config.vaults {
         let notes_canonical = if config.follow_links {

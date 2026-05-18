@@ -163,9 +163,18 @@ fn print_table(results: &[ChunkSearchResult], query: &str, elapsed: Duration) {
     for (i, result) in results.iter().enumerate() {
         let idx = i + 1;
         let header = result.parent_header.as_deref().unwrap_or("(top level)");
+        let vault_tag = if result.vault_name != "default" {
+            format!("[{}] ", result.vault_name)
+        } else {
+            String::new()
+        };
         println!(
-            "  {idx}. {} > {}  [{:.4}]",
-            result.file_path, header, result.score
+            "  {idx}. {vault_tag}{file_path} > {header}  [{score:.4}]",
+            idx = idx,
+            vault_tag = vault_tag,
+            file_path = result.file_path,
+            header = header,
+            score = result.score
         );
         let snippet = extract_snippet(&result.content, query, DEFAULT_SNIPPET_LINES, 300);
         for line in snippet.lines() {

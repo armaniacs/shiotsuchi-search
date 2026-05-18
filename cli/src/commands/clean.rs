@@ -19,6 +19,28 @@ fn backup_file(path: &Path) -> Option<PathBuf> {
     if !path.exists() {
         return None;
     }
+    // Prune old backups keeping only the 3 most recent (by filename: *.bak.TIMESTAMP).
+    if let Some(parent) = path.parent() {
+        let base_name = path.file_name().map(|n| n.to_string_lossy()).unwrap_or_default();
+        let mut backups: Vec<_> = std::fs::read_dir(parent)
+            .ok()
+            .into_iter()
+            .flatten()
+            .filter_map(|e| e.ok())
+            .filter(|e| {
+                let fname = e.file_name();
+                let name = fname.to_string_lossy();
+                name.starts_with(&format!("{}.bak.", base_name))
+            })
+            .collect();
+        backups.sort_by_key(|e| e.file_name());
+        if backups.len() > 3 {
+            for old in backups.iter().take(backups.len() - 3) {
+                let _ = std::fs::remove_file(old.path());
+            }
+        }
+    }
+
     let ts = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
