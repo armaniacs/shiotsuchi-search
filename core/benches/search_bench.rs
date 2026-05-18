@@ -62,7 +62,7 @@ fn bench_search(c: &mut Criterion) {
     c.bench_function("search_1000_notes", |b| {
         b.iter(|| {
             let db = NoteDatabase::open(&db_path).unwrap();
-            black_box(search(black_box(&db), black_box(&tok), "test content", 20, SearchMode::Fts, None, None).unwrap())
+            black_box(search(black_box(&db), black_box(&tok), "test content", 20, SearchMode::Fts, None, None, None).unwrap())
         })
     });
 }

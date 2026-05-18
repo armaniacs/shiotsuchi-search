@@ -128,6 +128,7 @@ pub fn run_dive(
         search_mode,
         embedder.as_ref(),
         None,
+        None,
     )?;
     Ok(results)
 }
