@@ -33,9 +33,15 @@ enum Commands {
     Clean(commands::clean::CleanArgs),
     Config(commands::config::ConfigArgs),
     ConfigMigrate(commands::config_migrate::ConfigMigrateArgs),
+    /// Generate shell completion scripts
+    #[command(hide = true)]
+    Completion {
+        shell: clap_complete::Shell,
+    },
     Delete(commands::delete::DeleteArgs),
     #[command(alias = "search")]
     Dive(commands::dive::DiveArgs),
+    Doctor(commands::doctor::DoctorArgs),
     Dredge(commands::dredge::DredgeArgs),
     Init(commands::init::InitArgs),
     Log,
@@ -117,6 +123,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 &cfg.indexing,
             )?;
         }
+        Commands::Doctor(_args) => {
+            commands::doctor::run_doctor(&db_path)?;
+        }
         Commands::Dredge(args) => {
             commands::dredge::run_dredge(
                 &args,
@@ -156,6 +165,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Commands::ConfigMigrate(args) => {
             commands::config_migrate::run_config_migrate(&args)?;
+        }
+        Commands::Completion { shell } => {
+            let mut cmd = <Cli as clap::CommandFactory>::command();
+            clap_complete::generate(shell, &mut cmd, "shiotsuchi", &mut std::io::stdout());
         }
     }
 
@@ -239,7 +252,7 @@ mod tests {
     #[test]
     fn test_global_flags_accepted_on_all_subcommands() {
         // Subcommands with no required positionals: chart, dredge, init, log, scan, setup, tide
-        for cmd in &["chart", "dredge", "init", "log", "scan", "setup", "tide"] {
+        for cmd in &["chart", "doctor", "dredge", "init", "log", "scan", "setup", "tide"] {
             let args: Vec<&str> = vec!["shiotsuchi", cmd, "--verbose"];
             let r = Cli::try_parse_from(args);
             assert!(r.is_ok(), "{} --verbose should be accepted", cmd);

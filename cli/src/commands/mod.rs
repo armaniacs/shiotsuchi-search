@@ -3,6 +3,7 @@ pub mod clean;
 pub mod config;
 pub mod config_migrate;
 pub mod delete;
+pub mod doctor;
 pub mod dive;
 pub mod dredge;
 pub mod init;

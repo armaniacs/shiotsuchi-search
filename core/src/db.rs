@@ -300,27 +300,84 @@ impl NoteDatabase {
     }
 
     /// FTS search on fts_chunks. Returns (chunk_id, score) pairs.
-    pub fn fts_search(&self, fts5_query: &str, limit: usize) -> Result<Vec<(i64, f64)>, DbError> {
+    /// When `vault_filter` is Some(_), the search is restricted to that vault
+    /// via a JOIN on the chunks table.
+    pub fn fts_search(
+        &self,
+        fts5_query: &str,
+        limit: usize,
+        vault_filter: Option<&str>,
+    ) -> Result<Vec<(i64, f64)>, DbError> {
         let conn = self.write_conn.borrow();
-        let mut stmt = conn.prepare(
-            "SELECT rowid, rank FROM fts_chunks WHERE fts_chunks MATCH ?1 ORDER BY rank LIMIT ?2"
-        )?;
-        let rows = stmt.query_map(params![fts5_query, limit as i64], |r| {
+        let (sql, params): (String, Vec<Box<dyn rusqlite::ToSql>>) = if let Some(vault) = vault_filter {
+            (
+                "SELECT c.id, bm25(fts_chunks, 0.0, 0.0, 1.0, 1.0, 1.0) AS score
+                 FROM fts_chunks
+                 JOIN chunks c ON c.id = fts_chunks.rowid
+                 WHERE fts_chunks MATCH ?1 AND c.vault_name = ?2
+                 ORDER BY score
+                 LIMIT ?3".to_string(),
+                vec![
+                    Box::new(fts5_query.to_string()),
+                    Box::new(vault.to_string()),
+                    Box::new(limit as i64),
+                ],
+            )
+        } else {
+            (
+                "SELECT rowid, rank FROM fts_chunks WHERE fts_chunks MATCH ?1 ORDER BY rank LIMIT ?2".to_string(),
+                vec![
+                    Box::new(fts5_query.to_string()),
+                    Box::new(limit as i64),
+                ],
+            )
+        };
+        let params_refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(params_refs.as_slice(), |r| {
             Ok((r.get::<_, i64>(0)?, r.get::<_, f64>(1)?))
         })?;
         rows.collect::<SqliteResult<Vec<_>>>().map_err(DbError::Sqlite)
     }
 
     /// Vector KNN search on vec_chunks. Returns (chunk_id, distance) pairs.
-    pub fn vec_search(&self, embedding: &[f32], limit: usize) -> Result<Vec<(i64, f64)>, DbError> {
+    /// When `vault_filter` is Some(_), the search is restricted to that vault
+    /// via a JOIN on the chunks table.
+    pub fn vec_search(
+        &self,
+        embedding: &[f32],
+        limit: usize,
+        vault_filter: Option<&str>,
+    ) -> Result<Vec<(i64, f64)>, DbError> {
         let conn = self.write_conn.borrow();
         let blob: Vec<u8> = embedding.iter().flat_map(|f| f.to_le_bytes()).collect();
-        let mut stmt = conn.prepare(
-            "SELECT chunk_id, distance FROM vec_chunks
-             WHERE embedding MATCH ?1 AND k = ?2
-             ORDER BY distance"
-        )?;
-        let rows = stmt.query_map(params![blob, limit as i64], |r| {
+        let (sql, params): (String, Vec<Box<dyn rusqlite::ToSql>>) = if let Some(vault) = vault_filter {
+            (
+                "SELECT v.chunk_id, v.distance
+                 FROM vec_chunks v
+                 JOIN chunks c ON c.id = v.chunk_id
+                 WHERE v.embedding MATCH ?1 AND c.vault_name = ?2 AND k = ?3
+                 ORDER BY v.distance".to_string(),
+                vec![
+                    Box::new(blob),
+                    Box::new(vault.to_string()),
+                    Box::new(limit as i64),
+                ],
+            )
+        } else {
+            (
+                "SELECT chunk_id, distance FROM vec_chunks
+                 WHERE embedding MATCH ?1 AND k = ?2
+                 ORDER BY distance".to_string(),
+                vec![
+                    Box::new(blob),
+                    Box::new(limit as i64),
+                ],
+            )
+        };
+        let params_refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(params_refs.as_slice(), |r| {
             Ok((r.get::<_, i64>(0)?, r.get::<_, f64>(1)?))
         })?;
         rows.collect::<SqliteResult<Vec<_>>>().map_err(DbError::Sqlite)
@@ -398,6 +455,14 @@ impl NoteDatabase {
         rows.collect::<SqliteResult<Vec<_>>>().map_err(DbError::Sqlite)
     }
 
+    /// Execute WAL checkpoint(TRUNCATE) to flush all WAL data into the main .db file.
+    /// Useful before file-level operations like rename, backup, or atomic swap.
+    pub fn wal_checkpoint(&self) -> Result<(), DbError> {
+        let conn = self.write_conn.borrow();
+        conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE)")
+            .map_err(DbError::Sqlite)
+    }
+
     /// Vault statistics.
     pub fn stats(&self) -> Result<VaultStats, DbError> {
         let conn = self.write_conn.borrow();
@@ -441,6 +506,27 @@ mod tests {
     }
 
     #[test]
+    fn test_wal_checkpoint_does_not_fail() {
+        let db = NoteDatabase::open_in_memory().unwrap();
+        assert!(db.wal_checkpoint().is_ok(), "checkpoint should succeed on empty in-memory DB");
+
+        // Also valid after inserting data
+        let chunks = vec![
+            Chunk {
+                id: None,
+                file_path: "test.md".into(),
+                chunk_index: 0,
+                parent_header: None,
+                content: "hello".into(),
+                tokenized_content: "hello".into(),
+                vault_name: "default".into(),
+            },
+        ];
+        db.insert_chunks(&chunks).unwrap();
+        assert!(db.wal_checkpoint().is_ok(), "checkpoint should succeed after inserts");
+    }
+
+    #[test]
     fn test_insert_and_delete_chunks() {
         let db = NoteDatabase::open_in_memory().unwrap();
         let chunks = vec![
@@ -474,7 +560,7 @@ mod tests {
             Chunk { id: None, file_path: "b.md".into(), chunk_index: 0, parent_header: None, content: "search engine test".into(), tokenized_content: "search engine test".into(), vault_name: "default".to_string() },
         ];
         db.insert_chunks(&chunks).unwrap();
-        let results = db.fts_search("search AND engine", 10).unwrap();
+        let results = db.fts_search("search AND engine", 10, None).unwrap();
         assert!(!results.is_empty());
     }
 
@@ -549,10 +635,10 @@ mod tests {
         ];
         db.insert_chunks(&chunks).unwrap();
         // Verify findable before delete
-        assert!(!db.fts_search("xyz987", 10).unwrap().is_empty());
+        assert!(!db.fts_search("xyz987", 10, None).unwrap().is_empty());
         db.delete_chunks_for_file("default", "d.md").unwrap();
         // After delete, should not be found
-        assert!(db.fts_search("xyz987", 10).unwrap().is_empty());
+        assert!(db.fts_search("xyz987", 10, None).unwrap().is_empty());
     }
 
     #[test]
@@ -708,7 +794,7 @@ mod tests {
         };
 
         db.insert_chunks(&[chunk]).unwrap();
-        let results = db.fts_search("search", 10).unwrap();
+        let results = db.fts_search("search", 10, None).unwrap();
         assert_eq!(results.len(), 1, "unique chunks should appear once");
     }
 

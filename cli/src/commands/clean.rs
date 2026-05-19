@@ -53,6 +53,10 @@ fn backup_file(path: &Path) -> Option<PathBuf> {
             if let Ok(meta) = std::fs::metadata(path) {
                 let _ = std::fs::set_permissions(&backup_path, meta.permissions());
             }
+            #[cfg(not(unix))]
+            {
+                // Permission copying not supported on this platform; backup created without restrictions.
+            }
             Some(backup_path)
         }
         Err(e) => {
@@ -128,10 +132,8 @@ pub fn run_clean(
             index_directory(&db, &tokenizer, &config, embedder.as_ref(), None)?;
 
         // Checkpoint WAL so all data is in the main .db file before rename
+        db.wal_checkpoint()?;
         drop(db);
-        let checkpoint_conn = rusqlite::Connection::open(&tmp_path)?;
-        checkpoint_conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE)")?;
-        drop(checkpoint_conn);
 
         let mut indexed = 0usize;
         let mut skipped = 0usize;
@@ -286,6 +288,21 @@ mod tests {
     fn test_delete_db_files_does_not_panic_on_nonexistent_db() {
         let tmp = TempDir::new().unwrap();
         delete_db_files(&tmp.path().join("never-created.db"));
+    }
+
+    // ---------------------------------------------------------------------------
+    // run_clean error tests
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn test_run_clean_missing_db_returns_error() {
+        let tmp = TempDir::new().unwrap();
+        let db_path = tmp.path().join("nonexistent.db");
+        let vaults = vec![("default".to_string(), tmp.path().join("vault"))];
+        let result = super::run_clean(&vaults, &db_path, &IndexingConfig::default());
+        assert!(result.is_err(), "clean without DB should return error");
+        let msg = format!("{}", result.unwrap_err());
+        assert!(msg.contains("not found"), "error should mention 'not found', got: {}", msg);
     }
 
     // ---------------------------------------------------------------------------
