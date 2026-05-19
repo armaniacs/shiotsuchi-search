@@ -287,6 +287,21 @@ mod tests {
     }
 
     // ---------------------------------------------------------------------------
+    // run_clean error tests
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn test_run_clean_missing_db_returns_error() {
+        let tmp = TempDir::new().unwrap();
+        let db_path = tmp.path().join("nonexistent.db");
+        let vaults = vec![("default".to_string(), tmp.path().join("vault"))];
+        let result = super::run_clean(&vaults, &db_path, &IndexingConfig::default());
+        assert!(result.is_err(), "clean without DB should return error");
+        let msg = format!("{}", result.unwrap_err());
+        assert!(msg.contains("not found"), "error should mention 'not found', got: {}", msg);
+    }
+
+    // ---------------------------------------------------------------------------
     // run_clean integration test
     // ---------------------------------------------------------------------------
 
