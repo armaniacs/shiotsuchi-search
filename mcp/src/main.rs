@@ -630,8 +630,9 @@ notes_dir = "/tmp/partial-notes"
 
             spawn_rebuild(vaults, &db_path_clone, &writer, &args, progress_token);
 
-            // Wait for rebuild to complete (poll DB)
-            let deadline = std::time::Instant::now() + Duration::from_secs(30);
+            // Wait for rebuild to complete (poll DB). The timeout is generous
+            // because ONNX embedder model loading can take 60+ seconds.
+            let deadline = std::time::Instant::now() + Duration::from_secs(120);
             let mut indexed = false;
             while std::time::Instant::now() < deadline {
                 tokio::time::sleep(Duration::from_millis(200)).await;
