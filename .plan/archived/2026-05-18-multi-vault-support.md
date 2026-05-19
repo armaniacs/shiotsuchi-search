@@ -1,8 +1,26 @@
 # Multi-Vault Support Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Status:** Implemented across all crates
+> **Date:** 2026-05-18
+> **Completed:** 2026-05-18/19
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Allow configuration of multiple notes directories ("vaults") in `config.toml`, all sharing a single SQLite database, with a `config-migrate` subcommand for transition.
+
+---
+
+### Implementation Notes
+
+- All 10 tasks fully implemented and operational.
+- `IndexConfig.vaults` replaced single `notes_dir` across core, CLI, and MCP.
+- DB schema v3 migration adds `vault_name` column to `chunks` and `file_cache`.
+- Indexer loops over vaults; watcher spawns one watcher per vault.
+- Search accepts `vault_filter: Option<&str>` for vault-scoped queries.
+- CLI config supports both legacy `[vault]` and new `[vaults.xxx]` / `[database]` formats.
+- `config-migrate` subcommand auto-converts legacy config.
+- MCP `search_local_notes` accepts optional `"vault"` parameter.
+- Backward compatible — single-vault configs continue to work unchanged.
 
 **Architecture:** Config layer (`ShiotsuchiConfig`) gains `[database]`, `[vaults.xxx]` sections; core model (`IndexConfig`) replaces single `notes_dir` with `Vec<(String, PathBuf)>`; DB schema adds `vault_name` column; indexer loops over vaults; watcher spawns one watcher per vault; search filters by vault.
 
@@ -38,7 +56,7 @@
 **Files:**
 - Modify: `core/src/models.rs`
 
-- [ ] **Step 1: Add vault_name to ChunkSearchResult**
+- [x] **Step 1: Add vault_name to ChunkSearchResult**
 
 ```rust
 pub struct ChunkSearchResult {
@@ -52,7 +70,7 @@ pub struct ChunkSearchResult {
 }
 ```
 
-- [ ] **Step 2: Replace notes_dir with vaults in IndexConfig**
+- [x] **Step 2: Replace notes_dir with vaults in IndexConfig**
 
 ```rust
 pub struct IndexConfig {
@@ -87,7 +105,7 @@ impl IndexConfig {
 }
 ```
 
-- [ ] **Step 3: Update Default impl**
+- [x] **Step 3: Update Default impl**
 
 ```rust
 impl Default for IndexConfig {
@@ -104,9 +122,9 @@ impl Default for IndexConfig {
 }
 ```
 
-- [ ] **Step 4: Update tests (models.rs)** to use `IndexConfig::single()` or populate `.vaults`.
+- [x] **Step 4: Update tests (models.rs)** to use `IndexConfig::single()` or populate `.vaults`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add core/src/models.rs
@@ -120,7 +138,7 @@ git commit -m "feat(core): add vault support to IndexConfig and ChunkSearchResul
 **Files:**
 - Modify: `core/src/db.rs`
 
-- [ ] **Step 1: Add vault_name column migration in migrate()**
+- [x] **Step 1: Add vault_name column migration in migrate()**
 
 In `migrate()`, add a v3 migration that runs after the existing v2 check:
 
@@ -166,7 +184,7 @@ fn migrate(&self) -> Result<(), DbError> {
 }
 ```
 
-- [ ] **Step 2: Update insert_chunks to read vault_name from Chunk**
+- [x] **Step 2: Update insert_chunks to read vault_name from Chunk**
 
 ```rust
 pub fn insert_chunks(&self, chunks: &[Chunk]) -> Result<Vec<i64>, DbError> {
@@ -192,7 +210,7 @@ pub fn insert_chunks(&self, chunks: &[Chunk]) -> Result<Vec<i64>, DbError> {
 }
 ```
 
-- [ ] **Step 3: Update delete_chunks_for_file to accept vault_name**
+- [x] **Step 3: Update delete_chunks_for_file to accept vault_name**
 
 ```rust
 pub fn delete_chunks_for_file(&self, vault_name: &str, file_path: &str) -> Result<(), DbError> {
@@ -220,7 +238,7 @@ pub fn delete_chunks_for_file(&self, vault_name: &str, file_path: &str) -> Resul
 }
 ```
 
-- [ ] **Step 4: Update file_cache methods to accept vault_name**
+- [x] **Step 4: Update file_cache methods to accept vault_name**
 
 ```rust
 pub fn upsert_file_cache(
@@ -263,7 +281,7 @@ pub fn delete_file_cache(&self, vault_name: &str, path: &str) -> Result<(), DbEr
 }
 ```
 
-- [ ] **Step 5: Update get_chunks_by_ids to select vault_name**
+- [x] **Step 5: Update get_chunks_by_ids to select vault_name**
 
 Change the SQL to include `vault_name` and popuate it in Chunk:
 
@@ -287,7 +305,7 @@ let rows = stmt.query_map(params_vec.as_slice(), |r| {
 })?;
 ```
 
-- [ ] **Step 6: Update get_surrounding_chunks to select vault_name**
+- [x] **Step 6: Update get_surrounding_chunks to select vault_name**
 
 Same change: add `vault_name` to the SELECT list and Chunk construction.
 
@@ -311,7 +329,7 @@ let rows = stmt.query_map(..., |r| {
 })?;
 ```
 
-- [ ] **Step 7: Add list_cached_paths to accept vault_name (optional, for cleanup)**
+- [x] **Step 7: Add list_cached_paths to accept vault_name (optional, for cleanup)**
 
 ```rust
 pub fn list_cached_paths(&self, vault_name: &str) -> Result<Vec<String>, DbError> {
@@ -324,9 +342,9 @@ pub fn list_cached_paths(&self, vault_name: &str) -> Result<Vec<String>, DbError
 }
 ```
 
-- [ ] **Step 8: Update all tests in db.rs** to add `vault_name: "default".to_string()` to each Chunk instance, and pass `"default"` as vault_name to `delete_chunks_for_file`, `upsert_file_cache`, `cached_hash`, `delete_file_cache`.
+- [x] **Step 8: Update all tests in db.rs** to add `vault_name: "default".to_string()` to each Chunk instance, and pass `"default"` as vault_name to `delete_chunks_for_file`, `upsert_file_cache`, `cached_hash`, `delete_file_cache`.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add core/src/db.rs
@@ -340,7 +358,7 @@ git commit -m "feat(core): add vault_name to DB schema and methods"
 **Files:**
 - Modify: `core/src/indexer.rs`
 
-- [ ] **Step 1: Update index_directory to loop over vaults**
+- [x] **Step 1: Update index_directory to loop over vaults**
 
 ```rust
 pub fn index_directory(
@@ -411,7 +429,7 @@ pub fn index_directory(
 }
 ```
 
-- [ ] **Step 2: Update index_file_with_embedder signature**
+- [x] **Step 2: Update index_file_with_embedder signature**
 
 ```rust
 pub fn index_file_with_embedder(
@@ -444,7 +462,7 @@ pub fn index_file(
 
 And index_file_with_embedder uses `_config` for extension checking and such. The vault_name is needed for DB operations inside the function.
 
-- [ ] **Step 3: Inside index_file_with_embedder, use vault_name for DB calls**
+- [x] **Step 3: Inside index_file_with_embedder, use vault_name for DB calls**
 
 ```rust
 // Instead of:
@@ -464,7 +482,7 @@ db.insert_chunks(&chunks)?;
 db.delete_chunks_for_file(vault_name, relative_path)?;
 ```
 
-- [ ] **Step 4: Update cleanup_deleted function** to accept vault_name
+- [x] **Step 4: Update cleanup_deleted function** to accept vault_name
 
 ```rust
 pub fn cleanup_deleted(
@@ -486,11 +504,11 @@ pub fn cleanup_deleted(
 }
 ```
 
-- [ ] **Step 5: Update all tests in indexer.rs** to pass vault_name
+- [x] **Step 5: Update all tests in indexer.rs** to pass vault_name
 
 All test IndexConfig instances need `.vaults` populated and DB calls need `"default"`.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add core/src/indexer.rs
@@ -504,7 +522,7 @@ git commit -m "feat(core): indexer vault loop and vault_name propagation"
 **Files:**
 - Modify: `core/src/search.rs`
 
-- [ ] **Step 1: Add vault_filter parameter to search()**
+- [x] **Step 1: Add vault_filter parameter to search()**
 
 ```rust
 pub fn search(
@@ -521,7 +539,7 @@ pub fn search(
 
 Pass `vault_filter` through to `search_fts()`, `search_vec()`, `search_hybrid()`.
 
-- [ ] **Step 2: Add vault_filter to search_fts**
+- [x] **Step 2: Add vault_filter to search_fts**
 
 Instead of using FTS5 MATCH for vault filtering (since vault_name is not in fts_chunks), use a JOIN with chunks:
 
@@ -554,7 +572,7 @@ fn search_fts(
 
 `Chunk` already has `vault_name` (Task 1) and `get_chunks_by_ids` already selects it (Task 2). So search can use `c.vault_name` directly.
 
-- [ ] **Step 3: Update search result construction** to populate vault_name
+- [x] **Step 3: Update search result construction** to populate vault_name
 
 ```rust
 Some(ChunkSearchResult {
@@ -570,7 +588,7 @@ Some(ChunkSearchResult {
 
 Same pattern for search_vec and search_hybrid.
 
-- [ ] **Step 4: Handle vault_filter in search_fts**
+- [x] **Step 4: Handle vault_filter in search_fts**
 
 ```rust
 fn search_fts(..., vault_filter: Option<&str>) -> ... {
@@ -586,13 +604,13 @@ fn search_fts(..., vault_filter: Option<&str>) -> ... {
 }
 ```
 
-- [ ] **Step 5: Pass vault_filter through search_vec and search_hybrid**
+- [x] **Step 5: Pass vault_filter through search_vec and search_hybrid**
 
 Same pattern: accept `vault_filter: Option<&str>`, filter results after construction.
 
-- [ ] **Step 6: Update all tests in search.rs** to include vault_name in ChunkSearchResult assertions and pass `None` for vault_filter.
+- [x] **Step 6: Update all tests in search.rs** to include vault_name in ChunkSearchResult assertions and pass `None` for vault_filter.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add core/src/models.rs core/src/db.rs core/src/search.rs
@@ -606,7 +624,7 @@ git commit -m "feat(core): add vault_name to Chunk and vault_filter to search"
 **Files:**
 - Modify: `core/src/watcher.rs`
 
-- [ ] **Step 1: Update VaultWatcher to hold vaults list**
+- [x] **Step 1: Update VaultWatcher to hold vaults list**
 
 ```rust
 pub struct VaultWatcher {
@@ -620,7 +638,7 @@ pub struct VaultWatcher {
 
 Update the constructor to initialize `watchers: Arc::new(Mutex::new(Vec::new()))`.
 
-- [ ] **Step 2: Update watch() to create one watcher per vault**
+- [x] **Step 2: Update watch() to create one watcher per vault**
 
 ```rust
 pub fn watch(&self) -> Result<(), Box<dyn std::error::Error>> {
@@ -668,7 +686,7 @@ pub struct VaultWatcher {
 }
 ```
 
-- [ ] **Step 3: Update handle_event to accept vault_name**
+- [x] **Step 3: Update handle_event to accept vault_name**
 
 ```rust
 fn handle_event(&self, vault_name: &str, event: &notify::Event) -> Result<(), Box<dyn std::error::Error>> {
@@ -681,7 +699,7 @@ db.delete_file_cache(vault_name, &rel_str)?;
 index_file_with_embedder(&db, &self.tokenizer, self.embedder.as_ref(), path, vault_name, &rel_str, &self.config)
 ```
 
-- [ ] **Step 4: Update is_path_within_vault to check against all vaults**
+- [x] **Step 4: Update is_path_within_vault to check against all vaults**
 
 ```rust
 /// Find which vault a path belongs to. Returns None if outside all vaults.
@@ -763,9 +781,9 @@ fn handle_event(&self, vault_name: &str, event: &notify::Event) -> Result<(), Bo
 }
 ```
 
-- [ ] **Step 5: Update all tests in watcher.rs** to use `vault_name` with DB methods and IndexConfig with vaults.
+- [x] **Step 5: Update all tests in watcher.rs** to use `vault_name` with DB methods and IndexConfig with vaults.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add core/src/watcher.rs
@@ -779,7 +797,7 @@ git commit -m "feat(core): multi-vault watcher support"
 **Files:**
 - Modify: `cli/src/config.rs`
 
-- [ ] **Step 1: Add DatabaseConfig and VaultEntry structs**
+- [x] **Step 1: Add DatabaseConfig and VaultEntry structs**
 
 ```rust
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -796,7 +814,7 @@ pub struct VaultEntry {
 }
 ```
 
-- [ ] **Step 2: Restructure ShiotsuchiConfig**
+- [x] **Step 2: Restructure ShiotsuchiConfig**
 
 ```rust
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -810,7 +828,7 @@ pub struct ShiotsuchiConfig {
 }
 ```
 
-- [ ] **Step 3: Add resolution logic**
+- [x] **Step 3: Add resolution logic**
 
 After deserialization, resolve into flat vectors for downstream use:
 
@@ -851,7 +869,7 @@ impl ShiotsuchiConfig {
 }
 ```
 
-- [ ] **Step 4: Update load() to warn about old format**
+- [x] **Step 4: Update load() to warn about old format**
 
 ```rust
 pub fn load() -> Self {
@@ -882,9 +900,9 @@ pub fn load() -> Self {
 }
 ```
 
-- [ ] **Step 5: Update tests in config.rs** to test both old and new formats.
+- [x] **Step 5: Update tests in config.rs** to test both old and new formats.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add cli/src/config.rs
@@ -899,7 +917,7 @@ git commit -m "feat(cli): multi-vault config format with backward compat"
 - Create: `cli/src/commands/config_migrate.rs`
 - Modify: `cli/src/commands/mod.rs`
 
-- [ ] **Step 1: Create config_migrate.rs**
+- [x] **Step 1: Create config_migrate.rs**
 
 ```rust
 use crate::config::{self, ShiotsuchiConfig, VaultEntry, DatabaseConfig};
@@ -981,7 +999,7 @@ pub fn run_config_migrate(args: &ConfigMigrateArgs) -> Result<(), Box<dyn std::e
 }
 ```
 
-- [ ] **Step 2: Add config_migrate to mod.rs**
+- [x] **Step 2: Add config_migrate to mod.rs**
 
 ```rust
 pub mod chart;
@@ -999,7 +1017,7 @@ pub mod support;
 pub mod tide;
 ```
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add cli/src/commands/config_migrate.rs cli/src/commands/mod.rs
@@ -1018,7 +1036,7 @@ git commit -m "feat(cli): add config-migrate subcommand"
 - Modify: `cli/src/commands/delete.rs`
 - Modify: `cli/src/commands/config.rs`
 
-- [ ] **Step 1: Add ConfigMigrate to Commands enum in main.rs**
+- [x] **Step 1: Add ConfigMigrate to Commands enum in main.rs**
 
 ```rust
 #[derive(Subcommand)]
@@ -1038,7 +1056,7 @@ enum Commands {
 }
 ```
 
-- [ ] **Step 2: Update main() dispatch to use resolved_vaults()**
+- [x] **Step 2: Update main() dispatch to use resolved_vaults()**
 
 ```rust
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -1104,7 +1122,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-- [ ] **Step 3: Update chart.rs**
+- [x] **Step 3: Update chart.rs**
 
 ```rust
 pub fn run_chart(
@@ -1126,11 +1144,11 @@ pub fn run_chart(
 }
 ```
 
-- [ ] **Step 4: Update scan.rs**
+- [x] **Step 4: Update scan.rs**
 
 Same pattern: accept `&[(String, PathBuf)]`, build `IndexConfig` with vaults.
 
-- [ ] **Step 5: Update dredge.rs**
+- [x] **Step 5: Update dredge.rs**
 
 Same pattern: accept `&[(String, PathBuf)]`, iterate vaults for cleanup.
 
@@ -1153,17 +1171,17 @@ pub fn run_dredge(
 }
 ```
 
-- [ ] **Step 6: Update delete.rs**
+- [x] **Step 6: Update delete.rs**
 
 Accept vaults, resolve relative path against each vault's notes_dir.
 
-- [ ] **Step 7: Update config.rs subcommand** (noise detection)
+- [x] **Step 7: Update config.rs subcommand** (noise detection)
 
 Iterate all vaults' notes_dir for `detect-noise`.
 
-- [ ] **Step 8: Update tests** in cli crate to match new signatures.
+- [x] **Step 8: Update tests** in cli crate to match new signatures.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add cli/src/main.rs cli/src/commands/chart.rs cli/src/commands/scan.rs cli/src/commands/dredge.rs cli/src/commands/delete.rs cli/src/commands/config.rs
@@ -1178,7 +1196,7 @@ git commit -m "feat(cli): update subcommands for multi-vault support"
 - Modify: `mcp/src/main.rs`
 - Modify: `mcp/src/handler.rs`
 
-- [ ] **Step 1: Update McpConfig in mcp/src/main.rs**
+- [x] **Step 1: Update McpConfig in mcp/src/main.rs**
 
 ```rust
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1201,7 +1219,7 @@ struct VaultEntry {
 }
 ```
 
-- [ ] **Step 2: Add resolution methods**
+- [x] **Step 2: Add resolution methods**
 
 ```rust
 impl McpConfig {
@@ -1232,7 +1250,7 @@ impl McpConfig {
 }
 ```
 
-- [ ] **Step 3: Update main() to pass vaults**
+- [x] **Step 3: Update main() to pass vaults**
 
 The `dispatch` function currently takes `(notes_dir, db_path)`. Change to accept `vaults: &[(String, PathBuf)]` and an index or vault name for the first vault.
 
@@ -1240,7 +1258,7 @@ Actually, for simplicity, keep the existing `dispatch(notes_dir: &Path, db_path:
 
 Simpler approach: keep `dispatch` with a single `notes_dir` (using first vault), and pass vaults separately to `handler::call_tool`.
 
-- [ ] **Step 4: Update handler.rs — add vault param to search**
+- [x] **Step 4: Update handler.rs — add vault param to search**
 
 ```rust
 pub fn call_tool(
@@ -1264,7 +1282,7 @@ pub fn call_tool(
 }
 ```
 
-- [ ] **Step 5: Update spawn_rebuild** to use vaults list
+- [x] **Step 5: Update spawn_rebuild** to use vaults list
 
 ```rust
 fn spawn_rebuild(
@@ -1283,9 +1301,9 @@ fn spawn_rebuild(
 }
 ```
 
-- [ ] **Step 6: Update tests** in mcp crate to match new signatures.
+- [x] **Step 6: Update tests** in mcp crate to match new signatures.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add mcp/src/main.rs mcp/src/handler.rs
@@ -1304,15 +1322,15 @@ git commit -m "feat(mcp): multi-vault support in config and handler"
 - Modify: `cli/src/commands/init.rs`
 - Modify: all test code creating Chunk or IndexConfig instances
 
-- [ ] **Step 1: Update benchmarks** — add vault_name to Chunk, vaults to IndexConfig
+- [x] **Step 1: Update benchmarks** — add vault_name to Chunk, vaults to IndexConfig
 
-- [ ] **Step 2: Update integration tests** — match new signatures
+- [x] **Step 2: Update integration tests** — match new signatures
 
-- [ ] **Step 3: Update e2e tests** — pass vault context
+- [x] **Step 3: Update e2e tests** — pass vault context
 
-- [ ] **Step 4: Update support.rs** — vaults in output
+- [x] **Step 4: Update support.rs** — vaults in output
 
-- [ ] **Step 5: Build and fix compilation errors**
+- [x] **Step 5: Build and fix compilation errors**
 
 ```bash
 cargo build 2>&1
@@ -1320,7 +1338,7 @@ cargo build 2>&1
 
 Fix any remaining compile errors iteratively.
 
-- [ ] **Step 6: Run tests**
+- [x] **Step 6: Run tests**
 
 ```bash
 make test 2>&1
@@ -1328,7 +1346,7 @@ make test 2>&1
 
 Fix any test failures.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add -A

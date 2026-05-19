@@ -1,7 +1,8 @@
 # Multi-Vault Support Design
 
-> **Status:** Draft  
+> **Status:** Implemented  
 > **Date:** 2026-05-18  
+> **Completed:** 2026-05-18/19  
 > **Branch:** `feature-vault-detail`
 
 ## 1. Goals

@@ -1,5 +1,9 @@
 # 設計: CLI ビルド時情報表示
 
+> **Status:** Implemented
+> **Date:** 2026-05-16
+> **Completed:** 2026-05-18/19
+
 ## 概要
 
 `shiotsuchi` CLI にビルド時の機能フラグの可視性を追加し、ユーザーが現在のバイナリにどの機能がコンパイルされているかを確認できるようにします。これにより、`--no-default-features` やビルド時環境変数によってランタイムの挙動が変わっていても、ユーザーがそれを発見できないという問題を解消します。
@@ -210,6 +214,13 @@ JSON 出力（`--json`）：
 | `cli/src/main.rs` | `Support` バリアントを追加、`#[command(...)]` を更新 |
 | `cli/Cargo.toml` | 必要に応じて `build = "build.rs"` を追加 |
 
+## 実装ノート
+
+実際の実装は以下の点が仕様と異なる：
+- `cli/build.rs` は作成されていない。依存関係の機能検出は `core/src/build_info.rs` でハードコードされた定数（`DEP_ORT_DOWNLOAD_BINARIES` 等）として実装。これは `cli` が `core` の path dependency を持ち、core の Cargo.toml でこれらの機能が常に有効であるため問題ない。
+- `core/src/build_info.rs` の依存定数は `cfg!(feature = "...")` ではなく `const DEP_*: bool = true` のハードコード。プロジェクトの依存関係が固定されているため、ランタイムオーバーヘッドがなく安全。
+- `support` コマンドの `notes_dir` は `cfg.resolved_vaults()` の最初の Vault のパスを表示。
+
 ## 未解決の問題
 
-なし — 設計承認済み。
+なし — 設計承認済み。全実装完了。

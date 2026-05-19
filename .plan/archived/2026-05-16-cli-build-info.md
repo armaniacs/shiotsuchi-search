@@ -1,6 +1,10 @@
 # CLI Build-Time Information Display — Implementation Plan (TDD)
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Status:** Implemented
+> **Date:** 2026-05-16
+> **Completed:** 2026-05-18/19
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 > **TDD discipline:** NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST. Every task starts with a failing test.
 
 **Goal:** Add `-h`/`-V` extended build-info footers and a new `support` subcommand with comprehensive JSON/text output including Config settings.
@@ -43,8 +47,8 @@ mod tests {
 }
 ```
 
-- [ ] **Write test file `core/src/build_info.rs` with above tests only.**
-- [ ] **Run: `cargo test -p shiotsuchi-core -- build_info`**
+- [x] **Write test file `core/src/build_info.rs` with above tests only.**
+- [x] **Run: `cargo test -p shiotsuchi-core -- build_info`**
 - **Expected:** FAIL — `HAS_MODEL_EMBEDDED` not found, module not included in `lib.rs`.
 
 ### Step 1.2: GREEN — Add minimal module + include macro
@@ -67,8 +71,8 @@ Add to `core/src/lib.rs`:
 pub mod build_info;
 ```
 
-- [ ] **Write minimal implementation.**
-- [ ] **Run: `cargo test -p shiotsuchi-core -- build_info`**
+- [x] **Write minimal implementation.**
+- [x] **Run: `cargo test -p shiotsuchi-core -- build_info`**
 - **Expected:** FAIL — `HAS_MODEL_EMBEDDED` is `false` in this workspace because `SHIOTSUCHI_EMBED_MODEL` is not set. The test must be adjusted to match the actual (non-embedded) build environment.
 
 ### Step 1.3: Fix test to match actual build environment
@@ -84,13 +88,13 @@ Update test to reflect that in default builds, `HAS_MODEL_EMBEDDED` is `false`:
     }
 ```
 
-- [ ] **Update test to be environment-agnostic.**
-- [ ] **Run: `cargo test -p shiotsuchi-core -- build_info`**
+- [x] **Update test to be environment-agnostic.**
+- [x] **Run: `cargo test -p shiotsuchi-core -- build_info`**
 - **Expected:** PASS.
 
 ### Step 1.4: REFACTOR — None needed, commit
 
-- [ ] **Commit**
+- [x] **Commit**
 
 ```bash
 git add core/src/build_info.rs core/src/lib.rs
@@ -128,8 +132,8 @@ mod tests {
 }
 ```
 
-- [ ] **Write test-only file `cli/src/build_info.rs`.**
-- [ ] **Run: `cargo test -p shiotsuchi`**
+- [x] **Write test-only file `cli/src/build_info.rs`.**
+- [x] **Run: `cargo test -p shiotsuchi`**
 - **Expected:** FAIL — `help_footer` and `long_version` not found in `build_info` module.
 
 ### Step 2.2: GREEN — Add minimal function stubs
@@ -151,7 +155,7 @@ pub fn long_version() -> String {
 }
 ```
 
-- [ ] **Run: `cargo test -p shiotsuchi`**
+- [x] **Run: `cargo test -p shiotsuchi`**
 - **Expected:** PASS — stubs satisfy tests.
 
 ### Step 2.3: REFACTOR — Make dynamic with `cfg!()` and core constants
@@ -189,12 +193,12 @@ pub fn long_version() -> String {
 }
 ```
 
-- [ ] **Run: `cargo test -p shiotsuchi`**
+- [x] **Run: `cargo test -p shiotsuchi`**
 - **Expected:** PASS.
 
 ### Step 2.4: Commit
 
-- [ ] **Commit**
+- [x] **Commit**
 
 ```bash
 git add cli/src/build_info.rs
@@ -223,8 +227,8 @@ In `cli/src/main.rs` test module, add:
     }
 ```
 
-- [ ] **Write test.**
-- [ ] **Run: `cargo test -p shiotsuchi -- test_help_includes_build_footer`**
+- [x] **Write test.**
+- [x] **Run: `cargo test -p shiotsuchi -- test_help_includes_build_footer`**
 - **Expected:** FAIL — `after_help` not yet set on the command, help string does not contain "Build features:".
 
 ### Step 3.2: GREEN — Wire builder API in `main()`
@@ -245,7 +249,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 2. Add `#[arg(long)]` fields remain unchanged.
 
-- [ ] **Run: `cargo test -p shiotsuchi -- test_help_includes_build_footer`**
+- [x] **Run: `cargo test -p shiotsuchi -- test_help_includes_build_footer`**
 - **Expected:** PASS.
 
 ### Step 3.3: REFACTOR — Add `support` module declaration
@@ -258,7 +262,7 @@ In `cli/src/commands/mod.rs`:
 pub mod support;
 ```
 
-- [ ] **Commit**
+- [x] **Commit**
 
 ```bash
 git add cli/src/main.rs cli/src/commands/mod.rs
@@ -303,8 +307,8 @@ mod tests {
 }
 ```
 
-- [ ] **Write test-only file.**
-- [ ] **Run: `cargo test -p shiotsuchi`**
+- [x] **Write test-only file.**
+- [x] **Run: `cargo test -p shiotsuchi`**
 - **Expected:** FAIL — `BuildInfo`, `gather`, and `ConfigSnapshot` types do not exist.
 
 ### Step 4.2: GREEN — Add minimal struct + `gather()` stub
@@ -428,7 +432,7 @@ impl BuildInfo {
 }
 ```
 
-- [ ] **Run: `cargo test -p shiotsuchi`**
+- [x] **Run: `cargo test -p shiotsuchi`**
 - **Expected:** PASS — stubs satisfy tests.
 
 ### Step 4.3: REFACTOR — Fill real implementation
@@ -517,7 +521,7 @@ pub fn run_support(args: &SupportArgs, cfg: &ShiotsuchiConfig) -> Result<(), Box
 
 And add `print_table()` with the comprehensive text output.
 
-- [ ] **Run: `cargo test -p shiotsuchi`**
+- [x] **Run: `cargo test -p shiotsuchi`**
 - **Expected:** PASS.
 
 ### Step 4.4: Add `sha2` to `cli/Cargo.toml`
@@ -526,7 +530,7 @@ And add `print_table()` with the comprehensive text output.
 sha2 = "0.10"
 ```
 
-- [ ] **Commit**
+- [x] **Commit**
 
 ```bash
 git add cli/src/commands/support.rs cli/Cargo.toml
@@ -556,7 +560,7 @@ In `cli/src/commands/support.rs` tests, add:
     }
 ```
 
-- [ ] **Run: `cargo test -p shiotsuchi`**
+- [x] **Run: `cargo test -p shiotsuchi`**
 - **Expected:** FAIL — `DEP_VAPORETTO_CHARWISE_PMA` not found in `core::build_info`.
 
 ### Step 5.2: GREEN — Add constants to `core/src/build_info.rs`
@@ -572,12 +576,12 @@ pub const DEP_VAPORETTO_FIX_WEIGHT_LENGTH: bool = cfg!(feature = "fix-weight-len
 pub const DEP_RUSQLITE_BUNDLED: bool = cfg!(feature = "bundled");
 ```
 
-- [ ] **Run: `cargo test -p shiotsuchi`**
+- [x] **Run: `cargo test -p shiotsuchi`**
 - **Expected:** PASS.
 
 ### Step 5.3: Commit
 
-- [ ] **Commit**
+- [x] **Commit**
 
 ```bash
 git add core/src/build_info.rs cli/src/commands/support.rs
@@ -609,7 +613,7 @@ In `cli/src/main.rs` test module:
     }
 ```
 
-- [ ] **Run: `cargo test -p shiotsuchi`**
+- [x] **Run: `cargo test -p shiotsuchi`**
 - **Expected:** FAIL — `Support` variant not in `Commands` enum.
 
 ### Step 6.2: GREEN — Add `Support` variant and dispatch arm
@@ -625,28 +629,28 @@ Commands::Support(args) => {
 }
 ```
 
-- [ ] **Run: `cargo test -p shiotsuchi`**
+- [x] **Run: `cargo test -p shiotsuchi`**
 - **Expected:** PASS.
 
 ### Step 6.3: REFACTOR — Full text output (`print_table`)
 
 In `cli/src/commands/support.rs`, implement `print_table()` for the human-readable comprehensive report.
 
-- [ ] **Run: `cargo test -p shiotsuchi`**
+- [x] **Run: `cargo test -p shiotsuchi`**
 - **Expected:** PASS.
 
 ### Step 6.4: Final integration check
 
-- [ ] **Run: `cargo test --workspace`**
+- [x] **Run: `cargo test --workspace`**
 - **Expected:** PASS.
 
-- [ ] **Run: `cargo clippy -p shiotsuchi -- -D warnings`**
+- [x] **Run: `cargo clippy -p shiotsuchi -- -D warnings`**
 - **Expected:** Clean.
 
-- [ ] **Run: `cargo fmt -- --check`**
+- [x] **Run: `cargo fmt -- --check`**
 - **Expected:** Clean.
 
-- [ ] **Commit**
+- [x] **Commit**
 
 ```bash
 git add cli/src/main.rs cli/src/commands/support.rs
@@ -657,13 +661,13 @@ git commit -m "feat(cli): wire support subcommand dispatch and comprehensive out
 
 ## Post-Implementation Checklist
 
-- [ ] `shiotsuchi -h` shows extended build-info footer.
-- [ ] `shiotsuchi -V` shows extended build-info line.
-- [ ] `shiotsuchi support` prints comprehensive table including Config settings.
-- [ ] `shiotsuchi support --json` prints valid JSON with all four top-level keys.
-- [ ] JSON keys: `build`, `dependencies`, `runtime`, `config`.
-- [ ] Every new function has a test written first.
-- [ ] Every test was observed failing before implementation.
-- [ ] All tests pass.
-- [ ] No clippy warnings.
-- [ ] `cargo fmt` clean.
+- [x] `shiotsuchi -h` shows extended build-info footer.
+- [x] `shiotsuchi -V` shows extended build-info line.
+- [x] `shiotsuchi support` prints comprehensive table including Config settings.
+- [x] `shiotsuchi support --json` prints valid JSON with all four top-level keys.
+- [x] JSON keys: `build`, `dependencies`, `runtime`, `config`.
+- [x] Every new function has a test written first.
+- [x] Every test was observed failing before implementation.
+- [x] All tests pass.
+- [x] No clippy warnings.
+- [x] `cargo fmt` clean.

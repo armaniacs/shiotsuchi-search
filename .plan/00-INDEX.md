@@ -41,4 +41,11 @@
 | `2026-05-12-rag-implementation-pre-analysis.md` | RAG実装前分析（設計判断・リスク一覧・実装依存順序） |
 | `2026-05-18-clean-command.md` | clean コマンド実装計画（全5ステップ完了・アトミックリネーム版で実装） |
 | `2026-05-18-clean-command-design.md` | clean コマンド設計仕様（バックアップ→再インデックス、Draft→Implemented） |
+| `2026-05-18-multi-vault-support.md` | マルチボールト実装計画（全10タスク完了・core/CLI/MCP全層実装済み） |
+| `2026-05-18-multi-vault-support-design.md` | マルチボールト設計仕様（config/DB/検索/監視/移行、Draft→Implemented） |
+| `2026-05-16-cli-build-info.md` | CLI ビルド時情報表示 実装計画（TDD・全6タスク完了） |
+| `2026-05-16-cli-build-info-design.md` | CLI ビルド時情報表示 設計仕様（help/version/support --json） |
+| `2026-04-29-shiotsuchi-search-phase3-skill.md` | Skillサーバー実装計画（廃棄: skill/ クレート削除済み） |
+| `2026-05-16-dependency-upgrade.md` | 依存関係アップグレード計画（全5タスク完了・rusqlite 0.31→0.39） |
+| `2026-05-17-coverage-improvement-phase3.md` | カバレッジ改善Phase3（大半は先行作業で完了、1 test追加） |
 

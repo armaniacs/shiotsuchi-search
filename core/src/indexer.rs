@@ -974,4 +974,12 @@ mod tests {
     fn test_escape_glob_literal_backslash_chain() {
         assert_eq!(escape_glob_literal("a\\b\\c"), "a\\\\b\\\\c");
     }
+
+    #[test]
+    fn test_escape_glob_literal_all_special_chars() {
+        assert_eq!(
+            escape_glob_literal("*?[]{},"),
+            "\\*\\?\\[\\]\\{\\},"
+        );
+    }
 }
