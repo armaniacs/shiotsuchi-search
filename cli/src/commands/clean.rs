@@ -128,10 +128,8 @@ pub fn run_clean(
             index_directory(&db, &tokenizer, &config, embedder.as_ref(), None)?;
 
         // Checkpoint WAL so all data is in the main .db file before rename
+        db.wal_checkpoint()?;
         drop(db);
-        let checkpoint_conn = rusqlite::Connection::open(&tmp_path)?;
-        checkpoint_conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE)")?;
-        drop(checkpoint_conn);
 
         let mut indexed = 0usize;
         let mut skipped = 0usize;

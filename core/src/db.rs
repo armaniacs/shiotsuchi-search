@@ -398,6 +398,14 @@ impl NoteDatabase {
         rows.collect::<SqliteResult<Vec<_>>>().map_err(DbError::Sqlite)
     }
 
+    /// Execute WAL checkpoint(TRUNCATE) to flush all WAL data into the main .db file.
+    /// Useful before file-level operations like rename, backup, or atomic swap.
+    pub fn wal_checkpoint(&self) -> Result<(), DbError> {
+        let conn = self.write_conn.borrow();
+        conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE)")
+            .map_err(DbError::Sqlite)
+    }
+
     /// Vault statistics.
     pub fn stats(&self) -> Result<VaultStats, DbError> {
         let conn = self.write_conn.borrow();
