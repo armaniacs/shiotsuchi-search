@@ -1,6 +1,8 @@
 # `shiotsuchi clean` Command Design
 
-> **Status:** Draft
+> **Status:** Implemented
+> **Implemented in:** `cli/src/commands/clean.rs`
+> **Completed:** 2026-05-18/19
 > **Date:** 2026-05-18
 
 ## Goal

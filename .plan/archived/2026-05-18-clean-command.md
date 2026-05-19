@@ -1,10 +1,26 @@
 # `shiotsuchi clean` Command Implementation Plan
 
+> **Status:** Implemented (see `cli/src/commands/clean.rs`)
+> **Date:** 2026-05-18
+> **Completed:** 2026-05-18/19
+
 > **For agentic workers:** Single-task implementation.
 
 **Goal:** Add `shiotsuchi clean` — backup DB, delete, and re-index from scratch.
 
 **Architecture:** New subcommand file `cli/src/commands/clean.rs` following the same pattern as `chart.rs`. Uses existing `NoteDatabase::open`, `index_directory`, and `run_chart`-style reporting.
+
+---
+
+### Actual Implementation Notes
+
+The production implementation at `cli/src/commands/clean.rs` improves on the plan in several ways:
+
+1. **Atomic rename** — indexes into a temp DB first, then renames over the original (vs. plan's backup→delete→re-index which has a longer window of data loss)
+2. **Old backup pruning** — keeps only the 3 most recent backups
+3. **Symlink protection** — refuses to delete symlinks during cleanup
+4. **WAL checkpoint** — runs `wal_checkpoint()` before rename so all data is in the main file
+5. **Comprehensive tests** — 8 test cases covering backup, delete, and full flow
 
 ---
 
@@ -15,7 +31,7 @@
 - Modify: `cli/src/commands/mod.rs`
 - Modify: `cli/src/main.rs`
 
-- [ ] **Step 1: Create cli/src/commands/clean.rs**
+- [x] **Step 1: Create cli/src/commands/clean.rs**
 
 ```rust
 use crate::config::IndexingConfig;
@@ -149,7 +165,7 @@ pub fn run_clean(
 }
 ```
 
-- [ ] **Step 2: Add module to mod.rs**
+- [x] **Step 2: Add module to mod.rs**
 
 Add `pub mod clean;` to `cli/src/commands/mod.rs`:
 
@@ -170,7 +186,7 @@ pub mod support;
 pub mod tide;
 ```
 
-- [ ] **Step 3: Add Commands variant in main.rs**
+- [x] **Step 3: Add Commands variant in main.rs**
 
 Add `Clean` to the Commands enum:
 ```rust
@@ -190,14 +206,14 @@ Commands::Clean(_args) => {
 }
 ```
 
-- [ ] **Step 4: Build and test**
+- [x] **Step 4: Build and test**
 
 ```bash
 cargo build 2>&1
 cargo test -p shiotsuchi 2>&1
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add cli/src/commands/clean.rs cli/src/commands/mod.rs cli/src/main.rs
