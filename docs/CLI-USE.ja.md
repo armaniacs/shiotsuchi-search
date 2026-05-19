@@ -87,6 +87,7 @@ shiotsuchi search "プロジェクト計画"          # dive のエイリアス
 | `--limit` | 20 | 最大結果件数 |
 | `--json` | オフ | コンパクトな JSON 配列を出力（`--format json` のレガシー別名） |
 | `--format` | `table` | 出力形式: `table` / `json` / `json-pretty` |
+| `--vault` | — | 特定の vault に絞り込んで検索（例: `--vault work`） |
 
 結果フィールド: `path`、`title`、`snippet`、`score`。
 
@@ -212,6 +213,48 @@ shiotsuchi log
 | オプション | デフォルト | 説明 |
 |-----------|-----------|------|
 | `--db-path` | `~/.cache/shiotsuchi/db.sqlite3` | 履歴を読み込むデータベース |
+
+---
+
+### `doctor` — 環境の健全性チェック
+
+設定ファイル・データベース・Vaporetto トークナイザ・ONNX エンベッダ・vault ディレクトリの各コンポーネントが正常に動作するか一括確認します。
+
+```sh
+shiotsuchi doctor
+```
+
+出力例:
+
+```
+[ok] Config: /home/name/.config/shiotsuchi/config.toml
+[ok] Database: /home/name/.cache/shiotsuchi/db.sqlite3 (1,234 files, 5,678 chunks)
+[ok] Tokenizer: Vaporetto model loaded
+[..] Embedder: ONNX model not found (vector search disabled)
+[ok] Vault 'default': /home/name/Notes
+
+All checks passed.
+```
+
+---
+
+### `completion` — Shell 補完スクリプトの生成
+
+`shiotsuchi` のサブコマンドとフラグに対応した補完スクリプトを出力します。シェルの rc ファイルで source してください。
+
+```sh
+# Bash
+source <(shiotsuchi completion bash)
+
+# Zsh（~/.zshrc に追加）
+shiotsuchi completion zsh > /usr/local/share/zsh/site-functions/_shiotsuchi
+
+# Fish
+shiotsuchi completion fish > ~/.config/fish/completions/shiotsuchi.fish
+
+# PowerShell
+shiotsuchi completion powershell | Out-String | Invoke-Expression
+```
 
 ---
 

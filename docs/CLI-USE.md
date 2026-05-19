@@ -87,6 +87,7 @@ shiotsuchi search "project plan"        # alias for dive
 | `--limit` | 20 | Maximum number of results |
 | `--json` | off | Output raw JSON instead of pretty-printed (legacy: use `--format json`) |
 | `--format` | `table` | Output format: `table` / `json` / `json-pretty` |
+| `--vault` | — | Filter results to a specific vault (e.g., `--vault work`) |
 
 Result fields: `path`, `title`, `snippet`, `score`.
 
@@ -212,6 +213,48 @@ shiotsuchi log
 | Option | Default | Description |
 |--------|---------|-------------|
 | `--db-path` | `~/.cache/shiotsuchi/db.sqlite3` | Database to read history from |
+
+---
+
+### `doctor` — Environment health check
+
+Checks that all components of a shiotsuchi installation are working: config file, database, Vaporetto tokenizer, ONNX embedder model, and vault directories.
+
+```sh
+shiotsuchi doctor
+```
+
+Example output:
+
+```
+[ok] Config: /home/name/.config/shiotsuchi/config.toml
+[ok] Database: /home/name/.cache/shiotsuchi/db.sqlite3 (1,234 files, 5,678 chunks)
+[ok] Tokenizer: Vaporetto model loaded
+[..] Embedder: ONNX model not found (vector search disabled)
+[ok] Vault 'default': /home/name/Notes
+
+All checks passed.
+```
+
+---
+
+### `completion` — Generate shell completion scripts
+
+Outputs a shell completion script for `shiotsuchi` subcommands and flags. Source the output in your shell's rc file.
+
+```sh
+# Bash
+source <(shiotsuchi completion bash)
+
+# Zsh (add to ~/.zshrc)
+shiotsuchi completion zsh > /usr/local/share/zsh/site-functions/_shiotsuchi
+
+# Fish
+shiotsuchi completion fish > ~/.config/fish/completions/shiotsuchi.fish
+
+# PowerShell
+shiotsuchi completion powershell | Out-String | Invoke-Expression
+```
 
 ---
 
