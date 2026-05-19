@@ -69,6 +69,10 @@ pub fn run_config_migrate(args: &ConfigMigrateArgs) -> Result<(), Box<dyn std::e
         use std::os::unix::fs::PermissionsExt;
         let _ = fs::set_permissions(&config_path, fs::Permissions::from_mode(0o600));
     }
+    #[cfg(not(unix))]
+    {
+        log::warn!("Config file permissions not restricted — not supported on this platform.");
+    }
 
     eprintln!("Config migrated successfully.");
     eprintln!("Backup saved to: {}", backup_path.display());

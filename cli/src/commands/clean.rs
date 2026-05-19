@@ -53,6 +53,10 @@ fn backup_file(path: &Path) -> Option<PathBuf> {
             if let Ok(meta) = std::fs::metadata(path) {
                 let _ = std::fs::set_permissions(&backup_path, meta.permissions());
             }
+            #[cfg(not(unix))]
+            {
+                // Permission copying not supported on this platform; backup created without restrictions.
+            }
             Some(backup_path)
         }
         Err(e) => {
