@@ -384,6 +384,50 @@ mod tests {
     }
 
     #[test]
+    fn test_search_fts_vault_filter_respects_filter() {
+        let db = NoteDatabase::open_in_memory().unwrap();
+        let tokenizer = crate::require_tokenizer!(crate::tokenizer::TokenizerConfig::default());
+
+        let chunks = vec![
+            Chunk {
+                id: None,
+                file_path: "vault_a.md".into(),
+                chunk_index: 0,
+                parent_header: None,
+                content: "alpha project plan".into(),
+                tokenized_content: "alpha project plan".into(),
+                vault_name: "work".into(),
+            },
+            Chunk {
+                id: None,
+                file_path: "vault_b.md".into(),
+                chunk_index: 0,
+                parent_header: None,
+                content: "alpha social event".into(),
+                tokenized_content: "alpha social event".into(),
+                vault_name: "personal".into(),
+            },
+        ];
+        db.insert_chunks(&chunks).unwrap();
+
+        // Filter by "work" vault
+        let results = search(&db, &tokenizer, "alpha", 10, SearchMode::Fts, None, None, Some("work")).unwrap();
+        assert_eq!(results.len(), 1, "expected 1 result in work vault");
+        assert_eq!(results[0].vault_name, "work");
+        assert_eq!(results[0].file_path, "vault_a.md");
+
+        // Filter by "personal" vault
+        let results = search(&db, &tokenizer, "alpha", 10, SearchMode::Fts, None, None, Some("personal")).unwrap();
+        assert_eq!(results.len(), 1, "expected 1 result in personal vault");
+        assert_eq!(results[0].vault_name, "personal");
+        assert_eq!(results[0].file_path, "vault_b.md");
+
+        // No filter → both
+        let results = search(&db, &tokenizer, "alpha", 10, SearchMode::Fts, None, None, None).unwrap();
+        assert_eq!(results.len(), 2, "expected 2 results across all vaults");
+    }
+
+    #[test]
     fn test_search_empty_query_returns_empty() {
         let db = NoteDatabase::open_in_memory().unwrap();
         let tokenizer = crate::require_tokenizer!(crate::tokenizer::TokenizerConfig::default());

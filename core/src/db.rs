@@ -506,6 +506,27 @@ mod tests {
     }
 
     #[test]
+    fn test_wal_checkpoint_does_not_fail() {
+        let db = NoteDatabase::open_in_memory().unwrap();
+        assert!(db.wal_checkpoint().is_ok(), "checkpoint should succeed on empty in-memory DB");
+
+        // Also valid after inserting data
+        let chunks = vec![
+            Chunk {
+                id: None,
+                file_path: "test.md".into(),
+                chunk_index: 0,
+                parent_header: None,
+                content: "hello".into(),
+                tokenized_content: "hello".into(),
+                vault_name: "default".into(),
+            },
+        ];
+        db.insert_chunks(&chunks).unwrap();
+        assert!(db.wal_checkpoint().is_ok(), "checkpoint should succeed after inserts");
+    }
+
+    #[test]
     fn test_insert_and_delete_chunks() {
         let db = NoteDatabase::open_in_memory().unwrap();
         let chunks = vec![

@@ -279,4 +279,30 @@ mod tests {
         let result = call_tool("nonexistent_tool", &serde_json::json!({}), &vaults, &db_path);
         assert!(result.is_err());
     }
+
+    #[test]
+    fn test_rate_limiter_blocks_after_limit() {
+        let limiter = RateLimiter::new(2);
+        // First 2 calls should succeed
+        assert!(limiter.allow(), "first call should be allowed");
+        assert!(limiter.allow(), "second call should be allowed");
+        // Third call within the same second should be blocked
+        assert!(!limiter.allow(), "third call should be blocked");
+    }
+
+    #[test]
+    fn test_rate_limiter_resets_after_second() {
+        let limiter = RateLimiter::new(5);
+        // Use up 5 calls
+        for _ in 0..5 {
+            assert!(limiter.allow());
+        }
+        assert!(!limiter.allow(), "sixth call should be blocked");
+
+        // Manually advance the interval start to simulate 1 second passing
+        *limiter.interval_start.lock().unwrap() = Instant::now() - std::time::Duration::from_secs(2);
+
+        // Should allow again after reset
+        assert!(limiter.allow(), "call after reset should be allowed");
+    }
 }
