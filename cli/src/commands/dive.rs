@@ -67,6 +67,10 @@ pub struct DiveArgs {
     /// Path to ONNX embedding model file (overrides SHIOTSUCHI_EMBED_MODEL_PATH and XDG default).
     #[arg(long)]
     pub model_path: Option<std::path::PathBuf>,
+
+    /// Filter results to a specific vault.
+    #[arg(long)]
+    pub vault: Option<String>,
 }
 
 impl DiveArgs {
@@ -128,7 +132,7 @@ pub fn run_dive(
         search_mode,
         embedder.as_ref(),
         None,
-        None,
+        args.vault.as_deref(),
     )?;
     Ok(results)
 }
@@ -230,6 +234,7 @@ mod tests {
             format: OutputFormat::Json,
             mode: CliSearchMode::Fts,
             model_path: None,
+            vault: None,
         };
         let output = run_dive(&args, &db_file).unwrap();
         assert!(!output.is_empty());
@@ -248,6 +253,7 @@ mod tests {
             format: OutputFormat::Json,
             mode: CliSearchMode::Fts,
             model_path: None,
+            vault: None,
         };
         let output = run_dive(&args, &db_file).unwrap();
         assert!(output.is_empty());
@@ -262,6 +268,7 @@ mod tests {
             format: OutputFormat::Table,
             mode: CliSearchMode::Fts,
             model_path: None,
+            vault: None,
         };
         assert!(matches!(args.effective_format(), OutputFormat::Json));
     }
@@ -275,6 +282,7 @@ mod tests {
             format: OutputFormat::Table,
             mode: CliSearchMode::Fts,
             model_path: None,
+            vault: None,
         };
         assert!(matches!(args.effective_format(), OutputFormat::Table));
     }
@@ -288,6 +296,7 @@ mod tests {
             format: OutputFormat::JsonPretty,
             mode: CliSearchMode::Fts,
             model_path: None,
+            vault: None,
         };
         assert!(matches!(args.effective_format(), OutputFormat::JsonPretty));
     }
@@ -330,6 +339,7 @@ mod tests {
             format: OutputFormat::JsonPretty,
             mode: CliSearchMode::Fts,
             model_path: None,
+            vault: None,
         };
         assert!(matches!(args.effective_format(), OutputFormat::Json));
     }
@@ -371,6 +381,7 @@ mod tests {
             format: OutputFormat::Table,
             mode: CliSearchMode::Vec,
             model_path: None,
+            vault: None,
         };
         let result = run_dive(&args, &db_file);
         assert!(result.is_err());
