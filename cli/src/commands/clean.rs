@@ -22,22 +22,17 @@ fn backup_file(path: &Path) -> Option<PathBuf> {
     // Prune old backups keeping only the 3 most recent (by filename: *.bak.TIMESTAMP).
     if let Some(parent) = path.parent() {
         let base_name = path.file_name().map(|n| n.to_string_lossy()).unwrap_or_default();
-        let mut backups: Vec<_> = std::fs::read_dir(parent)
-            .ok()
-            .into_iter()
-            .flatten()
-            .filter_map(|e| e.ok())
-            .filter(|e| {
-                let fname = e.file_name();
-                let name = fname.to_string_lossy();
-                name.starts_with(&format!("{}.bak.", base_name))
-            })
-            .collect();
+        let prefix = format!("{}.bak.", base_name);
+        let mut backups: Vec<_> = match std::fs::read_dir(parent) {
+            Ok(entries) => entries
+                .filter_map(|e| e.ok())
+                .filter(|e| e.file_name().to_string_lossy().starts_with(&prefix))
+                .collect(),
+            Err(_) => Vec::new(),
+        };
         backups.sort_by_key(|e| e.file_name());
-        if backups.len() > 3 {
-            for old in backups.iter().take(backups.len() - 3) {
-                let _ = std::fs::remove_file(old.path());
-            }
+        for old in backups.iter().rev().skip(3) {
+            let _ = std::fs::remove_file(old.path());
         }
     }
 
@@ -53,10 +48,6 @@ fn backup_file(path: &Path) -> Option<PathBuf> {
             if let Ok(meta) = std::fs::metadata(path) {
                 let _ = std::fs::set_permissions(&backup_path, meta.permissions());
             }
-            #[cfg(not(unix))]
-            {
-                // Permission copying not supported on this platform; backup created without restrictions.
-            }
             Some(backup_path)
         }
         Err(e) => {
@@ -67,21 +58,22 @@ fn backup_file(path: &Path) -> Option<PathBuf> {
 }
 
 /// Remove the DB file and its WAL/SHM companions.
+/// Refuses to follow symlinks to prevent potential file escape attacks.
 fn delete_db_files(db_path: &Path) {
-    // Check for symlinks before removing to prevent following
-    // malicious symlinks to files outside the DB directory.
-    for path in std::iter::once(db_path.to_path_buf()).chain(
-        ["-wal", "-shm"].iter().map(|s| {
-            let base = db_path.to_string_lossy();
-            PathBuf::from(format!("{}{}", base, s))
-        })
-    ) {
+    let base = db_path.to_string_lossy();
+    let names = [
+        base.as_ref().to_string(),
+        format!("{}-wal", base),
+        format!("{}-shm", base),
+    ];
+    for name in &names {
+        let path = Path::new(name);
         if path.exists() {
             if path.is_symlink() {
                 log::warn!("Refusing to remove symlink: {}", path.display());
                 continue;
             }
-            let _ = std::fs::remove_file(&path);
+            let _ = std::fs::remove_file(path);
         }
     }
 }
@@ -319,6 +311,15 @@ mod tests {
     // run_clean integration test
     // ---------------------------------------------------------------------------
 
+    /// Helper: find files in a directory whose name contains a substring.
+    fn find_files(dir: &std::path::Path, pattern: &str) -> Vec<std::fs::DirEntry> {
+        std::fs::read_dir(dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_name().to_string_lossy().contains(pattern))
+            .collect()
+    }
+
     #[test]
     fn test_run_clean_full_flow() {
         let tmp = TempDir::new().unwrap();
@@ -352,19 +353,8 @@ mod tests {
         assert!(db_path.exists(), "DB should exist after clean");
 
         let parent = db_path.parent().unwrap();
-        let backups: Vec<_> = std::fs::read_dir(parent)
-            .unwrap()
-            .filter_map(|e| e.ok())
-            .filter(|e| e.file_name().to_string_lossy().contains(".bak."))
-            .collect();
-        assert!(!backups.is_empty(), "backup file should exist after clean");
-
-        let temps: Vec<_> = std::fs::read_dir(parent)
-            .unwrap()
-            .filter_map(|e| e.ok())
-            .filter(|e| e.file_name().to_string_lossy().contains(".tmp."))
-            .collect();
-        assert!(temps.is_empty(), "no stale temp files after clean: {:?}", temps);
+        assert!(!find_files(parent, ".bak.").is_empty(), "backup file should exist after clean");
+        assert!(find_files(parent, ".tmp.").is_empty(), "stale temp files should not remain");
 
         match shiotsuchi_core::db::NoteDatabase::open(&db_path) {
             Ok(db) => {
