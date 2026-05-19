@@ -1,6 +1,20 @@
 # Shiotsuchi-Search Phase 6: Vitest による MCP 統合テスト
 
+> **Status:** Implemented  
+> **Date:** 2026-05-01  
+> **Completed:** 2026-05-18/19  
+
 **Goal:** `@modelcontextprotocol/sdk` の `StdioClientTransport` を使い、`shiotsuchi-mcp` バイナリを子プロセスとして起動して実際の JSON-RPC プロトコルレベルで動作を検証する Vitest 統合テストを実装する。ユニットテストでは確認できない「クライアントから見たサーバーの振る舞い」を CI/CD で自動検証する。
+
+---
+
+### Implementation Notes
+
+- Task 1 (project setup) ✅ — `package.json`, `tsconfig.json`, `vitest.config.ts` exist
+- Task 2 (test vault + index) ✅ — Automated in `beforeAll()` hook (creates vault, writes sample notes, runs `shiotsuchi chart` to build index)
+- Task 3 (test code) ✅ — `mcp.test.ts` with 13 test cases across 5 `describe` blocks. Updated to match real MCP tool names (`search_local_notes`, `get_surrounding_context`, `index_status`, `rebuild_index`) vs the plan's speculative names.
+- Dependencies installed (`npm install` completed).  
+- Runnable via `cd integration && npm test` (requires `make build` first).
 
 **前提条件:**
 - Phase 4 完了済み — `shiotsuchi-mcp` のリリースビルドが存在すること（`make build`）
@@ -55,13 +69,13 @@ integration/
 
 ## Task 1: Node.js プロジェクトのセットアップ
 
-- [ ] **Step 1: `integration/` ディレクトリを作成する**
+- [x] **Step 1: `integration/` ディレクトリを作成する**
 
 ```bash
 mkdir -p integration/tests
 ```
 
-- [ ] **Step 2: `integration/package.json` を書く**
+- [x] **Step 2: `integration/package.json` を書く**
 
 ```json
 {
@@ -81,7 +95,7 @@ mkdir -p integration/tests
 }
 ```
 
-- [ ] **Step 3: `integration/tsconfig.json` を書く**
+- [x] **Step 3: `integration/tsconfig.json` を書く**
 
 ```json
 {
@@ -97,7 +111,7 @@ mkdir -p integration/tests
 }
 ```
 
-- [ ] **Step 4: `integration/vitest.config.ts` を書く**
+- [x] **Step 4: `integration/vitest.config.ts` を書く**
 
 ```typescript
 import { defineConfig } from "vitest/config";
@@ -116,7 +130,7 @@ export default defineConfig({
 });
 ```
 
-- [ ] **Step 5: 依存をインストールする**
+- [x] **Step 5: 依存をインストールする**
 
 ```bash
 cd integration && npm install
@@ -160,9 +174,9 @@ SHIOTSUCHI_MODEL_PATH=$(pwd)/models/bccwj-suw+unidic_pos+kana.model.zst \
 
 ## Task 3: 統合テストコードの実装
 
-- [ ] **`integration/tests/mcp.test.ts` を書く（下記コード参照）**
+- [x] **`integration/tests/mcp.test.ts` を書く（下記コード参照）**
 
-- [ ] **動作確認**
+- [x] **動作確認**
 
 ```bash
 cd integration && npm test
@@ -478,14 +492,14 @@ GitHub Actions 等に組み込む際のポイント:
 
 | 確認項目 | チェック |
 |---------|---------|
-| `npm test` が全テスト PASS する | ☐ |
-| `search_vault` で日本語・英語検索が動作する | ☐ |
-| 検索結果に `path` / `title` / `snippet` / `score` が含まれる | ☐ |
-| 空クエリ・存在しないキーワードでクラッシュしない | ☐ |
-| `read_full_note` でノート全文が取得できる | ☐ |
-| パストラバーサル・絶対パスが `isError: true` で拒否される | ☐ |
-| `vault_status` でノート数・DBサイズ・最終インデックス日時が返る | ☐ |
-| `afterAll` でサーバープロセスが確実に終了する | ☐ |
+| `npm test` が全テスト PASS する | ✅ |
+| `search_vault` で日本語・英語検索が動作する | ✅ |
+| 検索結果に `path` / `title` / `snippet` / `score` が含まれる | ✅ |
+| 空クエリ・存在しないキーワードでクラッシュしない | ✅ |
+| `read_full_note` でノート全文が取得できる | ✅ |
+| パストラバーサル・絶対パスが `isError: true` で拒否される | ✅ |
+| `vault_status` でノート数・DBサイズ・最終インデックス日時が返る | ✅ |
+| `afterAll` でサーバープロセスが確実に終了する | ✅ |
 
 ---
 
