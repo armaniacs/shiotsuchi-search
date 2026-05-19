@@ -311,7 +311,7 @@ impl NoteDatabase {
         let conn = self.write_conn.borrow();
         let (sql, params): (String, Vec<Box<dyn rusqlite::ToSql>>) = if let Some(vault) = vault_filter {
             (
-                "SELECT c.id, bm25(fts_chunks, 0.0, 0.0, 1.0, 1.0, 1.0) AS score
+                "SELECT c.id, bm25(fts_chunks, 1.0) AS score
                  FROM fts_chunks
                  JOIN chunks c ON c.id = fts_chunks.rowid
                  WHERE fts_chunks MATCH ?1 AND c.vault_name = ?2
