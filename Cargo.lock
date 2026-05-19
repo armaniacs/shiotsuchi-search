@@ -296,6 +296,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "clap_complete"
+version = "4.6.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e0a7a9bfdb35811f9e59832f0f05975114d2251b415fb534108e6f34060fd772"
+dependencies = [
+ "clap",
+]
+
+[[package]]
 name = "clap_derive"
 version = "4.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1996,9 +2005,10 @@ checksum = "dc6fe69c597f9c37bfeeeeeb33da3530379845f10be461a66d16d03eca2ded77"
 
 [[package]]
 name = "shiotsuchi"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "clap",
+ "clap_complete",
  "config",
  "dialoguer",
  "dirs",
@@ -2018,7 +2028,7 @@ dependencies = [
 
 [[package]]
 name = "shiotsuchi-core"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "criterion",
  "dirs",
@@ -2046,7 +2056,7 @@ dependencies = [
 
 [[package]]
 name = "shiotsuchi-e2e"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "notify 6.1.1",
  "serde_json",
@@ -2056,7 +2066,7 @@ dependencies = [
 
 [[package]]
 name = "shiotsuchi-mcp"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "clap",
  "config",

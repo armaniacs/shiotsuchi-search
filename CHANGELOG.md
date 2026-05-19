@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1] - 2026-05-19
+
+### Added
+- **`shiotsuchi doctor`** — environment health check (config, DB, tokenizer, embedder, vaults)
+- **`shiotsuchi completion <shell>`** — shell completion script generation (bash, zsh, fish, powershell, elvish)
+- **`dive --vault <name>`** — restrict search to a specific vault via CLI flag (maps to `vault_filter`)
+- **Release CI** — GitHub Actions workflow builds and publishes binaries for Linux, macOS, and Windows on `v*.*.*` tags
+- **MCP rate limiting** — basic 10 req/s rate limiter on `search_local_notes` endpoint
+- **Tests**: wal_checkpoint unit test, vault_filter FTS filtering correctness test, RateLimiter behavior test, CLI error-path test for `clean` command
+
+### Changed
+- **vault_filter now SQL pushdown**: `fts_search()` and `vec_search()` accept `vault_filter` and JOIN with `chunks` table for WHERE-level filtering. Removes the old `limit*3` post-filter workaround from `search.rs`
+- **`clean` is now atomic**: New DB is built at a temporary path first. On success, the old DB is backed up and atomically swapped via `rename()`. WAL checkpointing ensures all data is in the main `.db` file before the swap. Cross-device fallback: copy+delete
+- **`NoteDatabase::wal_checkpoint()`** added (public method). CLI no longer depends on `rusqlite` directly
+- **Release profile**: `opt-level = "z"`, `lto = true`, `codegen-units = 1`, `strip = "symbols"` — binary size reduced from 75MB to 20MB (73%)
+- **`bm25()` arguments simplified**: `bm25(fts_chunks, 0.0, 0.0, 1.0, 1.0, 1.0)` → `bm25(fts_chunks, 1.0)` (fts_chunks has only 1 column)
+- **Release CI**: now runs `cargo test` before build; uses `matrix.os` for Linux/macOS/Windows
+
+### Fixed
+- **`delete_db_files` symlink vulnerability**: `is_symlink()` check added before `remove_file()` to prevent following malicious symlinks
+- **Windows permission gaps**: Added `#[cfg(not(unix))]` warnings for the 3 `#[cfg(unix)]` permission guards (util.rs, clean.rs, config_migrate.rs)
+- **`config-migrate` help text**: Added missing `--config` flag description
+
+### Security
+- **Symlink protection in `clean`**: `delete_db_files` now refuses to follow symlinks (logs warning, skips the path)
+
 ## [0.4.0] - 2026-05-18
 
 ### Added
@@ -436,7 +462,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `docs/MODEL_LICENSES.md` with BSD-3-Clause notice for the bundled tokenizer model
 - `README.md` (English) and `README.ja.md` (Japanese)
 
-[Unreleased]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.3.7...HEAD
+[Unreleased]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.4.0...v0.4.1
+[0.4.0]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.3.7...v0.4.0
 [0.3.7]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.3.6...v0.3.7
 [0.3.6]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.3.5...v0.3.6
  [0.3.3]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.3.2...v0.3.3
