@@ -6,20 +6,25 @@ on:
 
 jobs:
   release:
-    runs-on: macos-latest
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - run: cargo test
       - run: cargo build --release
-      - name: Upload binaries as artifacts
+      - name: Upload binaries
         uses: actions/upload-artifact@v4
         with:
-          name: shiotsuchi-${{ github.ref_name }}
+          name: shiotsuchi-${{ matrix.os }}-${{ github.ref_name }}
           path: |
-            target/release/shiotsuchi
-            target/release/shiotsuchi-mcp
+            target/release/shiotsuchi${{ matrix.os == 'windows-latest' && '.exe' || '' }}
+            target/release/shiotsuchi-mcp${{ matrix.os == 'windows-latest' && '.exe' || '' }}
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
+        if: matrix.os == 'ubuntu-latest'
         with:
           files: |
             target/release/shiotsuchi

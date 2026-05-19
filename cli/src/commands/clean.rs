@@ -68,11 +68,21 @@ fn backup_file(path: &Path) -> Option<PathBuf> {
 
 /// Remove the DB file and its WAL/SHM companions.
 fn delete_db_files(db_path: &Path) {
-    let _ = std::fs::remove_file(db_path);
-    let base = db_path.to_string_lossy();
-    for suffix in ["-wal", "-shm"] {
-        let companion = PathBuf::from(format!("{}{}", base, suffix));
-        let _ = std::fs::remove_file(&companion);
+    // Check for symlinks before removing to prevent following
+    // malicious symlinks to files outside the DB directory.
+    for path in std::iter::once(db_path.to_path_buf()).chain(
+        ["-wal", "-shm"].iter().map(|s| {
+            let base = db_path.to_string_lossy();
+            PathBuf::from(format!("{}{}", base, s))
+        })
+    ) {
+        if path.exists() {
+            if path.is_symlink() {
+                log::warn!("Refusing to remove symlink: {}", path.display());
+                continue;
+            }
+            let _ = std::fs::remove_file(&path);
+        }
     }
 }
 
