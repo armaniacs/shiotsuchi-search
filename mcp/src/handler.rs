@@ -6,6 +6,39 @@ use shiotsuchi_core::{
     tokenizer::get_tokenizer,
 };
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::LazyLock;
+use std::sync::Mutex;
+use std::time::Instant;
+
+/// Simple rate limiter: allows up to `max_per_second` calls.
+pub struct RateLimiter {
+    max_per_second: u64,
+    count: AtomicU64,
+    interval_start: Mutex<Instant>,
+}
+
+impl RateLimiter {
+    pub fn new(max_per_second: u64) -> Self {
+        Self {
+            max_per_second,
+            count: AtomicU64::new(0),
+            interval_start: Mutex::new(Instant::now()),
+        }
+    }
+
+    pub fn allow(&self) -> bool {
+        let mut start = self.interval_start.lock().unwrap();
+        if start.elapsed().as_secs() >= 1 {
+            *start = Instant::now();
+            self.count.store(0, Ordering::Relaxed);
+        }
+        let prev = self.count.fetch_add(1, Ordering::Relaxed);
+        prev < self.max_per_second
+    }
+}
+
+static SEARCH_RATE_LIMITER: LazyLock<RateLimiter> = LazyLock::new(|| RateLimiter::new(10));
 
 fn format_results_markdown(results: &[shiotsuchi_core::models::ChunkSearchResult], query: &str) -> String {
     if results.is_empty() {
@@ -56,6 +89,16 @@ pub fn call_tool(
             }
 
             let mode = if mode_str == "fts" { SearchMode::Fts } else { SearchMode::Hybrid };
+
+            if !SEARCH_RATE_LIMITER.allow() {
+                return Ok(json!({
+                    "content": [{
+                        "type": "text",
+                        "text": "Rate limit exceeded. Maximum 10 searches per second. Please wait before trying again."
+                    }],
+                    "isError": true
+                }));
+            }
 
             // Validate vault dir is reachable (path traversal check)
             if let Some((_, notes_dir)) = vaults.first() {
