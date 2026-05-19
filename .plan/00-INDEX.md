@@ -49,4 +49,5 @@
 | `2026-05-16-dependency-upgrade.md` | 依存関係アップグレード計画（全5タスク完了・rusqlite 0.31→0.39） |
 | `2026-05-17-coverage-improvement-phase3.md` | カバレッジ改善Phase3（大半は先行作業で完了、1 test追加） |
 | `2026-05-01-shiotsuchi-search-phase6-vitest-integration.md` | Vitest MCP統合テスト計画（全タスク完了・自動セットアップ付き） |
+| `2026-05-01-shiotsuchi-search-phase7-mcp-inspector.md` | MCP Inspector 手動テスト（アーカイブ: ツール名古い・Phase6で代替済み・意味なし） |
 

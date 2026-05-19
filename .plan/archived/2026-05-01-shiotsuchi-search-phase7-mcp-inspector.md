@@ -1,5 +1,18 @@
 # Shiotsuchi-Search Phase 7: MCP Inspector によるインタラクティブテスト
 
+> **Status:** アーカイブ — 意味なし  
+> **Date:** 2026-05-01  
+> **Archived:** 2026-05-20  
+
+**このフェーズはアーカイブする。理由:**
+
+1. **ツール名が古い** — 文中の `search_vault`, `read_full_note`, `vault_status` は実際の `shiotsuchi-mcp` に存在しない。実際のツールは `search_local_notes`, `get_surrounding_context`, `index_status`, `rebuild_index`。この文書を読むと誤った情報を覚える。
+2. **Phase 6 で代替済み** — Vitest による自動統合テスト（13 ケース）が Inspector の手動チェックと同じ項目を自動検証する。CLI で `cd integration && npm test` を実行するだけで完了するものを、ブラウザ GUI で手ポチする必要はない。
+3. **手動テストは何度もやらない** — Inspector は開発中のデバッグツールであって、CI に組み込めるものではない。一度確認して終わりなら、その確認結果をファイルに残す意味もない。
+4. **Claude Desktop の設定手順はここに書くことではない** — MCP サーバーの README や `claude_desktop_config.json` の説明として整理すべき内容。
+
+**結論:** このフェーズの作業は実施しない。同等の検証は Phase 6 の自動テストでカバーされている。
+
 **Goal:** MCP Inspector を使い、`shiotsuchi-mcp` が Claude などの AI クライアントからどう見えるかをブラウザ GUI で検証する。Phase 6 の自動テストでは確認できない「GUI での直感的な操作感」と「Claude Desktop への接続」を手動で確認する。
 
 **前提条件:**
