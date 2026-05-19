@@ -70,6 +70,34 @@ Measured on macOS (Apple Silicon), `cargo build --release`, comparing `panic = "
 
 The savings are real but modest. `shiotsuchi` remains large (19 MB) because `ort` (ONNX Runtime) and `tokenizers` (HuggingFace) dominate the binary size. Further reduction requires addressing those dependencies directly, not profile tuning.
 
+### `cargo-bloat` results
+
+`cargo bloat --release --crates` output (macOS Apple Silicon, `panic = "abort"`):
+
+**`shiotsuchi`** (19 MB on disk, 15.5 MB `.text`):
+
+| Crate | `.text` size | Share |
+|-------|-------------|-------|
+| `ort_sys` | 11.1 MB | 71.6% |
+| `[Unknown]` (C/C++ objects) | 2.8 MB | 18.1% |
+| `std` | 383 KB | 2.4% |
+| `tokenizers` | 255 KB | 1.6% |
+| everything else | ~900 KB | 6.3% |
+
+**`shiotsuchi-mcp`** (2.8 MB on disk, 1.9 MB `.text`): no dominant crate; `std`, `regex_automata`, `clap_builder` each contribute under 350 KB. Effectively at the floor for its feature set.
+
+The `ort_sys` crate (ONNX Runtime C++ library, statically linked) is responsible for 71% of `shiotsuchi`'s `.text` section. `tokenizers` is negligible at 255 KB. Profile-level tuning cannot reclaim this space.
+
+### Why further reduction was not pursued
+
+Three options were considered for reducing `ort_sys` size:
+
+1. **Dynamic linking for ONNX Runtime** — binary shrinks, but requires users to install ONNX Runtime separately. Unacceptable for a CLI tool that should work out of the box.
+2. **Make semantic search an optional feature flag** — gates `ort` behind a feature; a `--no-default-features` build would be small. Significant refactor with uncertain demand.
+3. **Accept current size** — 19 MB is within normal range for a CLI tool that bundles a neural network runtime. Chosen.
+
+Option 3 was selected. The binary size is a direct and honest reflection of the functionality shipped.
+
 ## Consequences
 
 - `panic = "abort"` is unconditionally set in `[profile.release]`. Any future use of `catch_unwind` in this codebase must be preceded by revisiting this ADR.
