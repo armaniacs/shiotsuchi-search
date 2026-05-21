@@ -99,6 +99,24 @@ clean:
 	cargo clean
 	rm -rf /tmp/shiotsuchi-test-vault
 
+publish: $(MODEL_FILE)
+	@echo "=== Running tests before publish ==="
+	SHIOTSUCHI_MODEL_PATH=$(CURDIR)/$(MODEL_FILE) cargo test -p shiotsuchi-core -p shiotsuchi-mcp -p shiotsuchi
+	@echo ""
+	@echo "=== All tests passed. Publishing to crates.io ==="
+	@echo ""
+	@echo "--- Step 1/3: shiotsuchi-core ---"
+	cd core && cargo publish
+	@echo "--- Step 2/3: shiotsuchi (CLI) ---"
+	cd cli && cargo publish
+	@echo "--- Step 3/3: shiotsuchi-mcp ---"
+	cd mcp && cargo publish
+	@echo ""
+	@echo "=== All crates published successfully ==="
+	@echo "  cargo install shiotsuchi"
+	@echo "  cargo install shiotsuchi-mcp"
+	@echo "  cargo install --git https://github.com/yaar/shiotsuchi-search shiotsuchi"
+
 help:
 	@echo "Usage: make [target] [PREFIX=/usr/local]"
 	@echo ""
@@ -111,6 +129,7 @@ help:
 	@echo "  test-all         Run all tests (Rust + E2E + Vitest)"
 	@echo "  local-ci         Run GitHub Actions CI locally using act (auto-detects architecture)"
 	@echo "  bench            Run criterion benchmarks"
+	@echo "  publish          Run tests, then publish all crates to crates.io in dependency order"
 	@echo "  install          Install binaries to ~/.local/bin (or ~/.cargo/bin if exists) when not root, otherwise to $(PREFIX)/bin [default: /usr/local/bin]"
 	@echo "  uninstall        Remove installed binaries"
 	@echo "  model            Download tokenizer model"
@@ -119,4 +138,4 @@ help:
 	@echo "  clean            Remove build artifacts"
 	@echo "  help             Show this help"
 
-.PHONY: build build-dev test test-e2e bench install uninstall clean help model onnx prepare integration-test test-all local-ci doc doc-full doc-clean
+.PHONY: build build-dev test test-e2e bench publish install uninstall clean help model onnx prepare integration-test test-all local-ci doc doc-full doc-clean
