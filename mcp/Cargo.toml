@@ -4,13 +4,17 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+readme.workspace = true
+description = "MCP server for Shiotsuchi Search — Claude Desktop integration"
 
 [[bin]]
 name = "shiotsuchi-mcp"
 path = "src/main.rs"
 
 [dependencies]
-shiotsuchi-core = { path = "../core" }
+shiotsuchi-core = { version = "0.4.2", path = "../core" }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }
 clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }

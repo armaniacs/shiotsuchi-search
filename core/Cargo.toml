@@ -4,6 +4,10 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+readme.workspace = true
+description = "Japanese-aware search engine core library — tokenizer, indexer, FTS5/vector search"
 
 [dependencies]
 rusqlite = { version = "0.39", features = ["bundled"] }

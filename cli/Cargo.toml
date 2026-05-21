@@ -4,13 +4,17 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+readme.workspace = true
+description = "Japanese-aware Markdown search engine — full-text + semantic search for your notes"
 
 [[bin]]
 name = "shiotsuchi"
 path = "src/main.rs"
 
 [dependencies]
-shiotsuchi-core = { path = "../core" }
+shiotsuchi-core = { version = "0.4.2", path = "../core" }
 clap = { version = "4", features = ["derive", "env"] }
 clap_complete = "4"
 serde = { version = "1", features = ["derive"] }
