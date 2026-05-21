@@ -7,6 +7,8 @@
 High-performance Japanese-aware search engine for Markdown note vaults (Obsidian, etc.).
 Powered by [Vaporetto](https://github.com/daac-tools/vaporetto) × SQLite FTS5.
 
+> **Note:** This search engine is optimized for Japanese text. Search quality for other languages is not guaranteed.
+
 ## Features
 
 - **Sub-second search** across 10,000+ notes
@@ -108,6 +110,15 @@ Run benchmarks:
 SHIOTSUCHI_MODEL_PATH=models/bccwj-suw+unidic_pos+kana.model.zst \
   cargo bench -p shiotsuchi-core
 ```
+
+## Further reading
+
+- [docs/INSTALL.md](docs/INSTALL.md) — Build and install from source
+- [docs/CLI-USE.md](docs/CLI-USE.md) — Detailed CLI command reference
+- [docs/MCP-SETUP.md](docs/MCP-SETUP.md) — Multi-vault MCP setup guide
+- [docs/FTS5.md](docs/FTS5.md) — FTS5 query syntax and tips
+- [CHANGELOG.md](CHANGELOG.md) — Release history
+- [ref/architecture.md](ref/architecture.md) — Design and data model
 
 ## License
 

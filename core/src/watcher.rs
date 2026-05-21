@@ -61,7 +61,7 @@ impl VaultWatcher {
                 display_name,
                 n_dir.display()
             );
-            self.watchers.lock().unwrap().push(watcher);
+            self.watchers.lock().expect("watcher mutex poisoned").push(watcher);
         }
 
         loop {
@@ -158,7 +158,7 @@ impl VaultWatcher {
                     }
                     if let Ok(rel) = path.strip_prefix(&notes_dir) {
                         let rel_str = rel.to_string_lossy();
-                        let db = self.db.lock().unwrap();
+                        let db = self.db.lock().expect("watcher mutex poisoned");
                         if let IndexResult::Error(e) = index_file_with_embedder(
                             &db,
                             &self.tokenizer,
@@ -177,7 +177,7 @@ impl VaultWatcher {
                 for path in &event.paths {
                     if let Ok(rel) = path.strip_prefix(&notes_dir) {
                         let rel_str = rel.to_string_lossy();
-                        let db = self.db.lock().unwrap();
+                        let db = self.db.lock().expect("watcher mutex poisoned");
                         if let Err(e) = db.delete_chunks_for_file(vault_name, &rel_str) {
                             log::warn!(
                                 "watcher: failed to delete chunks for {}: {}",
@@ -207,7 +207,7 @@ impl VaultWatcher {
                     if self.is_path_in_notes_dir_lenient(old, &notes_dir) {
                         if let Ok(old_rel) = old.strip_prefix(&notes_dir) {
                             let rel_str = old_rel.to_string_lossy();
-                            let db = self.db.lock().unwrap();
+                            let db = self.db.lock().expect("watcher mutex poisoned");
                             if let Err(e) = db.delete_chunks_for_file(vault_name, &rel_str) {
                                 log::warn!(
                                     "watcher: failed to delete old path {}: {}",
@@ -221,7 +221,7 @@ impl VaultWatcher {
                     // Symlink-safe vault check for the new path before indexing
                     if self.is_path_in_notes_dir(new, &notes_dir) {
                         if let Ok(new_rel) = new.strip_prefix(&notes_dir) {
-                            let db = self.db.lock().unwrap();
+                            let db = self.db.lock().expect("watcher mutex poisoned");
                             if let IndexResult::Error(e) = index_file_with_embedder(
                                 &db,
                                 &self.tokenizer,

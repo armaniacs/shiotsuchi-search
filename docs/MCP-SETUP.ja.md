@@ -168,6 +168,7 @@ shiotsuchi scan --notes-dir ~/Work     --db-path ~/.cache/shiotsuchi/work.db
 
 ## 関連ドキュメント
 
+- [README.ja.md](../README.ja.md) — プロジェクト概要、機能、コマンド一覧
 - [docs/INSTALL.ja.md](INSTALL.ja.md) — バイナリのビルドとインストール
 - [ref/cli.md](../ref/cli.md) — CLI コマンドとオプション一覧
 - [ref/mcp.md](../ref/mcp.md) — MCP プロトコルの詳細

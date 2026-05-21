@@ -7,6 +7,8 @@
 Markdownノートvault（Obsidianなど）向けの高性能日本語対応全文検索エンジン。
 [Vaporetto](https://github.com/daac-tools/vaporetto) × SQLite FTS5 を基盤とする。
 
+> **注意:** この検索エンジンは日本語テキストに最適化されています。英語などの他言語の検索品質は保証されません。
+
 ## 特徴
 
 - **サブ秒検索**: 10,000件以上のノートを高速検索
@@ -108,6 +110,15 @@ notes_dir = "/home/name/Documents/Work"
 SHIOTSUCHI_MODEL_PATH=models/bccwj-suw+unidic_pos+kana.model.zst \
   cargo bench -p shiotsuchi-core
 ```
+
+## 詳細ドキュメント
+
+- [docs/INSTALL.ja.md](docs/INSTALL.ja.md) — ソースからのビルドとインストール
+- [docs/CLI-USE.ja.md](docs/CLI-USE.ja.md) — CLI コマンド詳細リファレンス
+- [docs/MCP-SETUP.ja.md](docs/MCP-SETUP.ja.md) — マルチvault MCP セットアップガイド
+- [docs/FTS5.ja.md](docs/FTS5.ja.md) — FTS5 クエリ構文とヒント
+- [CHANGELOG.md](CHANGELOG.md) — リリース履歴
+- [ref/architecture.md](ref/architecture.md) — 設計とデータモデル
 
 ## ライセンス
 

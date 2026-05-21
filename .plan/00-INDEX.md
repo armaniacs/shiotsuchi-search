@@ -50,4 +50,18 @@
 | `2026-05-17-coverage-improvement-phase3.md` | カバレッジ改善Phase3（大半は先行作業で完了、1 test追加） |
 | `2026-05-01-shiotsuchi-search-phase6-vitest-integration.md` | Vitest MCP統合テスト計画（全タスク完了・自動セットアップ付き） |
 | `2026-05-01-shiotsuchi-search-phase7-mcp-inspector.md` | MCP Inspector 手動テスト（アーカイブ: ツール名古い・Phase6で代替済み・意味なし） |
+| `2026-05-03-0855-review-phase2.md` | Phase2 Checking Team レビューレポート (76/100) — 全指摘対応済み |
+| `2026-05-06-0827-review-fix-codebase.md` | コードベース全体レビュー (87/100, v0.2.2) — 全指摘対応済み |
+| `2026-05-07-0000-review-init-feature.md` | `init` 機能レビューレポート — v0.2.9 で全指摘修正済み |
+| `plan-checking-team-2026-05-09a.md` | modify-2026-05-09a レビュー (74/100) — 全指摘対応済み |
+| `plan-h2-init-fix-remaining.md` | `init` 残課題修正計画 — 全タスク完了 (v0.2.9 TDD) |
+| `plan-h2-init-future.md` | `init` Future Work 計画 — 全機能実装済み (v0.2.8~v0.2.9) |
+| `plan-h2-init.md` | `init` 拡張実装計画 — auto-exclude/scan/backup 全て v0.2.8 で実装完了 |
+| `plan-h5-dive-format.md` | `dive`  Human-Readable 出力計画 — 2026-05-08 実装済み |
+| `plan-modify-2026-05-09a.md` | modify-2026-05-09a 修正計画 — 全タスク完了 |
+| `plan-next-actions-2026-05-10.md` | レビュー後アクション計画 — 全アイテム完了 |
+| `plan-h3-db-migration.md` | DB スキーママイグレーション戦略 — アドホック実装で必要十分。YAGNI 判断正解 |
+| `plan-h4-observability.md` | 構造化オブザーバビリティ計画 — `doctor` コマンドのみ実装。tracing/metrics は過剰と判断し deferred |
+| `plan-h6-RAG.md` | RAG 拡張設計仕様書 — Level 1+2 チャンク/ベクトル検索/RRF/Embedding/差分更新 全て実装済み (~85%) |
+| `plan-h7-MCP.md` | MCP サーバー拡張設計仕様書 — 4 ツール/セキュリティ対策/出力フォーマット 全て実装済み (~90%) |
 

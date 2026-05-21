@@ -14,6 +14,23 @@ fn main() {
         if !model_path.is_empty() {
             println!("cargo:rerun-if-changed={}", model_path);
 
+            let predictor_path = out_dir.join("predictor.bin");
+
+            // Skip extraction if predictor.bin is already cached and up-to-date
+            if predictor_path.exists() {
+                if let (Ok(predictor_meta), Ok(model_meta)) =
+                    (predictor_path.metadata(), fs::metadata(&model_path))
+                {
+                    if let (Ok(predictor_mtime), Ok(model_mtime)) =
+                        (predictor_meta.modified(), model_meta.modified())
+                    {
+                        if predictor_mtime > model_mtime {
+                            return;
+                        }
+                    }
+                }
+            }
+
             let predictor_bytes = build_predictor(&model_path)
                 .unwrap_or_else(|e| panic!("Failed to build predictor from {}: {}", model_path, e));
 
@@ -22,7 +39,6 @@ fn main() {
             let hash = hasher.finalize();
             let hash_hex = hex::encode(hash);
 
-            let predictor_path = out_dir.join("predictor.bin");
             fs::write(&predictor_path, &predictor_bytes).unwrap();
 
             fs::write(

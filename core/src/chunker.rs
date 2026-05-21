@@ -598,5 +598,36 @@ mod tests {
         let paras = split_on_blank_lines(text);
         assert_eq!(paras.len(), 0, "only blank lines yields empty result");
     }
+
+    #[test]
+    fn test_unclosed_code_fence_at_eof_does_not_panic() {
+        // A code block fence that is never closed should not cause a panic
+        // or leave the chunker in an inconsistent state.
+        let md = "# Header\n\nContent.\n\n```\nunclosed code block";
+        let tok = crate::require_tokenizer!(Default::default());
+        let chunks = split_into_chunks(md, &tok, "test.md", "default");
+        assert_eq!(chunks.len(), 1, "should produce one chunk for the whole doc");
+        assert!(chunks[0].content.contains("unclosed code block"));
+    }
+
+    #[test]
+    fn test_tilde_fence_unclosed_at_eof() {
+        let md = "# Tilde Fence\n\nContent.\n\n~~~\ncode block never closed";
+        let tok = crate::require_tokenizer!(Default::default());
+        let chunks = split_into_chunks(md, &tok, "test.md", "default");
+        assert_eq!(chunks.len(), 1);
+        assert!(chunks[0].content.contains("code block never closed"));
+    }
+
+    #[test]
+    fn test_nested_fence_markers_not_confused() {
+        // Closing fence type different from opening fence should not close it
+        let md = "# Nesting\n\n```\nopened with backticks\n~~~\nnot a real close\n```\n\nNow closed.";
+        let tok = crate::require_tokenizer!(Default::default());
+        let chunks = split_into_chunks(md, &tok, "test.md", "default");
+        // With correct fence tracking, the section after the fence should
+        // be in the same chunk as the code block (since headers inside fences are not split).
+        assert_eq!(chunks.len(), 1, "code block should not be split by inner ~~~");
+    }
 }
 

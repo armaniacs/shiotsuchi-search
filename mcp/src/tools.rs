@@ -42,6 +42,10 @@ pub fn tool_list() -> Vec<ToolDef> {
                         "enum": ["fts", "vec", "hybrid"],
                         "description": "Search mode. Default: hybrid",
                         "default": "hybrid"
+                    },
+                    "vault": {
+                        "type": "string",
+                        "description": "Vault name to restrict search to (optional)"
                     }
                 },
                 "required": ["query"]

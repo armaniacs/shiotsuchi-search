@@ -67,8 +67,6 @@ struct ConfigSnapshot {
 
 #[derive(Debug, serde::Serialize)]
 struct IndexingConfigSnapshot {
-    snippet_lines: usize,
-    max_snippet_chars: usize,
     include_extensions: Vec<String>,
     exclude_dirs: Vec<String>,
     auto_exclude_hidden: bool,
@@ -126,8 +124,6 @@ impl BuildInfo {
             },
             config: ConfigSnapshot {
                 indexing: IndexingConfigSnapshot {
-                    snippet_lines: cfg.indexing.snippet_lines,
-                    max_snippet_chars: cfg.indexing.max_snippet_chars,
                     include_extensions: cfg.indexing.include_extensions.clone(),
                     exclude_dirs: cfg.indexing.exclude_dirs.clone(),
                     auto_exclude_hidden: cfg.indexing.auto_exclude_hidden,
@@ -197,14 +193,6 @@ impl BuildInfo {
 
         println!();
         println!("=== Config ===");
-        println!(
-            "  snippet-lines:        {}",
-            self.config.indexing.snippet_lines
-        );
-        println!(
-            "  max-snippet-chars:    {}",
-            self.config.indexing.max_snippet_chars
-        );
         println!(
             "  include-extensions:   {:?}",
             self.config.indexing.include_extensions

@@ -34,11 +34,8 @@ jobs:
       - name: Clippy lint
         run: cargo clippy --workspace --exclude shiotsuchi-e2e -- -D warnings
 
-      - name: Build
-        run: cargo build --workspace --exclude shiotsuchi-e2e
-
-      - name: Run tests (no model required)
-        run: cargo test --workspace --exclude shiotsuchi-e2e
+      - name: Run tests (release, no model required)
+        run: cargo test --release --workspace --exclude shiotsuchi-e2e
 
       - name: Check security advisories
         if: ${{ !env.ACT }}

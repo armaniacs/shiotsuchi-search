@@ -391,6 +391,7 @@ CLI と MCP サーバーは同じ SQLite データベースを共有します。
 
 ## 関連ドキュメント
 
+- [README.ja.md](../README.ja.md) — プロジェクト概要、機能、コマンド一覧
 - [docs/INSTALL.ja.md](INSTALL.ja.md) — バイナリのビルドとインストール
 - [docs/MCP-SETUP.ja.md](MCP-SETUP.ja.md) — MCP 経由で LLM からインデックスを検索する
 - [ref/cli.md](../ref/cli.md) — コマンドリファレンス（全フラグ一覧）

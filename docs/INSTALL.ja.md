@@ -233,6 +233,7 @@ shiotsuchi dive --mode hybrid "検索クエリ"
 
 ## 詳細ドキュメント
 
+- [README.ja.md](../README.ja.md) — プロジェクト概要、機能、コマンド一覧
 - [ref/cli.md](ref/cli.md) — 全コマンドとオプション
 - [ref/architecture.md](ref/architecture.md) — 設計とデータモデル
 - [ref/mcp.md](ref/mcp.md) — Claude Desktop 向け MCP サーバーの設定

@@ -234,6 +234,7 @@ If no model is found, `dive` falls back to FTS (keyword search) automatically. P
 
 ## Further reading
 
+- [README.md](../README.md) — Project overview, features, and commands
 - [ref/cli.md](ref/cli.md) — All commands and options
 - [ref/architecture.md](ref/architecture.md) — Design and data model
 - [ref/mcp.md](ref/mcp.md) — MCP server setup for Claude Desktop

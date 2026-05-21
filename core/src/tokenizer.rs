@@ -526,6 +526,34 @@ mod tests {
     }
 
     #[test]
+    fn test_or_query_special_chars_escaped() {
+        let tokenizer = match JapaneseTokenizer::new(TokenizerConfig::default()) {
+            Ok(tok) => tok,
+            Err(_) => return,
+        };
+        let result = tokenizer.or_query("query with \"quotes\"");
+        // Quotes should be doubled inside the quoted terms
+        assert!(result.contains("\"\"\""));
+        assert!(!result.contains(r#"\""#), "should not contain raw backslash-quotes");
+    }
+
+    #[test]
+    fn test_or_query_whitespace_only() {
+        let tokenizer = match JapaneseTokenizer::new(TokenizerConfig::default()) {
+            Ok(tok) => tok,
+            Err(_) => return,
+        };
+        assert_eq!(tokenizer.or_query("   "), "");
+        assert_eq!(tokenizer.or_query("\n\t"), "");
+    }
+
+    #[test]
+    fn test_simple_or_query_empty_input() {
+        assert_eq!(simple_and_query(""), "");
+        assert_eq!(simple_and_query("   "), "");
+    }
+
+    #[test]
     fn test_collect_tokens_keep_untagged() {
         // With keep_untagged=true, tokens without POS tags should pass through
         let config = TokenizerConfig {

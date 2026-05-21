@@ -6,34 +6,41 @@ use shiotsuchi_core::{
     tokenizer::get_tokenizer,
 };
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::LazyLock;
 use std::sync::Mutex;
 use std::time::Instant;
 
 /// Simple rate limiter: allows up to `max_per_second` calls.
+/// Thread-safe via a single Mutex covering count + interval reset.
 pub struct RateLimiter {
     max_per_second: u64,
-    count: AtomicU64,
-    interval_start: Mutex<Instant>,
+    inner: Mutex<RateLimiterInner>,
+}
+
+struct RateLimiterInner {
+    count: u64,
+    interval_start: Instant,
 }
 
 impl RateLimiter {
     pub fn new(max_per_second: u64) -> Self {
         Self {
             max_per_second,
-            count: AtomicU64::new(0),
-            interval_start: Mutex::new(Instant::now()),
+            inner: Mutex::new(RateLimiterInner {
+                count: 0,
+                interval_start: Instant::now(),
+            }),
         }
     }
 
     pub fn allow(&self) -> bool {
-        let mut start = self.interval_start.lock().unwrap();
-        if start.elapsed().as_secs() >= 1 {
-            *start = Instant::now();
-            self.count.store(0, Ordering::Relaxed);
+        let mut inner = self.inner.lock().unwrap();
+        if inner.interval_start.elapsed().as_secs() >= 1 {
+            inner.interval_start = Instant::now();
+            inner.count = 0;
         }
-        let prev = self.count.fetch_add(1, Ordering::Relaxed);
+        let prev = inner.count;
+        inner.count += 1;
         prev < self.max_per_second
     }
 }
@@ -72,6 +79,12 @@ pub fn call_tool(
     match name {
         "search_local_notes" => {
             let query = args["query"].as_str().unwrap_or("").to_string();
+            if query.len() > 500 {
+                return Ok(json!({
+                    "content": [{"type": "text", "text": "Query too long (max 500 characters)."}],
+                    "isError": true
+                }));
+            }
             let limit = args["limit"].as_u64().unwrap_or(10).min(50) as usize;
             let mode_str = args["mode"].as_str().unwrap_or("hybrid");
             let min_score = args["min_score"].as_f64();
@@ -128,12 +141,24 @@ pub fn call_tool(
             let db = NoteDatabase::open(db_path)?;
             let chunks = db.get_surrounding_chunks(chunk_id, window)?;
 
-            let mut out = format!("### Context around chunk {} ###\n\n", chunk_id);
+            const MAX_CHARS: usize = 100_000;
+            let mut out = String::with_capacity(MAX_CHARS.min(4096));
+            out.push_str(&format!("### Context around chunk {} ###\n\n", chunk_id));
             for c in &chunks {
+                if out.len() >= MAX_CHARS {
+                    out.push_str("\n**... (truncated due to size)**\n");
+                    break;
+                }
                 let marker = if c.id == Some(chunk_id) { "**[SELECTED]** " } else { "" };
                 let header = c.parent_header.as_deref().unwrap_or("(top level)");
+                let content = if out.len() + c.content.len() > MAX_CHARS {
+                    let remaining = MAX_CHARS.saturating_sub(out.len());
+                    c.content.chars().take(remaining).collect::<String>()
+                } else {
+                    c.content.clone()
+                };
                 out.push_str(&format!("## {}Source: {} > {}\n\n{}\n\n---\n\n",
-                    marker, c.file_path, header, c.content));
+                    marker, c.file_path, header, content));
             }
 
             Ok(json!({
@@ -153,17 +178,6 @@ pub fn call_tool(
                 stats.total_size_bytes as f64 / 1_048_576.0
             );
             Ok(json!({"content": [{"type": "text", "text": text}]}))
-        }
-
-        "rebuild_index" => {
-            // MCP server is read-only by design. Delegate rebuild to the CLI.
-            Ok(json!({
-                "content": [{
-                    "type": "text",
-                    "text": "To rebuild the index, run: shiotsuchi chart --force\n\
-                             The MCP server will automatically use the updated index."
-                }]
-            }))
         }
 
         _ => Err(format!("Unknown tool: {}", name).into()),
@@ -231,17 +245,6 @@ mod tests {
     }
 
     #[test]
-    fn test_rebuild_index_returns_guidance() {
-        let temp = TempDir::new().unwrap();
-        let vaults = vec![("default".to_string(), temp.path().to_path_buf())];
-        let db_path = temp.path().join("test.db");
-        shiotsuchi_core::db::NoteDatabase::open(&db_path).unwrap();
-        let result = call_tool("rebuild_index", &serde_json::json!({}), &vaults, &db_path).unwrap();
-        let text = result["content"][0]["text"].as_str().unwrap();
-        assert!(text.contains("shiotsuchi chart"));
-    }
-
-    #[test]
     fn test_get_surrounding_context_returns_chunks() {
         let temp = TempDir::new().unwrap();
         let vaults = vec![("default".to_string(), temp.path().to_path_buf())];
@@ -281,6 +284,19 @@ mod tests {
     }
 
     #[test]
+    fn test_search_query_max_length_truncated() {
+        let temp = TempDir::new().unwrap();
+        let vaults = vec![("default".to_string(), temp.path().to_path_buf())];
+        let db_path = temp.path().join("test.db");
+        shiotsuchi_core::db::NoteDatabase::open(&db_path).unwrap();
+        let long_query = "x".repeat(501);
+        let args = serde_json::json!({"query": long_query, "mode": "fts"});
+        let result = call_tool("search_local_notes", &args, &vaults, &db_path).unwrap();
+        let text = result["content"][0]["text"].as_str().unwrap();
+        assert!(text.contains("max 500"), "expected max length error, got: {}", text);
+    }
+
+    #[test]
     fn test_rate_limiter_blocks_after_limit() {
         let limiter = RateLimiter::new(2);
         // First 2 calls should succeed
@@ -300,7 +316,7 @@ mod tests {
         assert!(!limiter.allow(), "sixth call should be blocked");
 
         // Manually advance the interval start to simulate 1 second passing
-        *limiter.interval_start.lock().unwrap() = Instant::now() - std::time::Duration::from_secs(2);
+        limiter.inner.lock().unwrap().interval_start = Instant::now() - std::time::Duration::from_secs(2);
 
         // Should allow again after reset
         assert!(limiter.allow(), "call after reset should be allowed");

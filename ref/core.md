@@ -146,8 +146,9 @@ For each (vault_name, notes_dir) in config.vaults:
     → Delete old chunks for vault+path → Insert new chunks → Insert embeddings
 ```
 
-**Progress type**: `IndexProgress = Box<dyn Fn(usize, usize) + Send + 'static>`
+**Progress type**: `IndexProgress = Box<dyn Fn(usize, Option<usize>) + Send + 'static>`
 Progress is cumulative: `(processed_so_far, total_across_all_vaults)`.
+`total` is `None` when total file count is unknown (pre-count walk was removed for efficiency).
 
 ### `search.rs` — Search Engine
 

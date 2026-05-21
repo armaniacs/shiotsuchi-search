@@ -391,6 +391,7 @@ The CLI and MCP server share the same SQLite database. WAL mode is enabled so bo
 
 ## Further reading
 
+- [README.md](../README.md) — Project overview, features, and commands
 - [docs/INSTALL.md](INSTALL.md) — Build and install binaries
 - [docs/MCP-SETUP.md](MCP-SETUP.md) — Use the index from an LLM via MCP
 - [ref/cli.md](../ref/cli.md) — Command reference (all flags)

@@ -165,6 +165,7 @@ shiotsuchi scan --notes-dir ~/Work     --db-path ~/.cache/shiotsuchi/work.db
 
 ## Further reading
 
+- [README.md](../README.md) — Project overview, features, and commands
 - [docs/INSTALL.md](INSTALL.md) — Build and install binaries
 - [ref/cli.md](../ref/cli.md) — All CLI commands and flags
 - [ref/mcp.md](../ref/mcp.md) — MCP protocol details

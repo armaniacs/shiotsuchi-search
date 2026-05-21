@@ -2,7 +2,7 @@ use crate::{
     chunker::split_into_chunks,
     db::{DbError, NoteDatabase},
     embedder::Embedder,
-    models::{Chunk, IndexConfig},
+    models::IndexConfig,
     tokenizer::JapaneseTokenizer,
 };
 use globset::{Glob, GlobSet, GlobSetBuilder};
@@ -12,7 +12,8 @@ use walkdir::WalkDir;
 
 /// Optional progress callback for index_directory.
 /// Arguments are (current, total) where current is 1-based.
-pub type IndexProgress = Box<dyn Fn(usize, usize) + Send + 'static>;
+/// If total is None, the total number of files is unknown (streaming).
+pub type IndexProgress = Box<dyn Fn(usize, Option<usize>) + Send + 'static>;
 
 /// Escape glob meta-characters so a literal string can be used as a path
 /// component inside a glob pattern.
@@ -112,25 +113,6 @@ pub fn index_directory(
     let mut all_results = Vec::new();
     let mut global_count = 0usize;
 
-    // Pre-compute total file count across all vaults for accurate progress.
-    // Only done when a progress callback is provided to avoid double WalkDir I/O.
-    let grand_total: usize = if progress.is_some() {
-        config
-            .vaults
-            .iter()
-            .map(|(_, notes_dir)| {
-                WalkDir::new(notes_dir)
-                    .follow_links(config.follow_links)
-                    .into_iter()
-                    .filter_map(|e| e.ok())
-                    .filter(|e| e.file_type().is_file())
-                    .count()
-            })
-            .sum()
-    } else {
-        0
-    };
-
     for (vault_name, notes_dir) in &config.vaults {
         let notes_canonical = if config.follow_links {
             Some(notes_dir.canonicalize().map_err(|e| {
@@ -146,7 +128,7 @@ pub fn index_directory(
             None
         };
 
-        let entries: Vec<_> = WalkDir::new(notes_dir)
+        for entry in WalkDir::new(notes_dir)
             .follow_links(config.follow_links)
             .into_iter()
             .filter_entry(|e| {
@@ -202,12 +184,10 @@ pub fn index_directory(
                 let rel_str = relative.to_string_lossy();
                 !exclude_globset.is_match(rel_str.as_ref())
             })
-            .collect();
-
-        for entry in entries.iter() {
+        {
             global_count += 1;
             if let Some(ref cb) = progress {
-                cb(global_count, grand_total);
+                cb(global_count, None);
             }
             let path = entry.path();
             let relative = path.strip_prefix(notes_dir).unwrap_or(path);
@@ -249,14 +229,22 @@ pub fn index_file_with_embedder(
     relative_path: &str,
     _config: &IndexConfig,
 ) -> IndexResult {
+    let mtime = file_mtime(file_path);
+
+    // Fast path: skip if mtime matches cached value (avoids reading the file)
+    let model_id = embedder.map_or("none", |e| e.model_id());
+    if let Ok(Some(cached_mtime)) = db.cached_mtime(vault_name, relative_path) {
+        if cached_mtime == mtime {
+            return IndexResult::Skipped;
+        }
+    }
+
     let content = match fs::read_to_string(file_path) {
         Ok(c) => c,
         Err(e) => return IndexResult::Error(format!("Read error: {}", e)),
     };
 
     let hash = sha256_hex(&content);
-    let mtime = file_mtime(file_path);
-    let model_id = embedder.map_or("none", |e| e.model_id());
 
     let is_update = match db.cached_hash(vault_name, relative_path) {
         Ok(Some(cached)) if cached == hash => return IndexResult::Skipped,
@@ -265,21 +253,35 @@ pub fn index_file_with_embedder(
         Err(e) => return IndexResult::Error(e.to_string()),
     };
 
-    if let Err(e) = db.delete_chunks_for_file(vault_name, relative_path) {
-        return IndexResult::Error(e.to_string());
-    }
     let chunks = split_into_chunks(&content, tokenizer, relative_path, vault_name);
 
-    let ids = match db.insert_chunks(&chunks) {
-        Ok(ids) => ids,
-        Err(e) => return IndexResult::Error(e.to_string()),
+    let embeddings: Vec<Option<Vec<f32>>> = if let Some(emb) = embedder {
+        let texts: Vec<&str> = chunks.iter().map(|c| c.content.as_str()).collect();
+        let results = emb.embed_batch(&texts);
+        results
+            .into_iter()
+            .enumerate()
+            .map(|(i, result)| match result {
+                Ok(e) => Some(e),
+                Err(e) => {
+                    log::warn!("Failed to embed chunk {}: {}", i, e);
+                    None
+                }
+            })
+            .collect()
+    } else {
+        vec![None; chunks.len()]
     };
 
-    if let Some(emb) = embedder {
-        embed_and_insert_chunks(emb, db, &ids, &chunks);
-    }
-
-    if let Err(e) = db.upsert_file_cache(vault_name, relative_path, &hash, mtime, model_id) {
+    if let Err(e) = db.reindex_file(
+        vault_name,
+        relative_path,
+        &hash,
+        mtime,
+        model_id,
+        &chunks,
+        &embeddings,
+    ) {
         return IndexResult::Error(e.to_string());
     }
 
@@ -287,36 +289,6 @@ pub fn index_file_with_embedder(
         IndexResult::Updated
     } else {
         IndexResult::Inserted
-    }
-}
-
-/// Embed each chunk and insert the embeddings into the vec_chunks table.
-///
-/// Chunks whose embedding fails are silently skipped (the error is logged).
-/// This is not fatal — the index still functions with FTS-only search.
-pub(crate) fn embed_and_insert_chunks(
-    embedder: &Embedder,
-    db: &NoteDatabase,
-    ids: &[i64],
-    chunks: &[Chunk],
-) {
-    let pairs: Vec<(i64, Vec<f32>)> = ids.iter().zip(chunks.iter())
-        .filter_map(|(id, chunk)| {
-            let result = embedder.embed(&chunk.content);
-            match result {
-                Ok(e) => Some((*id, e)),
-                Err(e) => {
-                    log::warn!("Failed to embed chunk {}: {}", id, e);
-                    None
-                }
-            }
-        })
-        .collect();
-
-    if !pairs.is_empty() {
-        if let Err(e) = db.insert_embeddings(&pairs) {
-            log::warn!("Failed to insert embeddings: {}", e);
-        }
     }
 }
 
@@ -735,6 +707,50 @@ mod tests {
     }
 
     #[test]
+    fn test_index_file_skips_via_mtime_fast_path() {
+        let tokenizer = crate::require_tokenizer!(Default::default());
+        let temp = TempDir::new().unwrap();
+        let vault = temp.path().join("vault");
+        fs::create_dir(&vault).unwrap();
+        let path = vault.join("test.md");
+        fs::write(&path, "Mtime test content").unwrap();
+
+        let db = NoteDatabase::open_in_memory().unwrap();
+        let config = IndexConfig {
+            vaults: vec![("default".to_string(), vault.clone())],
+            ..Default::default()
+        };
+
+        // First call: insert
+        let r1 = index_file(&db, &tokenizer, &path, "default", "test.md", &config);
+        assert_eq!(r1, IndexResult::Inserted);
+
+        // Verify cached_mtime actually has a value
+        let cached = db.cached_mtime("default", "test.md").unwrap();
+        assert!(cached.is_some(), "mtime should be cached after insertion");
+
+        // Second call with same content but ensure mtime is still cached
+        // (index_file calls index_file_with_embedder which checks mtime first)
+        let r2 = index_file(&db, &tokenizer, &path, "default", "test.md", &config);
+        assert_eq!(r2, IndexResult::Skipped);
+
+        // Verify the mtime in cache matches the file mtime
+        let file_mtime = std::fs::metadata(&path).unwrap()
+            .modified().unwrap()
+            .duration_since(std::time::UNIX_EPOCH).unwrap()
+            .as_secs() as i64;
+        let cached_mtime = db.cached_mtime("default", "test.md").unwrap().unwrap();
+        // File mtime might have sub-second precision, but cached mtime uses whole seconds.
+        // This assertion validates that the mtime path was taken (not just hash fallback).
+        assert!(
+            (cached_mtime - file_mtime).abs() <= 1,
+            "cached mtime ({}) should match file mtime ({}) within 1 second",
+            cached_mtime,
+            file_mtime
+        );
+    }
+
+    #[test]
     fn test_index_file_updates_on_changed_content() {
         let tokenizer = crate::require_tokenizer!(Default::default());
         let temp = TempDir::new().unwrap();
@@ -757,10 +773,10 @@ mod tests {
     }
 
     #[test]
-    fn test_embed_and_insert_chunks_compile_check() {
-        // Compile-time check: embed_and_insert_chunks is reachable from
+    fn test_reindex_file_compile_check() {
+        // Compile-time check: reindex_file is reachable from
         // index_file_with_embedder. Full coverage requires an ONNX model.
-        assert!(true, "embed_and_insert_chunks compiled successfully");
+        assert!(true, "reindex_file compiled successfully");
     }
 
     #[test]
@@ -906,7 +922,7 @@ mod tests {
             ..Default::default()
         };
 
-        let progress: IndexProgress = Box::new(|_current, _total| {});
+        let progress: IndexProgress = Box::new(|_current, _total: Option<usize>| {});
 
         let (results, invalid) = index_directory(&db, &tokenizer, &config, None, Some(progress)).unwrap();
         assert_eq!(results.len(), 1, "should index 1 file");

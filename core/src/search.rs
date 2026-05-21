@@ -45,6 +45,54 @@ pub fn search(
     }
 }
 
+/// Build `ChunkSearchResult` vec from raw search hits (id, score) pairs.
+///
+/// Resolves chunk metadata from DB, applies optional min_score filter,
+/// and sorts ascending (lower score = more relevant). Common post-processing
+/// for both FTS and vec search paths.
+fn build_results(
+    db: &NoteDatabase,
+    hits: Vec<(i64, f64)>,
+    mode: SearchMode,
+    min_score: Option<f64>,
+) -> Result<Vec<ChunkSearchResult>, DbError> {
+    let ids: Vec<i64> = hits.iter().map(|(id, _)| *id).collect();
+    let score_map: HashMap<i64, f64> = hits.into_iter().collect();
+    let chunks = db.get_chunks_by_ids(&ids)?;
+
+    let mut results: Vec<ChunkSearchResult> = chunks
+        .into_iter()
+        .filter_map(|c| {
+            let id = match c.id {
+                Some(id) => id,
+                None => {
+                    log::warn!("{:?} search: chunk from DB has no id, skipping", mode);
+                    return None;
+                }
+            };
+            let score = *score_map.get(&id).unwrap_or(&f64::MAX);
+            Some(ChunkSearchResult {
+                chunk_id: id,
+                file_path: c.file_path,
+                parent_header: c.parent_header,
+                content: c.content,
+                score,
+                search_mode: mode.clone(),
+                vault_name: c.vault_name,
+            })
+        })
+        .collect();
+
+    // Lower score = more relevant; sort ascending
+    results.sort_by(|a, b| a.score.partial_cmp(&b.score).unwrap_or(std::cmp::Ordering::Equal));
+
+    if let Some(ms) = min_score {
+        results.retain(|r| r.score <= ms);
+    }
+
+    Ok(results)
+}
+
 fn search_fts(
     db: &NoteDatabase,
     tokenizer: &JapaneseTokenizer,
@@ -68,41 +116,7 @@ fn search_fts(
         return Ok(vec![]);
     }
 
-    let ids: Vec<i64> = hits.iter().map(|(id, _)| *id).collect();
-    let score_map: HashMap<i64, f64> = hits.into_iter().collect();
-    let chunks = db.get_chunks_by_ids(&ids)?;
-
-    let mut results: Vec<ChunkSearchResult> = chunks
-        .into_iter()
-        .filter_map(|c| {
-            let id = match c.id {
-                Some(id) => id,
-                None => {
-                    log::warn!("FTS search: chunk from DB has no id, skipping");
-                    return None;
-                }
-            };
-            let score = *score_map.get(&id).unwrap_or(&0.0);
-            Some(ChunkSearchResult {
-                chunk_id: id,
-                file_path: c.file_path,
-                parent_header: c.parent_header,
-                content: c.content,
-                score,
-                search_mode: SearchMode::Fts,
-                vault_name: c.vault_name,
-            })
-        })
-        .collect();
-
-    // FTS5 BM25 rank: lower = more relevant; sort ascending
-    results.sort_by(|a, b| a.score.partial_cmp(&b.score).unwrap_or(std::cmp::Ordering::Equal));
-
-    if let Some(ms) = min_score {
-        results.retain(|r| r.score <= ms);
-    }
-
-    Ok(results)
+    build_results(db, hits, SearchMode::Fts, min_score)
 }
 
 fn search_vec(
@@ -122,41 +136,7 @@ fn search_vec(
         return Ok(vec![]);
     }
 
-    let ids: Vec<i64> = hits.iter().map(|(id, _)| *id).collect();
-    let score_map: HashMap<i64, f64> = hits.into_iter().collect();
-    let chunks = db.get_chunks_by_ids(&ids)?;
-
-    let mut results: Vec<ChunkSearchResult> = chunks
-        .into_iter()
-        .filter_map(|c| {
-            let id = match c.id {
-                Some(id) => id,
-                None => {
-                    log::warn!("Vec search: chunk from DB has no id, skipping");
-                    return None;
-                }
-            };
-            let score = *score_map.get(&id).unwrap_or(&f64::MAX);
-            Some(ChunkSearchResult {
-                chunk_id: id,
-                file_path: c.file_path,
-                parent_header: c.parent_header,
-                content: c.content,
-                score,
-                search_mode: SearchMode::Vec,
-                vault_name: c.vault_name,
-            })
-        })
-        .collect();
-
-    // Vec distance: lower = more relevant; sort ascending
-    results.sort_by(|a, b| a.score.partial_cmp(&b.score).unwrap_or(std::cmp::Ordering::Equal));
-
-    if let Some(ms) = min_score {
-        results.retain(|r| r.score <= ms);
-    }
-
-    Ok(results)
+    build_results(db, hits, SearchMode::Vec, min_score)
 }
 
 /// Compute Reciprocal Rank Fusion scores from FTS and vec search results.
@@ -639,5 +619,31 @@ mod tests {
         let text = "HELLO\nWorld\nFOO";
         let snippet = extract_snippet(text, "hello", 1, 100);
         assert!(snippet.contains("HELLO"));
+    }
+
+    #[test]
+    fn test_extract_snippet_japanese_query_no_spaces() {
+        // Japanese queries without spaces should still produce a snippet.
+        // Even though split_whitespace treats the whole query as one token,
+        // the snippet should contain the matching text.
+        let text = "これは日本語の検索エンジンのテストです\n次の行\nさらに続く";
+        let snippet = extract_snippet(text, "検索エンジン", 1, 200);
+        assert!(snippet.contains("検索エンジン"),
+            "Japanese query without spaces should match: {}", snippet);
+    }
+
+    #[test]
+    fn test_extract_snippet_japanese_mixed_with_ascii() {
+        let text = "Rust is a systems language\n日本語のメモリ安全性\n検索エンジン";
+        let snippet = extract_snippet(text, "メモリ安全", 1, 200);
+        assert!(snippet.contains("メモリ安全"),
+            "Japanese query in mixed text should match: {}", snippet);
+    }
+
+    #[test]
+    fn test_extract_snippet_unicode_query_prioritizes_earliest_match() {
+        let text = "最初のマッチ\n途中のテキスト\n最後のマッチ";
+        let snippet = extract_snippet(text, "マッチ", 1, 100);
+        assert!(snippet.contains("最初"), "should prioritize earliest match position");
     }
 }

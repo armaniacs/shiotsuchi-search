@@ -336,6 +336,21 @@ fn mean_pool_l2_normalize(
 
 // ── model path resolution ────────────────────────────────────────────
 
+/// Return the default XDG data directory, falling back through
+/// `$XDG_DATA_HOME` → `$HOME/.local/share` → current directory → `"."`.
+fn default_data_dir() -> PathBuf {
+    if let Some(xdg) = std::env::var_os("XDG_DATA_HOME") {
+        return PathBuf::from(xdg);
+    }
+    if let Some(home) = dirs::home_dir() {
+        return home.join(".local").join("share");
+    }
+    if let Ok(cwd) = std::env::current_dir() {
+        return cwd;
+    }
+    PathBuf::from(".")
+}
+
 /// Resolve the ONNX model path using the following priority:
 /// 1. `explicit` — a path passed directly via `--model-path` CLI flag
 /// 2. `SHIOTSUCHI_EMBED_MODEL_PATH` environment variable
@@ -357,14 +372,7 @@ pub fn resolve_model_path(explicit: Option<&Path>) -> Option<PathBuf> {
         }
     }
 
-    let xdg_data = std::env::var_os("XDG_DATA_HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            dirs::home_dir()
-                .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
-                .join(".local")
-                .join("share")
-        });
+    let xdg_data = default_data_dir();
     let default_path = xdg_data.join("shiotsuchi").join("model.onnx");
     if default_path.exists() {
         return Some(default_path);

@@ -6,6 +6,7 @@ use clap::Parser;
 use protocol::{McpNotification, McpRequest, McpResponse};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use shiotsuchi_core::config::{DatabaseConfig, VaultEntry};
 use shiotsuchi_core::paths::default_db_path as core_default_db_path;
 use std::{
     collections::HashMap,
@@ -24,9 +25,10 @@ fn resolve_path_env(var: &str, default: PathBuf) -> PathBuf {
     match val {
         Some(v) => {
             let p = PathBuf::from(&v);
-            // Only reject relative paths with '..' traversal.
-            // Absolute paths like /home/user/../config are allowed.
-            if !p.is_absolute() && p.to_string_lossy().contains("..") {
+            // Reject any path with '..' traversal (both relative and absolute).
+            // Absolute paths like /home/user/../config could bypass vault boundaries
+            // when combined with symbolic links.
+            if p.to_string_lossy().contains("..") {
                 eprintln!(
                     "Warning: {} contains '..' (path traversal), using config default",
                     var
@@ -40,33 +42,20 @@ fn resolve_path_env(var: &str, default: PathBuf) -> PathBuf {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(default)]
-struct McpDatabaseConfig {
-    db_path: Option<PathBuf>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-struct McpVaultEntry {
-    notes_dir: Option<PathBuf>,
-    #[serde(default)]
-    db_path: Option<PathBuf>,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 struct McpConfig {
-    database: McpDatabaseConfig,
-    vaults: HashMap<String, McpVaultEntry>,
-    vault: Option<McpVaultEntry>,       // legacy
-    notes_dir: PathBuf,                  // legacy flat field (old config format)
-    db_path: PathBuf,                    // legacy flat field (old config format)
+    database: DatabaseConfig,
+    vaults: HashMap<String, VaultEntry>,
+    vault: Option<VaultEntry>,       // legacy
+    notes_dir: PathBuf,              // legacy flat field (old config format)
+    db_path: PathBuf,                // legacy flat field (old config format)
 }
 
 impl Default for McpConfig {
     fn default() -> Self {
         Self {
-            database: McpDatabaseConfig { db_path: None },
+            database: DatabaseConfig::default(),
             vaults: HashMap::new(),
             vault: None,
             notes_dir: PathBuf::from("."),
@@ -241,8 +230,8 @@ fn spawn_rebuild(
 
         // Set up progress callback
         let progress: Option<shiotsuchi_core::indexer::IndexProgress> = progress_token.map(|pt| {
-            Box::new(move |current: usize, total: usize| {
-                emit_progress(&out, pt, current as u64, Some(total as u64));
+            Box::new(move |current: usize, _total: Option<usize>| {
+                emit_progress(&out, pt, current as u64, None);
             }) as shiotsuchi_core::indexer::IndexProgress
         });
 
@@ -424,11 +413,11 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_path_env_accepts_absolute_path_with_dotdot() {
-        // Absolute paths with .. are allowed (e.g., /home/user/../config)
+    fn test_resolve_path_env_rejects_absolute_path_with_dotdot() {
+        // Absolute paths with .. must also be rejected for security
         std::env::set_var("SHIOTSUCHI_TEST_ABSOLUTE_DOTDOT", "/home/user/../config");
         let result = resolve_path_env("SHIOTSUCHI_TEST_ABSOLUTE_DOTDOT", PathBuf::from("default"));
-        assert_eq!(result, PathBuf::from("/home/user/../config"));
+        assert_eq!(result, PathBuf::from("default"), "absolute path with .. should be rejected");
         std::env::remove_var("SHIOTSUCHI_TEST_ABSOLUTE_DOTDOT");
     }
 

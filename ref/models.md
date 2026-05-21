@@ -115,10 +115,10 @@ Enum representing the outcome of indexing a single file:
 ## `IndexProgress` (callback type)
 
 ```rust
-pub type IndexProgress = Box<dyn Fn(usize, usize) + Send + 'static>;
+pub type IndexProgress = Box<dyn Fn(usize, Option<usize>) + Send + 'static>;
 ```
 
-Used by `index_directory()` for per-file progress reporting. Arguments are (current, total) where current is 1-based.
+Used by `index_directory()` for per-file progress reporting. Arguments are `(current, total)` where `current` is 1-based and `total` is `None` when the total file count is unknown (pre-count walk was removed for memory efficiency).
 Progress is cumulative across all vaults when indexing multiple vaults.
 
 ## FTS5 Query Format
