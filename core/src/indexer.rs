@@ -78,7 +78,7 @@ fn file_mtime(path: &Path) -> i64 {
         .map(|t| {
             t.duration_since(SystemTime::UNIX_EPOCH)
                 .unwrap_or_default()
-                .as_secs() as i64
+                .as_millis() as i64
         })
         .unwrap_or(0)
 }
@@ -231,7 +231,8 @@ pub fn index_file_with_embedder(
 ) -> IndexResult {
     let mtime = file_mtime(file_path);
 
-    // Fast path: skip if mtime matches cached value (avoids reading the file)
+    // Fast path: skip if mtime matches cached value (avoids reading the file).
+    // Uses millisecond-precision mtime to handle rapid successive writes.
     let model_id = embedder.map_or("none", |e| e.model_id());
     if let Ok(Some(cached_mtime)) = db.cached_mtime(vault_name, relative_path) {
         if cached_mtime == mtime {
@@ -742,9 +743,11 @@ mod tests {
         let cached_mtime = db.cached_mtime("default", "test.md").unwrap().unwrap();
         // File mtime might have sub-second precision, but cached mtime uses whole seconds.
         // This assertion validates that the mtime path was taken (not just hash fallback).
+        // With millisecond mtime precision, cached and actual values should match
+        // within a small tolerance (100ms covers filesystem overhead).
         assert!(
-            (cached_mtime - file_mtime).abs() <= 1,
-            "cached mtime ({}) should match file mtime ({}) within 1 second",
+            (cached_mtime - file_mtime).abs() <= 100,
+            "cached mtime ({}) should match file mtime ({}) within 100ms",
             cached_mtime,
             file_mtime
         );
