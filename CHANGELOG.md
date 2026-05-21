@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > For project overview, features, installation, and usage, see [README.md](README.md).
 
+## [0.4.3] - 2026-05-22
+
+### Added
+
+- **f16 embedding quantization** (ADR-0002): `vec_chunks` schema changed from `FLOAT[1024]` to `FLOAT2[1024]` (f16 half-precision). Storage halved from 4KB to 2KB per chunk with zero precision loss (precision@k=1.0 at all k, benchmark-verified).
+  - Migration v3→v4: recreates vec_chunks with f16 type on existing databases
+  - Quantization benchmark: `cargo bench -p shiotsuchi-core --bench quantization`
+- **crates.io publishing support**: Added `description`, `homepage`, `repository`, `readme`, `keywords`, `categories` to all crates. Path dependencies include version for publish compatibility.
+- **`make publish` target**: Runs tests first, then publishes core → cli → mcp in dependency order.
+- **ADR-0001**: Binary size optimization strategy (`panic = "abort"`, `-71%` reduction from 75MB to 20MB)
+- **ADR-0002**: f16 embedding quantization decision and benchmark results
+
+### Changed
+
+- **CLI/MCP config unified**: Shared config types extracted into `core/src/config.rs`. CLI re-exports via `pub use shiotsuchi_core::config::*`. MCP uses core types directly.
+- **WalkDir streaming**: `index_directory()` no longer collects all entries into a `Vec` before processing. Pre-count walk removed — progress callback now uses `Option<usize>` for total (None when unknown).
+- **ONNX batch inference**: `embed_and_insert_chunks` replaced with `embedder.embed_batch()` — all chunk embeddings computed in a single ONNX call instead of per-chunk loop.
+- **Single-transaction reindex**: `NoteDatabase::reindex_file()` wraps delete + insert + embed + upsert in one `BEGIN IMMEDIATE TRANSACTION`.
+- **Search deduplication**: `search_fts()` and `search_vec()` share `build_results()` — eliminated ~50 lines of duplicated post-processing.
+- **`build.rs` caching**: mtime-based skip for model extraction (saves 5-10s per build when model unchanged).
+- **CI optimization**: `cargo test --release` unifies test + release build, halving CI time.
+- **Model path resolution**: Extracted `default_data_dir()` helper with early-return pattern (was nested `unwrap_or_else`).
+
+### Fixed
+
+- **Security**: `resolve_path_env` now rejects `..` in absolute paths, not just relative.
+- **Data Integrity**: Migration v1→v2 wrapped in `BEGIN TRANSACTION`/`COMMIT`. Orphaned `file_cache_v3` tables cleaned up unconditionally.
+- **TDD violations**: Added 4 tests for `cached_mtime()` and mtime fast path (previously untested).
+- **GitHub URL**: Corrected from `yaar/` to `armaniacs/` in workspace metadata.
+
 ## [0.4.2] - 2026-05-20
 
 ### Changed
@@ -473,7 +503,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `docs/MODEL_LICENSES.md` with BSD-3-Clause notice for the bundled tokenizer model
 - `README.md` (English) and `README.ja.md` (Japanese)
 
-[Unreleased]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.4.2...HEAD
+[Unreleased]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.4.3...HEAD
+[0.4.3]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.4.2...v0.4.3
 [0.4.2]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.3.7...v0.4.0
