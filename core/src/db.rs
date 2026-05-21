@@ -6,6 +6,34 @@ use std::path::{Path, PathBuf};
 use std::sync::Once;
 use thiserror::Error;
 
+// ── f16 (half-precision) helpers for embedding quantization ──────────
+
+/// Convert a single f32 to IEEE 754 half-precision (f16) bits.
+fn f32_to_f16_bits(f: f32) -> u16 {
+    let bits = f.to_bits();
+    let sign = ((bits >> 16) & 0x8000) as u16;
+    let exponent = ((bits >> 23) & 0xff) as i32;
+    let mantissa = bits & 0x7fffff;
+    let exp = exponent - 127 + 15;
+    if exp >= 31 {
+        sign | 0x7c00
+    } else if exp <= 0 {
+        if exp < -10 {
+            sign
+        } else {
+            let m = (mantissa | 0x800000) >> (14 - exp);
+            sign | m as u16
+        }
+    } else {
+        sign | (exp as u16) << 10 | (mantissa >> 13) as u16
+    }
+}
+
+/// Serialize f32 embedding vector as f16 blob bytes for sqlite-vec FLOAT2 storage.
+fn embedding_to_f16_blob(data: &[f32]) -> Vec<u8> {
+    data.iter().flat_map(|&v| f32_to_f16_bits(v).to_le_bytes()).collect()
+}
+
 /// Register the sqlite-vec extension once per process lifetime.
 ///
 /// # Safety
@@ -158,6 +186,20 @@ impl NoteDatabase {
             }
         }
 
+        if version < 4 {
+            // v3→v4: recreate vec_chunks with FLOAT2 (f16) instead of FLOAT (f32).
+            // vec0 is a virtual table, so we must DROP and recreate. Existing
+            // embeddings are discarded and will be rebuilt on next chart --force.
+            conn.execute_batch("DROP TABLE IF EXISTS vec_chunks")?;
+            conn.execute_batch("
+                CREATE VIRTUAL TABLE IF NOT EXISTS vec_chunks USING vec0(
+                    chunk_id  INTEGER PRIMARY KEY,
+                    embedding FLOAT2[1024]
+                )
+            ")?;
+            conn.execute_batch("PRAGMA user_version = 4")?;
+        }
+
         Ok(())
     }
 
@@ -189,7 +231,7 @@ impl NoteDatabase {
 
             CREATE VIRTUAL TABLE IF NOT EXISTS vec_chunks USING vec0(
                 chunk_id  INTEGER PRIMARY KEY,
-                embedding FLOAT[1024]
+                embedding FLOAT2[1024]
             );
         ")?;
         Ok(())
@@ -219,13 +261,12 @@ impl NoteDatabase {
     }
 
     /// Insert embeddings for a batch of (chunk_id, embedding) pairs.
+    /// Embeddings are quantized to f16 (half-precision) before storage.
     pub fn insert_embeddings(&self, pairs: &[(i64, Vec<f32>)]) -> Result<(), DbError> {
         let mut conn = self.write_conn.borrow_mut();
         let tx = conn.transaction()?;
         for (chunk_id, embedding) in pairs {
-            let blob: Vec<u8> = embedding.iter()
-                .flat_map(|f| f.to_le_bytes())
-                .collect();
+            let blob = embedding_to_f16_blob(embedding);
             tx.execute(
                 "INSERT INTO vec_chunks(chunk_id, embedding) VALUES (?1, ?2)",
                 params![chunk_id, blob],
@@ -337,11 +378,10 @@ impl NoteDatabase {
             new_ids.push(id);
         }
 
-        // 3. Insert embeddings (errors propagate — transaction will be rolled back)
+        // 3. Insert embeddings as f16 (errors propagate — transaction will be rolled back)
         for (id, emb_opt) in new_ids.iter().zip(embeddings.iter()) {
             if let Some(embedding) = emb_opt {
-                let blob: Vec<u8> =
-                    embedding.iter().flat_map(|f| f.to_le_bytes()).collect();
+                let blob = embedding_to_f16_blob(embedding);
                 tx.execute(
                     "INSERT INTO vec_chunks(chunk_id, embedding) VALUES (?1, ?2)",
                     params![id, blob],
@@ -441,6 +481,7 @@ impl NoteDatabase {
     }
 
     /// Vector KNN search on vec_chunks. Returns (chunk_id, distance) pairs.
+    /// The query embedding is quantized to f16 before matching against the stored f16 data.
     /// When `vault_filter` is Some(_), the search is restricted to that vault
     /// via a JOIN on the chunks table.
     pub fn vec_search(
@@ -450,7 +491,7 @@ impl NoteDatabase {
         vault_filter: Option<&str>,
     ) -> Result<Vec<(i64, f64)>, DbError> {
         let conn = self.write_conn.borrow();
-        let blob: Vec<u8> = embedding.iter().flat_map(|f| f.to_le_bytes()).collect();
+        let blob = embedding_to_f16_blob(embedding);
         let (sql, params): (String, Vec<Box<dyn rusqlite::ToSql>>) = if let Some(vault) = vault_filter {
             (
                 "SELECT v.chunk_id, v.distance

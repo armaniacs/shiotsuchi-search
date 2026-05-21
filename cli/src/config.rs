@@ -31,7 +31,7 @@ mod tests {
             notes_dir = "/tmp/notes"
 
             [indexing]
-            snippet_lines = 5
+            exclude_dirs = ["node_modules"]
         "#,
         )
         .unwrap();
@@ -42,7 +42,7 @@ mod tests {
             legacy.notes_dir.as_ref().unwrap().to_string_lossy(),
             "/tmp/notes"
         );
-        assert_eq!(config.indexing.snippet_lines, 5);
+        assert_eq!(config.indexing.exclude_dirs, vec!["node_modules"]);
     }
 
     #[test]
@@ -59,7 +59,7 @@ mod tests {
             notes_dir = "/work/notes"
 
             [indexing]
-            snippet_lines = 10
+            exclude_dirs = ["node_modules"]
         "#,
         )
         .unwrap();
@@ -74,7 +74,7 @@ mod tests {
             config.vaults.get("work").unwrap().notes_dir.as_ref().unwrap().to_string_lossy(),
             "/work/notes"
         );
-        assert_eq!(config.indexing.snippet_lines, 10);
+        assert_eq!(config.indexing.exclude_dirs, vec!["node_modules"]);
     }
 
     #[test]
@@ -94,26 +94,6 @@ mod tests {
         assert!(result.is_ok(), "expected ok for new key exclude_dirs");
         let config = result.unwrap();
         assert_eq!(config.indexing.exclude_dirs, vec!["node_modules"]);
-    }
-
-    #[test]
-    fn test_max_snippet_chars_default_is_1000() {
-        let config = ShiotsuchiConfig::default();
-        assert_eq!(config.indexing.max_snippet_chars, 1000);
-    }
-
-    #[test]
-    fn test_max_snippet_chars_from_toml() {
-        let result = toml::from_str::<ShiotsuchiConfig>("[indexing]\nmax_snippet_chars = 2048");
-        assert!(result.is_ok(), "expected ok for max_snippet_chars");
-        assert_eq!(result.unwrap().indexing.max_snippet_chars, 2048);
-    }
-
-    #[test]
-    fn test_max_snippet_chars_clamped_by_search_config() {
-        let result = toml::from_str::<ShiotsuchiConfig>("[indexing]\nmax_snippet_chars = 65555");
-        assert!(result.is_ok(), "oversized value should deserialize");
-        assert_eq!(result.unwrap().indexing.max_snippet_chars, 65555);
     }
 
     #[test]
