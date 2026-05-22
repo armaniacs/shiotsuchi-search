@@ -30,7 +30,8 @@ build-dev:
 	cargo build
 
 test: $(MODEL_FILE)
-	SHIOTSUCHI_MODEL_PATH=$(CURDIR)/$(MODEL_FILE) cargo test --workspace --exclude shiotsuchi-e2e
+	SHIOTSUCHI_MODEL_PATH=$(CURDIR)/$(MODEL_FILE) \
+	  cargo test -p shiotsuchi-core -p shiotsuchi-mcp -p shiotsuchi
 
 test-e2e: $(MODEL_FILE)
 	cargo build -p shiotsuchi -p shiotsuchi-mcp
@@ -115,7 +116,7 @@ publish: $(MODEL_FILE)
 	@echo "=== All crates published successfully ==="
 	@echo "  cargo install shiotsuchi"
 	@echo "  cargo install shiotsuchi-mcp"
-	@echo "  cargo install --git https://github.com/yaar/shiotsuchi-search shiotsuchi"
+	@echo "  cargo install --git https://github.com/armaniacs/shiotsuchi-search shiotsuchi"
 
 help:
 	@echo "Usage: make [target] [PREFIX=/usr/local]"

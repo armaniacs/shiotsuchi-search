@@ -11,8 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **f16 embedding quantization** (ADR-0002): `vec_chunks` schema changed from `FLOAT[1024]` to `FLOAT2[1024]` (f16 half-precision). Storage halved from 4KB to 2KB per chunk with zero precision loss (precision@k=1.0 at all k, benchmark-verified).
-  - Migration v3→v4: recreates vec_chunks with f16 type on existing databases
+- **f16 embedding quantization benchmark and ADR** (ADR-0002): Quantified f16 vs binary precision@k. f16 achieves perfect precision@k=1.0 at all k, halving storage at 2KB/chunk with zero accuracy loss. Implementation deferred — `sqlite-vec` 0.1.x does not support `FLOAT2` column type.
   - Quantization benchmark: `cargo bench -p shiotsuchi-core --bench quantization`
 - **crates.io publishing support**: Added `description`, `homepage`, `repository`, `readme`, `keywords`, `categories` to all crates. Path dependencies include version for publish compatibility.
 - **`make publish` target**: Runs tests first, then publishes core → cli → mcp in dependency order.
@@ -510,8 +509,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [0.4.0]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.3.7...v0.4.0
 [0.3.7]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.3.6...v0.3.7
 [0.3.6]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.3.5...v0.3.6
- [0.3.3]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.3.2...v0.3.3
- [0.3.2]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.3.1...v0.3.2
+[0.3.3]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.3.2...v0.3.3
+[0.3.2]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.3.0...v0.3.1
 [0.2.8]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.2.7...v0.2.8
 [0.2.7]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.2.6...v0.2.7

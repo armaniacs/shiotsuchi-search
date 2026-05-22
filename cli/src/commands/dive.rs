@@ -362,12 +362,20 @@ mod tests {
 
     #[test]
     fn test_dive_vec_mode_fails_without_model() {
-        // Ensure no model file is found regardless of the local environment
+        // Use a guard to always restore env vars, even if the test panics
+        struct EnvGuard;
+        impl Drop for EnvGuard {
+            fn drop(&mut self) {
+                std::env::remove_var("SHIOTSUCHI_EMBED_MODEL_PATH");
+                std::env::remove_var("XDG_DATA_HOME");
+            }
+        }
+
         std::env::set_var("SHIOTSUCHI_EMBED_MODEL_PATH", "/nonexistent/model.onnx");
 
         let temp = TempDir::new().unwrap();
-        // Isolate XDG fallback so a real model in ~/.local/share is never picked up
         std::env::set_var("XDG_DATA_HOME", temp.path());
+        let _guard = EnvGuard;
 
         let db_file = temp.path().join("test.db");
 
@@ -385,9 +393,5 @@ mod tests {
         };
         let result = run_dive(&args, &db_file);
         assert!(result.is_err());
-
-        // Clean up env vars so they don't leak to other tests
-        std::env::remove_var("SHIOTSUCHI_EMBED_MODEL_PATH");
-        std::env::remove_var("XDG_DATA_HOME");
     }
 }

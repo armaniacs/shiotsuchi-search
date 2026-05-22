@@ -1,7 +1,7 @@
 # ADR-0002: f16 Embedding Quantization
 
 - **Date**: 2026-05-21
-- **Status**: Accepted
+- **Status**: Deferred — pending sqlite-vec v0.2+ (0.1.x does not support FLOAT2)
 - **Branch**: feat-min-size
 
 ## Context
