@@ -735,16 +735,12 @@ mod tests {
         let r2 = index_file(&db, &tokenizer, &path, "default", "test.md", &config);
         assert_eq!(r2, IndexResult::Skipped);
 
-        // Verify the mtime in cache matches the file mtime
+        // Verify the mtime in cache matches the file mtime (both in milliseconds)
         let file_mtime = std::fs::metadata(&path).unwrap()
             .modified().unwrap()
             .duration_since(std::time::UNIX_EPOCH).unwrap()
-            .as_secs() as i64;
+            .as_millis() as i64;
         let cached_mtime = db.cached_mtime("default", "test.md").unwrap().unwrap();
-        // File mtime might have sub-second precision, but cached mtime uses whole seconds.
-        // This assertion validates that the mtime path was taken (not just hash fallback).
-        // With millisecond mtime precision, cached and actual values should match
-        // within a small tolerance (100ms covers filesystem overhead).
         assert!(
             (cached_mtime - file_mtime).abs() <= 100,
             "cached mtime ({}) should match file mtime ({}) within 100ms",
