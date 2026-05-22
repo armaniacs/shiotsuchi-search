@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > For project overview, features, installation, and usage, see [README.md](README.md).
 
+## [0.4.4] - 2026-05-23
+
+### Fixed
+
+- **Revert FLOAT2 schema**: sqlite-vec 0.1.9 does not support `FLOAT2` column type. DDL was silently accepted (treated as `FLOAT32`) but 2048-byte f16 blobs caused `vec0` INSERT failures. Reverted to `FLOAT[1024]` (f32 storage). ADR-0002 updated to Deferred — pending sqlite-vec v0.2+.
+- **mtime change detection**: `file_mtime()` used `as_secs()` which truncated to whole seconds. Two file writes within the same second produced identical mtime, causing the fast path to incorrectly return `Skipped` instead of `Updated`. Changed to `as_millis()`.
+
 ## [0.4.3] - 2026-05-22
 
 ### Added
@@ -502,7 +509,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `docs/MODEL_LICENSES.md` with BSD-3-Clause notice for the bundled tokenizer model
 - `README.md` (English) and `README.ja.md` (Japanese)
 
-[Unreleased]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.4.3...HEAD
+[Unreleased]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.4.4...HEAD
+[0.4.4]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.4.3...v0.4.4
 [0.4.3]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.4.2...v0.4.3
 [0.4.2]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.4.0...v0.4.1
