@@ -18,6 +18,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `toml` 0.8 → 1.1 (internal restructuring: toml_parser + toml_writer split)
 - **ADR-0002**: Updated to accurately reflect deferred status — sqlite-vec v0.1.x silently accepts `FLOAT2` DDL but treats it as `FLOAT` (f32), causing f16 blob INSERT failures. Decision section reworded from "Use FLOAT2" to "Adopt once supported". "Stay with FLOAT" changed from "Rejected" to "De facto current state".
 
+### Fixed
+
+- **License text in landing page**: `docs/index.html` incorrectly displayed "MIT License" in the CTA section and footer. Corrected to `Apache 2.0` to match the project's `LICENSE` file.
+
+### Changed
+
+- **Clippy lint resolution**: Suppressed `too_many_arguments` on `NoteDatabase::reindex_file()` (8 args) and `shiotsuchi_core::search::search()` (7 args) with detailed rationale. Suppressed `type_complexity` on `index_directory()` return type. Added `#[allow(clippy::const_evaluatable_checked)]` pattern in build_info test.
+- **Magic number eliminated**: Replaced hardcoded `0.7071` in embedder tests with `EXPECTED_ORTHOGONAL_COSINE = f32::consts::FRAC_1_SQRT_2`.
+- **Error propagation**: `stats()` in `db.rs` changed `unwrap_or(0)` to `?` — query failures are now propagated instead of silently defaulting to zero.
+- **Needless borrows removed**: Removed extra `&` on `temp.path()` calls in `e2e/src/lib.rs` and `&result.unwrap()` in `cli/src/commands/clean.rs` and `cli/src/commands/init.rs` tests.
+- **Config test cleanup**: Tests in `cli/src/config.rs` migrated from mutable field assignment to inline struct initialization with `..Default::default()`.
+- **Remove dead assert**: Eliminated `assert!(true, …)` stub from `indexer.rs` test that provided no coverage value.
+
 ### Removed
 
 - **Transitive dependencies**: `thiserror v1`, `base64 v0.21`, `hashlink v0.8`, `toml_edit`, `toml_write`, `nom` — no longer pulled in by any upgraded dependency.

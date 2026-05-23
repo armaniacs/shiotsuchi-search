@@ -359,7 +359,7 @@ mod tests {
         assert_eq!(entries.len(), 1, "Should have exactly one backup file");
 
         // Verify backup content is the original
-        let backup_content = fs::read_to_string(&entries[0].path()).unwrap();
+        let backup_content = fs::read_to_string(entries[0].path()).unwrap();
         assert_eq!(backup_content, "original content");
     }
 
@@ -431,7 +431,7 @@ mod tests {
         assert_eq!(backup_files.len(), 1);
 
         // Content preserved
-        let content = fs::read_to_string(&backup_files[0].path()).unwrap();
+        let content = fs::read_to_string(backup_files[0].path()).unwrap();
         assert_eq!(content, "test data");
     }
 
@@ -553,7 +553,7 @@ mod tests {
         assert_eq!(backup_files.len(), 1, "should have exactly one backup file");
 
         use std::os::unix::fs::PermissionsExt;
-        let metadata = fs::metadata(&backup_files[0].path()).unwrap();
+        let metadata = fs::metadata(backup_files[0].path()).unwrap();
         let permissions = metadata.permissions();
         let mode = permissions.mode();
         assert_eq!(

@@ -285,11 +285,19 @@ fn extract_embeddings(
     }
 }
 
+/// Expected L2-normalized component value after mean-pooling two
+/// orthogonal one-hot vectors of equal magnitude: 1/√2 ≈ 0.7071.
+/// Used in tests to assert correct L2-normalization of pooled embeddings.
+pub const EXPECTED_ORTHOGONAL_COSINE: f32 = std::f32::consts::FRAC_1_SQRT_2;
+
 /// Mean pooling followed by L2 normalization.
 ///
-/// This is the standard sentence embedding post-processing:
+/// This is standard sentence-embedding post-processing:
 /// 1. Average the token embeddings (excluding padding tokens)
-/// 2. Normalize to unit length
+/// 2. Normalize to unit length (L2 norm).
+///
+/// Mathematically, orthonormal vectors produced by mean-pooling + L2 normalize
+/// yield dot-products equal to `EXPECTED_ORTHOGONAL_COSINE = FRAC_1_SQRT_2`.
 fn mean_pool_l2_normalize(
     flat: &[f32],
     batch_idx: usize,
@@ -483,10 +491,10 @@ mod tests {
         let result = mean_pool_l2_normalize(&flat, 0, seq_len, hidden, max_len, &attention_mask);
 
         // Mean of [1,0,0,0] and [0,1,0,0] = [0.5, 0.5, 0, 0]
-        // Norm = sqrt(0.5^2 + 0.5^2) = sqrt(0.5) ≈ 0.7071
-        // After L2 norm: [0.5/0.7071, 0.5/0.7071, 0, 0] ≈ [0.7071, 0.7071, 0, 0]
-        assert!((result[0] - 0.7071).abs() < 0.001, "expected ~0.7071, got {}", result[0]);
-        assert!((result[1] - 0.7071).abs() < 0.001, "expected ~0.7071, got {}", result[1]);
+        // Norm = sqrt(0.5^2 + 0.5^2) = sqrt(0.5) = 1/√2
+        // After L2 norm: [0.5/(1/√2), ...] = [0.5·√2, ...] = EXPECTED_ORTHOGONAL_COSINE
+        assert!((result[0] - EXPECTED_ORTHOGONAL_COSINE).abs() < 0.001, "expected ~1/√2, got {}", result[0]);
+        assert!((result[1] - EXPECTED_ORTHOGONAL_COSINE).abs() < 0.001, "expected ~1/√2, got {}", result[1]);
         assert!(result[2].abs() < 0.001);
         assert!(result[3].abs() < 0.001);
     }

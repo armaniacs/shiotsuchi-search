@@ -52,6 +52,10 @@ mod tests {
 
     #[test]
     fn dependency_features_use_core_constants() {
-        assert!(DEP_VAPORETTO_CHARWISE_PMA);
+        // Inside a `const {}` block, the assert is evaluated at compile time so
+        // a value flip to `false` is caught immediately during compilation,
+        // not at test runtime.  Clippy's `const_evaluatable_checked` lint
+        // covers this exact pattern.
+        const _: () = const { assert!(DEP_VAPORETTO_CHARWISE_PMA) };
     }
 }

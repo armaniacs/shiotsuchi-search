@@ -7,6 +7,7 @@ pub use shiotsuchi_core::config::{
 mod tests {
     use super::*;
     use shiotsuchi_core::paths::default_db_path as core_default_db_path;
+    use std::collections::HashMap;
     use std::fs;
     use std::path::PathBuf;
     use tempfile::TempDir;
@@ -107,11 +108,13 @@ mod tests {
 
     #[test]
     fn test_resolved_vaults_legacy_format() {
-        let mut config = ShiotsuchiConfig::default();
-        config.vault = Some(VaultEntry {
-            notes_dir: Some(PathBuf::from("/tmp/notes")),
-            db_path: None,
-        });
+        let config = ShiotsuchiConfig {
+            vault: Some(VaultEntry {
+                notes_dir: Some(PathBuf::from("/tmp/notes")),
+                db_path: None,
+            }),
+            ..Default::default()
+        };
         let vaults = config.resolved_vaults();
         assert_eq!(vaults.len(), 1);
         assert_eq!(vaults[0].0, "default");
@@ -144,18 +147,24 @@ mod tests {
 
     #[test]
     fn test_resolved_vaults_legacy_and_new_merged() {
-        let mut config = ShiotsuchiConfig::default();
-        config.vault = Some(VaultEntry {
-            notes_dir: Some(PathBuf::from("/legacy/notes")),
-            db_path: None,
-        });
-        config.vaults.insert(
+        let mut named_vaults = std::collections::HashMap::new();
+        named_vaults.insert(
             "work".to_string(),
             VaultEntry {
                 notes_dir: Some(PathBuf::from("/work/notes")),
-                db_path: None,
+                ..Default::default()
             },
         );
+        let config = ShiotsuchiConfig {
+            vault: Some(VaultEntry {
+                notes_dir: Some(PathBuf::from("/legacy/notes")),
+                ..Default::default()
+            }),
+            vaults: named_vaults,
+            database: DatabaseConfig::default(),
+            indexing: IndexingConfig::default(),
+            watcher: WatcherConfig::default(),
+        };
         let vaults = config.resolved_vaults();
         assert_eq!(vaults.len(), 2);
         assert_eq!(vaults[0].0, "default");
@@ -166,29 +175,47 @@ mod tests {
 
     #[test]
     fn test_resolved_db_path_from_database() {
-        let mut config = ShiotsuchiConfig::default();
-        config.database.db_path = Some(PathBuf::from("/custom/db.sqlite"));
+        let config = ShiotsuchiConfig {
+            database: DatabaseConfig {
+                db_path: Some(PathBuf::from("/custom/db.sqlite")),
+            },
+            vaults: HashMap::new(),
+            vault: None,
+            indexing: IndexingConfig::default(),
+            watcher: WatcherConfig::default(),
+        };
         assert_eq!(config.resolved_db_path(), PathBuf::from("/custom/db.sqlite"));
     }
 
     #[test]
     fn test_resolved_db_path_from_legacy_vault() {
-        let mut config = ShiotsuchiConfig::default();
-        config.vault = Some(VaultEntry {
-            notes_dir: None,
-            db_path: Some(PathBuf::from("/legacy/db.sqlite")),
-        });
+        let config = ShiotsuchiConfig {
+            vault: Some(VaultEntry {
+                notes_dir: None,
+                db_path: Some(PathBuf::from("/legacy/db.sqlite")),
+            }),
+            database: DatabaseConfig::default(),
+            vaults: HashMap::new(),
+            indexing: IndexingConfig::default(),
+            watcher: WatcherConfig::default(),
+        };
         assert_eq!(config.resolved_db_path(), PathBuf::from("/legacy/db.sqlite"));
     }
 
     #[test]
     fn test_resolved_db_path_database_overrides_legacy() {
-        let mut config = ShiotsuchiConfig::default();
-        config.database.db_path = Some(PathBuf::from("/new/db.sqlite"));
-        config.vault = Some(VaultEntry {
-            notes_dir: None,
-            db_path: Some(PathBuf::from("/old/db.sqlite")),
-        });
+        let config = ShiotsuchiConfig {
+            database: DatabaseConfig {
+                db_path: Some(PathBuf::from("/new/db.sqlite")),
+            },
+            vault: Some(VaultEntry {
+                notes_dir: None,
+                db_path: Some(PathBuf::from("/old/db.sqlite")),
+            }),
+            vaults: HashMap::new(),
+            indexing: IndexingConfig::default(),
+            watcher: WatcherConfig::default(),
+        };
         assert_eq!(config.resolved_db_path(), PathBuf::from("/new/db.sqlite"));
     }
 

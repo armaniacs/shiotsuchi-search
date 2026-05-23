@@ -237,7 +237,7 @@ mod tests {
         fs::write(&file, &data).unwrap();
         let result = backup_file(&file);
         assert!(result.is_some());
-        let backed = std::fs::read(&result.unwrap()).unwrap();
+        let backed = std::fs::read(result.unwrap()).unwrap();
         assert_eq!(backed, data, "backed-up content should match original");
     }
 

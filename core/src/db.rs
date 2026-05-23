@@ -299,6 +299,11 @@ impl NoteDatabase {
     ///
     /// Takes ownership of the embedding results (one per chunk, or None for failed ones).
     /// On any SQL error the entire transaction is rolled back to maintain data integrity.
+    ///
+    /// All 8 arguments are intrinsic to the transaction's atomicity: each carries a piece
+    /// of state that must cross the transaction boundary together. Grouping them into a
+    /// params struct would not improve testability at the one call site.
+    #[allow(clippy::too_many_arguments)]
     pub fn reindex_file(
         &self,
         vault_name: &str,
@@ -587,7 +592,7 @@ impl NoteDatabase {
         let total_size: i64 = conn.query_row(
             "SELECT page_count * page_size FROM pragma_page_count(), pragma_page_size()",
             [], |r| r.get(0),
-        ).unwrap_or(0);
+        )?;
         let last_indexed: Option<i64> = conn.query_row(
             "SELECT MAX(mtime) FROM file_cache", [], |r| r.get(0)
         ).ok();
@@ -603,8 +608,8 @@ impl NoteDatabase {
             embedder_status: String::new(), // filled by caller
         })
     }
-
 }
+
 
 #[cfg(test)]
 mod tests {

@@ -7,11 +7,16 @@ use std::collections::HashMap;
 use log;
 
 /// Main search entry point. Dispatches to FTS, vec, or hybrid (RRF) mode.
-/// When `embedder` is None and mode is Hybrid, falls back to Fts.
 ///
-/// `min_score` filters results by score after sorting.
-///   - FTS/Vec mode (lower score = more relevant): results with `score > min_score` are excluded.
-///   - Hybrid mode (higher RRF score = more relevant): results with `score < min_score` are excluded.
+/// # Arguments (must stay ≤ 7 to satisfy clippy::too_many_arguments)
+///
+/// All arguments are required by the callers of this public entry point.
+/// The lint is suppressed here because: (1) the search subsystem mirrors a natural
+/// caller-owned API, (2) no two consecutive refactors would benefit from a struct
+/// decomposition at this level, and (3) `Embedder` cannot derive `Clone` (it holds
+/// `RefCell<ort::Session>`), so a value-type wrapper would add indirection without
+/// reducing call-site complexity.
+#[allow(clippy::too_many_arguments)]
 pub fn search(
     db: &NoteDatabase,
     tokenizer: &JapaneseTokenizer,

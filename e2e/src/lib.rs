@@ -23,8 +23,7 @@ mod tests {
         if debug.exists() {
             return debug;
         }
-        let release = workspace_root.join("target/release/shiotsuchi");
-        release
+        workspace_root.join("target/release/shiotsuchi")
     }
 
     fn mcp_bin() -> std::path::PathBuf {
@@ -115,7 +114,7 @@ mod tests {
         let db = temp.path().join("db.sqlite3");
         setup_vault(&temp);
 
-        let out = cmd(&["chart"], &temp.path(), &db);
+        let out = cmd(&["chart"], temp.path(), &db);
         assert!(
             out.status.success(),
             "chart failed: {}",
@@ -136,8 +135,8 @@ mod tests {
         let db = temp.path().join("db.sqlite3");
         setup_vault(&temp);
 
-        cmd(&["chart", "--quiet"], &temp.path(), &db);
-        let out = cmd(&["dive", "project"], &temp.path(), &db);
+        cmd(&["chart", "--quiet"], temp.path(), &db);
+        let out = cmd(&["dive", "project"], temp.path(), &db);
         assert!(out.status.success());
         let stdout = String::from_utf8_lossy(&out.stdout);
         assert!(
@@ -154,8 +153,8 @@ mod tests {
         let db = temp.path().join("db.sqlite3");
         setup_vault(&temp);
 
-        cmd(&["chart", "--quiet"], &temp.path(), &db);
-        let out = cmd(&["dive", "project", "--json"], &temp.path(), &db);
+        cmd(&["chart", "--quiet"], temp.path(), &db);
+        let out = cmd(&["dive", "project", "--json"], temp.path(), &db);
         assert!(out.status.success());
         let stdout = String::from_utf8_lossy(&out.stdout);
         let parsed: Result<serde_json::Value, _> = serde_json::from_str(&stdout);
@@ -170,10 +169,10 @@ mod tests {
         let db = temp.path().join("db.sqlite3");
         setup_vault(&temp);
 
-        cmd(&["chart", "--quiet"], &temp.path(), &db);
+        cmd(&["chart", "--quiet"], temp.path(), &db);
         let out = cmd(
             &["dive", "xyzzy-no-match-query", "--json", "--mode", "fts"],
-            &temp.path(),
+            temp.path(),
             &db,
         );
         assert!(out.status.success());
@@ -194,8 +193,8 @@ mod tests {
         let db = temp.path().join("db.sqlite3");
         setup_vault(&temp);
 
-        cmd(&["chart", "--quiet"], &temp.path(), &db);
-        let out = cmd(&["tide"], &temp.path(), &db);
+        cmd(&["chart", "--quiet"], temp.path(), &db);
+        let out = cmd(&["tide"], temp.path(), &db);
         assert!(out.status.success());
         let stdout = String::from_utf8_lossy(&out.stdout);
         assert!(
@@ -213,8 +212,8 @@ mod tests {
         let db = temp.path().join("db.sqlite3");
         setup_vault(&temp);
 
-        cmd(&["chart", "--quiet"], &temp.path(), &db);
-        let out = cmd(&["log"], &temp.path(), &db);
+        cmd(&["chart", "--quiet"], temp.path(), &db);
+        let out = cmd(&["log"], temp.path(), &db);
         assert!(
             out.status.success(),
             "log failed: {}",
@@ -539,7 +538,7 @@ mod tests {
         let temp = TempDir::new().unwrap();
         let db = temp.path().join("db.sqlite3");
         setup_vault(&temp);
-        cmd(&["chart", "--quiet"], &temp.path(), &db);
+        cmd(&["chart", "--quiet"], temp.path(), &db);
 
         let requests = vec![
             mcp_request(
@@ -557,7 +556,7 @@ mod tests {
             ),
         ];
 
-        let responses = run_mcp(&requests, &temp.path(), &db);
+        let responses = run_mcp(&requests, temp.path(), &db);
         let tool_resp = responses
             .into_iter()
             .find(|r| r["id"] == 2 && r.get("result").is_some());
@@ -577,7 +576,7 @@ mod tests {
         let temp = TempDir::new().unwrap();
         let db = temp.path().join("db.sqlite3");
         setup_vault(&temp);
-        cmd(&["chart", "--quiet"], &temp.path(), &db);
+        cmd(&["chart", "--quiet"], temp.path(), &db);
 
         let requests = vec![
             mcp_request(
@@ -595,7 +594,7 @@ mod tests {
             ),
         ];
 
-        let responses = run_mcp(&requests, &temp.path(), &db);
+        let responses = run_mcp(&requests, temp.path(), &db);
         let tool_resp = responses
             .into_iter()
             .find(|r| r["id"] == 2 && r.get("result").is_some());
@@ -615,7 +614,7 @@ mod tests {
         let temp = TempDir::new().unwrap();
         let db = temp.path().join("db.sqlite3");
         setup_vault(&temp);
-        cmd(&["chart", "--quiet"], &temp.path(), &db);
+        cmd(&["chart", "--quiet"], temp.path(), &db);
 
         let requests = vec![
             mcp_request(
@@ -633,7 +632,7 @@ mod tests {
             ),
         ];
 
-        let responses = run_mcp(&requests, &temp.path(), &db);
+        let responses = run_mcp(&requests, temp.path(), &db);
         let tool_resp = responses
             .into_iter()
             .find(|r| r["id"] == 2 && r.get("result").is_some());

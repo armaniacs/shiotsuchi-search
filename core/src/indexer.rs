@@ -101,7 +101,11 @@ pub fn index_file(
 /// If `embedder` is Some, also inserts vector embeddings.
 /// Returns (per-file results, invalid pattern count).
 ///
-/// If `progress` is provided, it is called with `(current, total)` after each file.
+/// # Returns
+///
+/// `(Vec<(vault_name, relative_path, IndexResult)>, invalid_pattern_count)` on success.
+/// The caller always destructures the pair; a struct would only add field-name noise.
+#[allow(clippy::type_complexity)]
 pub fn index_directory(
     db: &NoteDatabase,
     tokenizer: &JapaneseTokenizer,
@@ -775,7 +779,6 @@ mod tests {
     fn test_reindex_file_compile_check() {
         // Compile-time check: reindex_file is reachable from
         // index_file_with_embedder. Full coverage requires an ONNX model.
-        assert!(true, "reindex_file compiled successfully");
     }
 
     #[test]
