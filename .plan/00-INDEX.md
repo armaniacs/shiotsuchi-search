@@ -64,4 +64,6 @@
 | `plan-h4-observability.md` | 構造化オブザーバビリティ計画 — `doctor` コマンドのみ実装。tracing/metrics は過剰と判断し deferred |
 | `plan-h6-RAG.md` | RAG 拡張設計仕様書 — Level 1+2 チャンク/ベクトル検索/RRF/Embedding/差分更新 全て実装済み (~85%) |
 | `plan-h7-MCP.md` | MCP サーバー拡張設計仕様書 — 4 ツール/セキュリティ対策/出力フォーマット 全て実装済み (~90%) |
+| `2026-05-20-1726-review-feat-min-size.md` | feat-min-size Checking Team レビュー (83/100, 15指摘中12修正) — feat-min-size は main にマージ済み |
+| `2026-05-21-0528-dig-findings.md` | feat-min-size レビューの深掘りセッション (7決定事項、全て実行済み) |
 
