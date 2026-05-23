@@ -15,7 +15,40 @@ rustc --version   # 1.75 以上であること
 cargo --version
 ```
 
-## インストール手順
+## 方法 A — cargo でインストール（最速）
+
+git clone 不要で、最短でインストールできます。
+
+### crates.io から
+
+```sh
+cargo install shiotsuchi shiotsuchi-mcp
+```
+
+### git から（最新 main ブランチ）
+
+```sh
+cargo install --git https://github.com/armaniacs/shiotsuchi-search shiotsuchi shiotsuchi-mcp
+```
+
+> **実行時にモデルが必要です。** `cargo install` はビルド時に Vaporetto トークナイザモデルを
+> バイナリへ埋め込みません。`shiotsuchi` を実行する前に、モデルをダウンロードして
+> `SHIOTSUCHI_MODEL_PATH` 環境変数で指定してください：
+>
+> ```sh
+> # モデルをダウンロード（curl が必要）
+> curl -sL "https://github.com/daac-tools/vaporetto-models/releases/download/v0.5.0/bccwj-suw+unidic_pos+kana.tar.xz" \
+>   | tar -xJf - --strip-components=1 "bccwj-suw+unidic_pos+kana/bccwj-suw+unidic_pos+kana.model.zst"
+> mkdir -p ~/.local/share/shiotsuchi
+> mv bccwj-suw+unidic_pos+kana.model.zst ~/.local/share/shiotsuchi/
+>
+> # ~/.bashrc または ~/.zshrc に追加
+> export SHIOTSUCHI_MODEL_PATH="$HOME/.local/share/shiotsuchi/bccwj-suw+unidic_pos+kana.model.zst"
+> ```
+>
+> 設定後は、下記の **動作確認** と **基本的な使い方** の手順に進んでください。
+
+## 方法 B — ソースからビルド（モデル埋め込み、推奨）
 
 ### 1. リポジトリをクローン
 
@@ -225,6 +258,7 @@ shiotsuchi dive --mode hybrid "検索クエリ"
 
 | 症状 | 対処 |
 |------|------|
+| `cargo install` 後に `no model available` | モデルをダウンロードして `SHIOTSUCHI_MODEL_PATH` を設定してください（上記 方法 A 参照） |
 | `command not found: shiotsuchi` | `~/.local/bin`（または `~/.cargo/bin`）を `PATH` に追加 |
 | `rustc: command not found` | `curl https://sh.rustup.rs -sSf \| sh` で Rust をインストール |
 | `curl: command not found` | パッケージマネージャで curl をインストール |

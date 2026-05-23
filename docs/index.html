@@ -33,6 +33,8 @@
     .lang-en.active, .lang-ja.active { display: contents; }
     /* tab active state */
     .tab-btn.active { background: #0ea5e9; color: #fff; }
+    /* install method tab active state */
+    .install-tab.active { color: #38bdf8; border-bottom-color: #0ea5e9; }
     /* fade-in on scroll */
     .reveal { opacity: 0; transform: translateY(20px); transition: opacity .5s, transform .5s; }
     .reveal.visible { opacity: 1; transform: none; }
@@ -80,17 +82,29 @@
       <span class="lang-en active">Sub-second full-text search across 10,000+ notes. Works with Obsidian and any Markdown vault. Integrates with Claude Desktop via MCP.</span>
       <span class="lang-ja">1万ノート超でもサブ秒で全文検索。ObsidianなどMarkdownベースのノートに対応。Claude DesktopとMCP連携も可能。</span>
     </p>
-    <!-- install snippet -->
-    <div class="inline-flex items-center gap-3 rounded-lg border border-gray-700 bg-gray-900 px-5 py-3 text-left text-sm">
-      <span class="text-gray-500 select-none">$</span>
-      <code class="text-ocean-400">git clone https://github.com/armaniacs/shiotsuchi-search.git &amp;&amp; cd shiotsuchi-search &amp;&amp; make install</code>
-      <button onclick="copyInstall(this)" title="Copy" class="ml-2 text-gray-600 hover:text-ocean-400 transition-colors shrink-0">
-        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
-      </button>
+    <!-- install snippet with method tabs -->
+    <div class="inline-block rounded-xl border border-gray-700 bg-gray-900 text-left text-sm overflow-hidden">
+      <div class="flex border-b border-gray-800 text-xs">
+        <button id="itab-cargo" class="install-tab active px-4 py-2 border-b-2 border-ocean-500 transition-colors" onclick="setInstall('cargo')">cargo install</button>
+        <button id="itab-src" class="install-tab px-4 py-2 text-gray-500 border-b-2 border-transparent transition-colors" onclick="setInstall('src')">git + make</button>
+      </div>
+      <div id="ipane-cargo" class="flex items-center gap-3 px-5 py-3">
+        <span class="text-gray-500 select-none">$</span>
+        <code class="text-ocean-400">cargo install shiotsuchi shiotsuchi-mcp</code>
+        <button onclick="copyCmd('cargo install shiotsuchi shiotsuchi-mcp', this)" title="Copy" class="ml-2 text-gray-600 hover:text-ocean-400 transition-colors shrink-0">
+          <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+        </button>
+      </div>
+      <div id="ipane-src" class="hidden flex items-center gap-3 px-5 py-3">
+        <span class="text-gray-500 select-none">$</span>
+        <code class="text-ocean-400">git clone https://github.com/armaniacs/shiotsuchi-search.git &amp;&amp; cd shiotsuchi-search &amp;&amp; make install</code>
+        <button onclick="copyCmd('git clone https://github.com/armaniacs/shiotsuchi-search.git && cd shiotsuchi-search && make install', this)" title="Copy" class="ml-2 text-gray-600 hover:text-ocean-400 transition-colors shrink-0">
+          <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+        </button>
+      </div>
     </div>
-    <p class="mt-4 text-xs text-gray-600">
-      <span class="lang-en active">Requires Rust 1.75+ · macOS / Linux</span>
-      <span class="lang-ja">Rust 1.75+ · macOS / Linux 対応</span>
+    <p id="install-note" class="mt-4 text-xs text-gray-600">
+      <!-- rendered by setInstall() + setLang() via JS -->
     </p>
   </div>
 </section>
@@ -229,62 +243,88 @@ Config written to ~/.config/shiotsuchi/config.toml</span>
 <!-- ─── Install ───────────────────────────────────────────────────────── -->
 <section class="border-b border-gray-800 py-20">
   <div class="mx-auto max-w-5xl px-6">
-    <h2 class="reveal mb-12 text-center text-2xl font-semibold">
+    <h2 class="reveal mb-3 text-center text-2xl font-semibold">
       <span class="lang-en active">Installation</span>
       <span class="lang-ja">インストール</span>
     </h2>
+    <p class="reveal mb-10 text-center text-sm text-gray-500">
+      <span class="lang-en active">Choose the method that suits you</span>
+      <span class="lang-ja">用途に合わせて選んでください</span>
+    </p>
     <div class="grid gap-6 sm:grid-cols-3">
 
-      <div class="reveal">
-        <div class="mb-4 flex items-center gap-3">
-          <span class="flex h-8 w-8 items-center justify-center rounded-full border border-ocean-500 text-ocean-400 text-sm font-semibold">1</span>
+      <!-- Method A: cargo install (crates.io) -->
+      <div class="reveal rounded-lg border border-gray-800 bg-gray-900 p-6">
+        <div class="mb-3 flex items-center gap-3">
+          <span class="flex h-8 w-8 items-center justify-center rounded-full border border-ocean-500 text-ocean-400 text-sm font-semibold">A</span>
           <h3 class="font-semibold">
-            <span class="lang-en active">Clone</span>
-            <span class="lang-ja">クローン</span>
+            <span class="lang-en active">cargo install</span>
+            <span class="lang-ja">cargo install</span>
           </h3>
         </div>
-        <pre class="rounded-lg border border-gray-800 bg-gray-900 p-4 text-xs overflow-x-auto"><span class="text-ocean-400">git clone</span> https://github.com/\
+        <pre class="rounded-lg border border-gray-800 bg-gray-950 p-3 text-xs overflow-x-auto leading-5"><span class="text-ocean-400">cargo install</span> shiotsuchi \
+  shiotsuchi-mcp</pre>
+        <p class="mt-3 text-xs text-gray-500 leading-relaxed">
+          <span class="lang-en active">Fastest. No git clone needed. Requires Rust 1.75+. Set <code class="text-gray-400">SHIOTSUCHI_MODEL_PATH</code> after install — <a href="INSTALL.md#option-a--install-via-cargo" class="text-ocean-400 hover:underline">see INSTALL.md</a>.</span>
+          <span class="lang-ja">最速。git clone 不要。Rust 1.75+ が必要。インストール後に <code class="text-gray-400">SHIOTSUCHI_MODEL_PATH</code> を設定 — <a href="INSTALL.ja.md#方法-a--cargo-でインストール最速" class="text-ocean-400 hover:underline">INSTALL.ja.md 参照</a>。</span>
+        </p>
+      </div>
+
+      <!-- Method B: cargo install --git -->
+      <div class="reveal rounded-lg border border-gray-800 bg-gray-900 p-6" style="transition-delay:.1s">
+        <div class="mb-3 flex items-center gap-3">
+          <span class="flex h-8 w-8 items-center justify-center rounded-full border border-ocean-500 text-ocean-400 text-sm font-semibold">B</span>
+          <h3 class="font-semibold">
+            <span class="lang-en active">cargo install --git</span>
+            <span class="lang-ja">cargo install --git</span>
+          </h3>
+        </div>
+        <pre class="rounded-lg border border-gray-800 bg-gray-950 p-3 text-xs overflow-x-auto leading-5"><span class="text-ocean-400">cargo install</span> --git \
+  https://github.com/armaniacs/\
+  shiotsuchi-search \
+  shiotsuchi shiotsuchi-mcp</pre>
+        <p class="mt-3 text-xs text-gray-500 leading-relaxed">
+          <span class="lang-en active">Latest git HEAD. Same model requirement as option A.</span>
+          <span class="lang-ja">最新の git HEAD を使用。モデルの設定手順は方法 A と同じ。</span>
+        </p>
+      </div>
+
+      <!-- Method C: git clone + make install (recommended) -->
+      <div class="reveal rounded-lg border border-gray-800 bg-gray-900 p-6" style="transition-delay:.2s">
+        <div class="mb-3 flex items-center gap-3">
+          <span class="flex h-8 w-8 items-center justify-center rounded-full border border-ocean-500 text-ocean-400 text-sm font-semibold">C</span>
+          <h3 class="font-semibold">
+            <span class="lang-en active">git + make install <span class="text-xs text-ocean-400">(recommended)</span></span>
+            <span class="lang-ja">git + make install <span class="text-xs text-ocean-400">（推奨）</span></span>
+          </h3>
+        </div>
+        <pre class="rounded-lg border border-gray-800 bg-gray-950 p-3 text-xs overflow-x-auto leading-5"><span class="text-ocean-400">git clone</span> https://github.com/\
   armaniacs/shiotsuchi-search.git
-<span class="text-ocean-400">cd</span> shiotsuchi-search</pre>
-        <p class="mt-3 text-xs text-gray-500">
-          <span class="lang-en active">Requires Git and Rust 1.75+</span>
-          <span class="lang-ja">Git と Rust 1.75+ が必要</span>
-        </p>
-      </div>
-
-      <div class="reveal" style="transition-delay:.1s">
-        <div class="mb-4 flex items-center gap-3">
-          <span class="flex h-8 w-8 items-center justify-center rounded-full border border-ocean-500 text-ocean-400 text-sm font-semibold">2</span>
-          <h3 class="font-semibold">
-            <span class="lang-en active">Build &amp; install</span>
-            <span class="lang-ja">ビルド &amp; インストール</span>
-          </h3>
-        </div>
-        <pre class="rounded-lg border border-gray-800 bg-gray-900 p-4 text-xs overflow-x-auto"><span class="text-ocean-400">make</span> install</pre>
-        <p class="mt-3 text-xs text-gray-500">
-          <span class="lang-en active">Downloads model, compiles, installs to <code class="text-gray-400">~/.local/bin</code></span>
-          <span class="lang-ja">モデルをダウンロードしてコンパイル。<code class="text-gray-400">~/.local/bin</code> にインストール</span>
-        </p>
-      </div>
-
-      <div class="reveal" style="transition-delay:.2s">
-        <div class="mb-4 flex items-center gap-3">
-          <span class="flex h-8 w-8 items-center justify-center rounded-full border border-ocean-500 text-ocean-400 text-sm font-semibold">3</span>
-          <h3 class="font-semibold">
-            <span class="lang-en active">Start searching</span>
-            <span class="lang-ja">検索開始</span>
-          </h3>
-        </div>
-        <pre class="rounded-lg border border-gray-800 bg-gray-900 p-4 text-xs overflow-x-auto"><span class="text-ocean-400">shiotsuchi</span> init --notes-dir ~/Notes
-<span class="text-ocean-400">shiotsuchi</span> chart
-<span class="text-ocean-400">shiotsuchi</span> dive "your query"</pre>
-        <p class="mt-3 text-xs text-gray-500">
-          <span class="lang-en active">See <a href="https://github.com/armaniacs/shiotsuchi-search/blob/main/docs/INSTALL.md" class="text-ocean-400 hover:underline">INSTALL.md</a> for full details</span>
-          <span class="lang-ja">詳細は <a href="https://github.com/armaniacs/shiotsuchi-search/blob/main/docs/INSTALL.ja.md" class="text-ocean-400 hover:underline">INSTALL.ja.md</a> を参照</span>
+<span class="text-ocean-400">cd</span> shiotsuchi-search
+<span class="text-ocean-400">make</span> install</pre>
+        <p class="mt-3 text-xs text-gray-500 leading-relaxed">
+          <span class="lang-en active">Model is embedded at compile time. No extra env var needed. Installs to <code class="text-gray-400">~/.local/bin</code>.</span>
+          <span class="lang-ja">モデルをコンパイル時に埋め込み。環境変数の設定不要。<code class="text-gray-400">~/.local/bin</code> にインストール。</span>
         </p>
       </div>
 
     </div>
+
+    <!-- Start searching (full-width, below grid) -->
+    <div class="reveal mt-10 rounded-lg border border-gray-800 bg-gray-900 p-6" style="transition-delay:.3s">
+      <h3 class="mb-4 font-semibold text-gray-100">
+        <span class="lang-en active">Start searching</span>
+        <span class="lang-ja">検索開始</span>
+      </h3>
+      <pre class="rounded-lg border border-gray-800 bg-gray-950 p-4 text-xs overflow-x-auto leading-6"><span class="text-ocean-400">shiotsuchi</span> init --notes-dir ~/Notes
+<span class="text-ocean-400">shiotsuchi</span> chart
+<span class="text-ocean-400">shiotsuchi</span> dive "your query"</pre>
+      <p class="mt-3 text-xs text-gray-500">
+        <span class="lang-en active">See <a href="https://github.com/armaniacs/shiotsuchi-search/blob/main/docs/INSTALL.md" class="text-ocean-400 hover:underline">INSTALL.md</a> for full details</span>
+        <span class="lang-ja">詳細は <a href="https://github.com/armaniacs/shiotsuchi-search/blob/main/docs/INSTALL.ja.md" class="text-ocean-400 hover:underline">INSTALL.ja.md</a> を参照</span>
+      </p>
+    </div>
+
   </div>
 </section>
 
@@ -489,22 +529,50 @@ Config written to ~/.config/shiotsuchi/config.toml</span>
     document.getElementById('tab-ja').classList.toggle('active', lang === 'ja');
     document.documentElement.lang = lang === 'ja' ? 'ja' : 'en';
     localStorage.setItem('shiotsuchi-lang', lang);
+    if (typeof renderInstallNote === 'function') renderInstallNote();
   }
 
   // Restore preference
   const saved = localStorage.getItem('shiotsuchi-lang');
   if (saved === 'ja') setLang('ja');
 
-  // Copy install command
-  function copyInstall(btn) {
-    const cmd = 'git clone https://github.com/armaniacs/shiotsuchi-search.git && cd shiotsuchi-search && make install';
-    navigator.clipboard.writeText(cmd).then(() => {
+  // Copy command (generic)
+  function copyCmd(text, btn) {
+    navigator.clipboard.writeText(text).then(() => {
       btn.innerHTML = '<svg class="h-4 w-4 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>';
       setTimeout(() => {
         btn.innerHTML = '<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>';
       }, 2000);
     });
   }
+
+  // Install method switcher
+  const installNotes = {
+    cargo: {
+      en: 'Requires Rust 1.75+ · macOS / Linux · Set <code style="color:#9ca3af">SHIOTSUCHI_MODEL_PATH</code> after install — <a href="INSTALL.md" style="color:#38bdf8" class="hover:underline">see INSTALL.md</a>',
+      ja: 'Rust 1.75+ · macOS / Linux 対応 · インストール後に <code style="color:#9ca3af">SHIOTSUCHI_MODEL_PATH</code> を設定 — <a href="INSTALL.ja.md" style="color:#38bdf8" class="hover:underline">INSTALL.ja.md 参照</a>'
+    },
+    src: {
+      en: 'Requires Rust 1.75+ · macOS / Linux · Model is embedded by make install',
+      ja: 'Rust 1.75+ · macOS / Linux 対応 · make install がモデルをコンパイル時に埋め込みます'
+    }
+  };
+  let currentInstall = 'cargo';
+  function setInstall(method) {
+    currentInstall = method;
+    document.getElementById('ipane-cargo').classList.toggle('hidden', method !== 'cargo');
+    document.getElementById('ipane-src').classList.toggle('hidden', method !== 'src');
+    document.getElementById('itab-cargo').classList.toggle('active', method === 'cargo');
+    document.getElementById('itab-src').classList.toggle('active', method === 'src');
+    renderInstallNote();
+  }
+  function renderInstallNote() {
+    const lang = document.getElementById('tab-en').classList.contains('active') ? 'en' : 'ja';
+    document.getElementById('install-note').innerHTML = installNotes[currentInstall][lang];
+  }
+
+  // Render initial install note
+  renderInstallNote();
 
   // Scroll reveal
   const observer = new IntersectionObserver(entries => {

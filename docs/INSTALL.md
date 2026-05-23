@@ -15,7 +15,40 @@ rustc --version   # should be 1.75+
 cargo --version
 ```
 
-## Install
+## Option A — Install via cargo
+
+The fastest way to install — no git clone required.
+
+### From crates.io
+
+```sh
+cargo install shiotsuchi shiotsuchi-mcp
+```
+
+### From git (latest main)
+
+```sh
+cargo install --git https://github.com/armaniacs/shiotsuchi-search shiotsuchi shiotsuchi-mcp
+```
+
+> **Model required at runtime.** `cargo install` does not embed the Vaporetto tokenizer model into
+> the binary. Before running `shiotsuchi`, download the model and point `SHIOTSUCHI_MODEL_PATH`
+> at it:
+>
+> ```sh
+> # Download the model (requires curl)
+> curl -sL "https://github.com/daac-tools/vaporetto-models/releases/download/v0.5.0/bccwj-suw+unidic_pos+kana.tar.xz" \
+>   | tar -xJf - --strip-components=1 "bccwj-suw+unidic_pos+kana/bccwj-suw+unidic_pos+kana.model.zst"
+> mkdir -p ~/.local/share/shiotsuchi
+> mv bccwj-suw+unidic_pos+kana.model.zst ~/.local/share/shiotsuchi/
+>
+> # Add to ~/.bashrc or ~/.zshrc
+> export SHIOTSUCHI_MODEL_PATH="$HOME/.local/share/shiotsuchi/bccwj-suw+unidic_pos+kana.model.zst"
+> ```
+>
+> Once set, continue with the **Verify** and **First use** steps below.
+
+## Option B — Build from source (model embedded, recommended)
 
 ### 1. Clone the repository
 
@@ -226,6 +259,7 @@ If no model is found, `dive` falls back to FTS (keyword search) automatically. P
 
 | Symptom | Fix |
 |---------|-----|
+| `no model available` after `cargo install` | Download model and set `SHIOTSUCHI_MODEL_PATH` — see Option A above |
 | `command not found: shiotsuchi` | Add `~/.local/bin` (or `~/.cargo/bin`) to `PATH` |
 | `rustc: command not found` | Install Rust via `curl https://sh.rustup.rs -sSf \| sh` |
 | `curl: command not found` | Install curl via your package manager |

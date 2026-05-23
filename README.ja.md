@@ -113,7 +113,7 @@ SHIOTSUCHI_MODEL_PATH=models/bccwj-suw+unidic_pos+kana.model.zst \
 
 ## 詳細ドキュメント
 
-- [docs/INSTALL.ja.md](docs/INSTALL.ja.md) — ソースからのビルドとインストール
+- [docs/INSTALL.ja.md](docs/INSTALL.ja.md) — `cargo install` またはソースからのビルドとインストール
 - [docs/CLI-USE.ja.md](docs/CLI-USE.ja.md) — CLI コマンド詳細リファレンス
 - [docs/MCP-SETUP.ja.md](docs/MCP-SETUP.ja.md) — マルチvault MCP セットアップガイド
 - [docs/FTS5.ja.md](docs/FTS5.ja.md) — FTS5 クエリ構文とヒント
