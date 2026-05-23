@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > For project overview, features, installation, and usage, see [README.md](README.md).
 
+## [0.4.6] - 2026-05-23
+
+### Changed
+
+- **Dependency updates**: Upgraded 4 direct dependencies to their latest versions with zero source code changes:
+  - `config` 0.14 → 0.15 (new internal deps: serde-untagged, erased-serde, typeid)
+  - `dialoguer` 0.11 → 0.12 (dropped thiserror v1, uses console 0.16)
+  - `dirs` 5 → 6 (dirs-sys 0.4→0.5, windows-sys 0.48→0.61)
+  - `toml` 0.8 → 1.1 (internal restructuring: toml_parser + toml_writer split)
+- **ADR-0002**: Updated to accurately reflect deferred status — sqlite-vec v0.1.x silently accepts `FLOAT2` DDL but treats it as `FLOAT` (f32), causing f16 blob INSERT failures. Decision section reworded from "Use FLOAT2" to "Adopt once supported". "Stay with FLOAT" changed from "Rejected" to "De facto current state".
+
+### Removed
+
+- **Transitive dependencies**: `thiserror v1`, `base64 v0.21`, `hashlink v0.8`, `toml_edit`, `toml_write`, `nom` — no longer pulled in by any upgraded dependency.
+
 ## [0.4.5] - 2026-05-23
 
 ### Added
@@ -523,7 +538,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `docs/MODEL_LICENSES.md` with BSD-3-Clause notice for the bundled tokenizer model
 - `README.md` (English) and `README.ja.md` (Japanese)
 
-[Unreleased]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.4.5...HEAD
+[Unreleased]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.4.6...HEAD
+[0.4.6]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.4.5...v0.4.6
 [0.4.5]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.4.4...v0.4.5
 [0.4.4]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.4.3...v0.4.4
 [0.4.3]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.4.2...v0.4.3
