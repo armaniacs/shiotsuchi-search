@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > For project overview, features, installation, and usage, see [README.md](README.md).
 
+## [0.4.5] - 2026-05-23
+
+### Added
+
+- **cargo install method**: INSTALL.md and INSTALL.ja.md now document Option A (`cargo install shiotsuchi shiotsuchi-mcp` from crates.io or `--git` from HEAD) with runtime model download instructions. Existing git+make approach becomes Option B (recommended for embedded model).
+
+### Changed
+
+- **Landing page**: Install section reworked with method tabs (`cargo install` / `git + make install`). Three install methods displayed as side-by-side cards (crates.io, git HEAD, git+make).
+
+### Fixed
+
+- **mtime fast-path test**: Test assertion in `indexer.rs` updated from `as_secs()` to `as_millis()` to match `file_mtime()` precision. Removed stale comment about sub-second tolerance.
+
 ## [0.4.4] - 2026-05-23
 
 ### Fixed
@@ -509,7 +523,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `docs/MODEL_LICENSES.md` with BSD-3-Clause notice for the bundled tokenizer model
 - `README.md` (English) and `README.ja.md` (Japanese)
 
-[Unreleased]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.4.4...HEAD
+[Unreleased]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.4.5...HEAD
+[0.4.5]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.4.4...v0.4.5
 [0.4.4]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.4.3...v0.4.4
 [0.4.3]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.4.2...v0.4.3
 [0.4.2]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.4.1...v0.4.2
