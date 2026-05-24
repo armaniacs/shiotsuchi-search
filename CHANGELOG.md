@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > For project overview, features, installation, and usage, see [README.md](README.md).
 
+## [Unreleased]
+
+### Added
+
+- **Interactive fix mode for `shiotsuchi doctor`**: Doctor now detects fixable issues
+  and prompts the user with `[y/N]` to repair them immediately:
+  - Config unknown fields in `[indexing]`: Detected via `toml::Table` comparison with
+    known field list; removed with timestamped backup
+  - Config old `[vault]` format: Migrated to new multi-vault format inline
+  - Database not found: Indexes vault from scratch (reuses `index_directory` path)
+  - Database open/stats failure: Backs up corrupt DB, deletes old files, re-indexes
+- Non-TTY environments skip all interactive prompts and fall back to read-only
+  diagnostics (existing behavior)
+- 13 new tests for unknown field detection, config fix helpers, vault format
+  migration, backup collision handling, index_vault, and rebuild_db
+
+### Changed
+
+- `cli/src/commands/doctor.rs`: `run_doctor` now accepts `cfg`, `vaults`, and
+  `indexing_cfg` parameters; config check attempts actual parsing via `load_from()`
+  instead of only checking file existence
+- `cli/src/commands/clean.rs`: `backup_file()` and `delete_db_files()` changed
+  from `fn` to `pub(crate) fn` for cross-command reuse; `unwrap()` replaced with
+  `unwrap_or_default()` on `duration_since` for panic safety
+
 ## [0.4.6] - 2026-05-23
 
 ### Changed
