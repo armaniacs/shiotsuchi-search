@@ -124,7 +124,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             )?;
         }
         Commands::Doctor(_args) => {
-            commands::doctor::run_doctor(&db_path)?;
+            commands::doctor::run_doctor(&cfg, &db_path, &resolved_vaults, &cfg.indexing)?;
         }
         Commands::Dredge(args) => {
             commands::dredge::run_dredge(

@@ -15,7 +15,7 @@ pub struct CleanArgs {}
 
 /// Copy a single file to `<path>.bak.<timestamp>`.
 /// Returns the backup path if the original existed, None otherwise.
-fn backup_file(path: &Path) -> Option<PathBuf> {
+pub(crate) fn backup_file(path: &Path) -> Option<PathBuf> {
     if !path.exists() {
         return None;
     }
@@ -38,7 +38,7 @@ fn backup_file(path: &Path) -> Option<PathBuf> {
 
     let ts = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .unwrap()
+        .unwrap_or_default()
         .as_secs();
     let backup_name = format!("{}.bak.{}", path.to_string_lossy(), ts);
     let backup_path = PathBuf::from(&backup_name);
@@ -59,7 +59,7 @@ fn backup_file(path: &Path) -> Option<PathBuf> {
 
 /// Remove the DB file and its WAL/SHM companions.
 /// Refuses to follow symlinks to prevent potential file escape attacks.
-fn delete_db_files(db_path: &Path) {
+pub(crate) fn delete_db_files(db_path: &Path) {
     let base = db_path.to_string_lossy();
     let names = [
         base.as_ref().to_string(),
