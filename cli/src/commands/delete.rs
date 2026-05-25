@@ -19,6 +19,10 @@ pub fn run_delete(
         return Err("Invalid path: must be relative and within vault".into());
     }
 
+    if vaults.is_empty() {
+        return Err("No vaults configured. Nothing to delete.".into());
+    }
+
     // Find which vault this file belongs to
     let vault_idx = vaults.iter().position(|(_, vault_dir)| {
         vault_dir.join(path).exists()
@@ -193,12 +197,18 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "index out of bounds")]
-    fn test_empty_vaults_panics_with_clear_message() {
+    fn test_empty_vaults_returns_error() {
         let tmp = TempDir::new().unwrap();
         let args = DeleteArgs {
             path: "note.md".to_string(),
         };
-        let _ = run_delete(&args, &[], &tmp.path().join("test.db"));
+        let result = run_delete(&args, &[], &tmp.path().join("test.db"));
+        assert!(result.is_err());
+        let msg = format!("{}", result.unwrap_err());
+        assert!(
+            msg.contains("No vaults"),
+            "expected 'No vaults' error, got: {}",
+            msg
+        );
     }
 }

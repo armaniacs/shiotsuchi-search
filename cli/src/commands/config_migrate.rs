@@ -56,7 +56,7 @@ pub fn run_config_migrate(args: &ConfigMigrateArgs) -> Result<(), Box<dyn std::e
 
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .unwrap()
+        .unwrap_or_default()
         .as_secs();
     let backup_path = config_path.with_extension(format!("toml.bak.{}", timestamp));
     fs::copy(&config_path, &backup_path)?;
