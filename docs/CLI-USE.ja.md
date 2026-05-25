@@ -216,21 +216,38 @@ shiotsuchi log
 
 ---
 
-### `doctor` — 環境の健全性チェック
+### `doctor` — 環境の健全性チェックと対話的修復
 
 設定ファイル・データベース・Vaporetto トークナイザ・ONNX エンベッダ・vault ディレクトリの各コンポーネントが正常に動作するか一括確認します。
+
+端末で実行すると、修復可能な問題を検出した際に `[y/N]` で対話的に修復するかどうかを尋ねます。非 TTY 環境（パイプ、CI など）では従来通り診断のみ行います。
 
 ```sh
 shiotsuchi doctor
 ```
 
-出力例:
+**修復可能な問題:**
+
+| 問題 | プロンプト | 動作 |
+|------|-----------|------|
+| Config の `[indexing]` に未知フィールド | 未知フィールドを削除しますか？ | 該当キーを削除し、タイムスタンプ付きバックアップを作成 |
+| Config が旧 `[vault]` 形式 | 新しい形式に移行しますか？ | `[database]` + `[vaults.xxx]` 形式に変換、バックアップ作成 |
+| データベースが存在しない | 今すぐインデックスを作成しますか？ | データベースを作成し全 vault をインデックス |
+| データベースが開けない/壊れている | 最初から再構築しますか？ | 破損DBをバックアップ後、削除して再インデックス |
+
+**修復不可の問題** はプロンプトを表示せずヒントメッセージのみ出力します（例: トークナイザ欠如、エンベッダ欠如、vault ディレクトリ不在）。
+
+対話的修復の出力例:
 
 ```
-[ok] Config: /home/name/.config/shiotsuchi/config.toml
+[!!] Config: /home/name/.config/shiotsuchi/config.toml (parse error: unknown field `snippet_lines`)
+    Remove unknown field(s) `snippet_lines` from [indexing]? [y/N] y
+  Backup saved to: config.toml.bak.1712345678.000000
+[ok] Config: fixed
 [ok] Database: /home/name/.cache/shiotsuchi/db.sqlite3 (1,234 files, 5,678 chunks)
 [ok] Tokenizer: Vaporetto model loaded
 [..] Embedder: ONNX model not found (vector search disabled)
+     [hint] Run `shiotsuchi setup` to install the embedder model.
 [ok] Vault 'default': /home/name/Notes
 
 All checks passed.

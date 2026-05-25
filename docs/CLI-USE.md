@@ -216,21 +216,38 @@ shiotsuchi log
 
 ---
 
-### `doctor` — Environment health check
+### `doctor` — Environment health check with interactive repair
 
 Checks that all components of a shiotsuchi installation are working: config file, database, Vaporetto tokenizer, ONNX embedder model, and vault directories.
+
+When run in a terminal, doctor will detect fixable issues and prompt you to repair them interactively with `[y/N]`. In non-TTY environments (pipes, CI), it runs in read-only diagnostic mode.
 
 ```sh
 shiotsuchi doctor
 ```
 
-Example output:
+**Fixable issues:**
+
+| Issue | Prompt | Action |
+|-------|--------|--------|
+| Config unknown field in `[indexing]` | Remove unknown field? | Strips the unknown key, saves timestamped backup |
+| Config old `[vault]` format | Migrate to new format? | Converts to `[database]` + `[vaults.xxx]`, saves backup |
+| Database not found | Index your vault now? | Creates database and indexes all vault files |
+| Database open/stats failure | Rebuild from scratch? | Backs up corrupt DB, deletes old files, re-indexes |
+
+**Non-fixable issues** show a hint instead of a prompt (e.g., missing tokenizer model, embedder model, or vault directory).
+
+Example output with interactive fix:
 
 ```
-[ok] Config: /home/name/.config/shiotsuchi/config.toml
+[!!] Config: /home/name/.config/shiotsuchi/config.toml (parse error: unknown field `snippet_lines`)
+    Remove unknown field(s) `snippet_lines` from [indexing]? [y/N] y
+  Backup saved to: config.toml.bak.1712345678.000000
+[ok] Config: fixed
 [ok] Database: /home/name/.cache/shiotsuchi/db.sqlite3 (1,234 files, 5,678 chunks)
 [ok] Tokenizer: Vaporetto model loaded
 [..] Embedder: ONNX model not found (vector search disabled)
+     [hint] Run `shiotsuchi setup` to install the embedder model.
 [ok] Vault 'default': /home/name/Notes
 
 All checks passed.

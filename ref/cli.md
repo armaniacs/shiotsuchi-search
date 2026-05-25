@@ -13,6 +13,7 @@ Crate path: `cli/`
 | `config-migrate` | `[--config]` | Migrate config from old `[vault]` format to new `[database]` + `[vaults.xxx]` format |
 | `delete <path>` | `[--notes-dir]` `[--db-path]` | Remove a note from the index by its vault-relative path |
 | `dive <query>` | `[--notes-dir]` `[--db-path]` `[--limit]` `[--mode]` `[--json]` `[--json-pretty]` | Search notes. `--mode`: `keyword` (default), `semantic`, `hybrid`. |
+| `doctor` | (no args) | Environment health check with interactive repair for config, database, tokenizer, embedder, and vault directories |
 | `dredge` | `[--notes-dir]` `[--db-path]` | Extract and index chunks from existing notes without re-embedding content. Migrates pre-v0.3.3 vaults to chunked schema. |
 | `init` | `[--notes-dir]` `[--db-path]` `[--force]` `[--yes]` | Create config file with interactive exclusion selection |
 | `log` | `[--db-path]` | Show indexing history |
@@ -141,6 +142,7 @@ exclude_dirs = ["node_modules", "templates"]
 - `cli/src/commands/config_migrate.rs` — Old-to-new config format migration
 - `cli/src/commands/delete.rs` — Remove a note from the index
 - `cli/src/commands/dive.rs` — Search with keyword/semantic/hybrid modes, JSON output
+- `cli/src/commands/doctor.rs` — Environment health check with interactive repair
 - `cli/src/commands/dredge.rs` — Chunk migration for pre-v0.3.3 vaults
 - `cli/src/commands/init.rs` — Config file creation with interactive exclusion selection
 - `cli/src/commands/log.rs` — Metadata listing
@@ -170,6 +172,7 @@ Resolution order:
 |---------|--------------|
 | `chart` | Human-readable progress (indexed/skipped/errors, invalid patterns if any) |
 | `dive` | Pretty JSON (or raw JSON with `--json`) |
+| `doctor` | Human-readable diagnostic with interactive repair prompts (TTY) or read-only checks (non-TTY) |
 | `tide` | Human-readable statistics |
 | `scan` | Watcher logs |
 | `log` | Table with columns |
