@@ -15,6 +15,13 @@ pub struct Chunk {
     /// Vaporetto-tokenized, space-separated text for FTS5 indexing.
     pub tokenized_content: String,
     pub vault_name: String,
+    /// YAML frontmatter tags (comma-separated JSON array string stored in DB).
+    /// Empty string means no tags.
+    pub tags: String,
+    /// Frontmatter date string (ISO 8601, e.g. "2026-01-15"). Empty string means none.
+    pub frontmatter_date: String,
+    /// Document title extracted from frontmatter or first heading. Empty string means none.
+    pub title: String,
 }
 
 /// A search result backed by the new chunk schema.
@@ -28,6 +35,9 @@ pub struct ChunkSearchResult {
     pub score: f64,
     pub search_mode: SearchMode,
     pub vault_name: String,
+    pub tags: String,
+    pub frontmatter_date: String,
+    pub title: String,
 }
 
 /// Which retrieval strategy was used.
@@ -167,6 +177,9 @@ mod tests {
             content: "Some content".to_string(),
             tokenized_content: "Some content".to_string(),
             vault_name: "default".to_string(),
+            tags: String::new(),
+            frontmatter_date: String::new(),
+            title: String::new(),
         };
         let json = serde_json::to_string(&chunk).unwrap();
         let decoded: Chunk = serde_json::from_str(&json).unwrap();

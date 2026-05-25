@@ -8,14 +8,8 @@ use log;
 
 /// Main search entry point. Dispatches to FTS, vec, or hybrid (RRF) mode.
 ///
-/// # Arguments (must stay ≤ 7 to satisfy clippy::too_many_arguments)
-///
-/// All arguments are required by the callers of this public entry point.
-/// The lint is suppressed here because: (1) the search subsystem mirrors a natural
-/// caller-owned API, (2) no two consecutive refactors would benefit from a struct
-/// decomposition at this level, and (3) `Embedder` cannot derive `Clone` (it holds
-/// `RefCell<ort::Session>`), so a value-type wrapper would add indirection without
-/// reducing call-site complexity.
+/// `tag_filter` — comma-separated tag string to match (empty/none = no filter).
+/// `since_date` — ISO 8601 date string for minimum frontmatter date filter.
 #[allow(clippy::too_many_arguments)]
 pub fn search(
     db: &NoteDatabase,
@@ -26,6 +20,8 @@ pub fn search(
     embedder: Option<&crate::embedder::Embedder>,
     min_score: Option<f64>,
     vault_filter: Option<&str>,
+    tag_filter: Option<&str>,
+    since_date: Option<&str>,
 ) -> Result<Vec<ChunkSearchResult>, DbError> {
     if query.trim().is_empty() {
         return Ok(vec![]);
@@ -38,16 +34,74 @@ pub fn search(
     };
 
     match effective_mode {
-        SearchMode::Fts => search_fts(db, tokenizer, query, limit, min_score, vault_filter),
+        SearchMode::Fts => search_fts(db, tokenizer, query, limit, min_score, vault_filter, tag_filter, since_date),
         SearchMode::Vec => {
             let emb = embedder.ok_or_else(|| DbError::Other("Vec mode requires embedder — model not loaded".into()))?;
-            search_vec(db, emb, query, limit, min_score, vault_filter)
+            search_vec(db, emb, query, limit, min_score, vault_filter, tag_filter, since_date)
         }
         SearchMode::Hybrid => {
             let emb = embedder.ok_or_else(|| DbError::Other("Hybrid mode requires embedder — model not loaded".into()))?;
-            search_hybrid(db, tokenizer, emb, query, limit, min_score, vault_filter)
+            search_hybrid(db, tokenizer, emb, query, limit, min_score, vault_filter, tag_filter, since_date)
         }
     }
+}
+
+/// Check if a chunk's tags match the tag filter.
+/// Tags are stored as comma-separated strings (e.g. "project,meeting").
+/// The filter is a single tag name. Uses substring matching on the
+/// comma-delimited list to avoid partial matches (e.g. "proj" matching "project").
+fn tag_matches(tags: &str, filter: &str) -> bool {
+    if filter.is_empty() {
+        return true;
+    }
+    let filter = filter.trim().to_lowercase();
+    if filter.is_empty() {
+        return true;
+    }
+    tags.split(',')
+        .any(|t| t.trim().to_lowercase() == filter)
+}
+
+/// Check if a chunk's frontmatter_date is >= the given since_date.
+/// Both strings are ISO 8601 format (e.g. "2026-01-15"), so lexicographic
+/// comparison works correctly.
+fn date_matches(date: &str, since: &str) -> bool {
+    if since.is_empty() {
+        return true;
+    }
+    date.is_empty() || date >= since
+}
+
+/// Apply tag and date filters to a list of results, then apply title score boost.
+fn apply_filters_and_boost(
+    mut results: Vec<ChunkSearchResult>,
+    tag_filter: Option<&str>,
+    since_date: Option<&str>,
+    query: &str,
+) -> Vec<ChunkSearchResult> {
+    let tag_f = tag_filter.unwrap_or("");
+    let since_d = since_date.unwrap_or("");
+
+    results.retain(|r| {
+        tag_matches(&r.tags, tag_f) && date_matches(&r.frontmatter_date, since_d)
+    });
+
+    // Title score boost: if a chunk's title matches the query, reduce its
+    // score (lower = more relevant in FTS5 BM25).
+    if !query.is_empty() {
+        let query_lower = query.to_lowercase();
+        let query_tokens: Vec<&str> = query_lower.split_whitespace().collect();
+        for r in &mut results {
+            if !r.title.is_empty() {
+                let title_lower = r.title.to_lowercase();
+                if query_tokens.iter().any(|t| title_lower.contains(t)) {
+                    r.score *= 0.3; // significant boost
+                }
+            }
+        }
+    }
+
+    results
 }
 
 /// Build `ChunkSearchResult` vec from raw search hits (id, score) pairs.
@@ -84,6 +138,9 @@ fn build_results(
                 score,
                 search_mode: mode.clone(),
                 vault_name: c.vault_name,
+                tags: c.tags,
+                frontmatter_date: c.frontmatter_date,
+                title: c.title,
             })
         })
         .collect();
@@ -105,6 +162,8 @@ fn search_fts(
     limit: usize,
     min_score: Option<f64>,
     vault_filter: Option<&str>,
+    tag_filter: Option<&str>,
+    since_date: Option<&str>,
 ) -> Result<Vec<ChunkSearchResult>, DbError> {
     let fts5_query = tokenizer.and_query(query);
     let fts5_query = if fts5_query.is_empty() {
@@ -121,7 +180,8 @@ fn search_fts(
         return Ok(vec![]);
     }
 
-    build_results(db, hits, SearchMode::Fts, min_score)
+    let results = build_results(db, hits, SearchMode::Fts, min_score)?;
+    Ok(apply_filters_and_boost(results, tag_filter, since_date, query))
 }
 
 fn search_vec(
@@ -131,6 +191,8 @@ fn search_vec(
     limit: usize,
     min_score: Option<f64>,
     vault_filter: Option<&str>,
+    tag_filter: Option<&str>,
+    since_date: Option<&str>,
 ) -> Result<Vec<ChunkSearchResult>, DbError> {
     let embedding = embedder
         .embed(query)
@@ -141,7 +203,8 @@ fn search_vec(
         return Ok(vec![]);
     }
 
-    build_results(db, hits, SearchMode::Vec, min_score)
+    let results = build_results(db, hits, SearchMode::Vec, min_score)?;
+    Ok(apply_filters_and_boost(results, tag_filter, since_date, query))
 }
 
 /// Compute Reciprocal Rank Fusion scores from FTS and vec search results.
@@ -197,11 +260,13 @@ fn search_hybrid(
     limit: usize,
     min_score: Option<f64>,
     vault_filter: Option<&str>,
+    tag_filter: Option<&str>,
+    since_date: Option<&str>,
 ) -> Result<Vec<ChunkSearchResult>, DbError> {
     const K: f64 = 60.0;
 
-    let fts_results = search_fts(db, tokenizer, query, limit * 2, None, vault_filter)?;
-    let vec_results = search_vec(db, embedder, query, limit * 2, None, vault_filter)?;
+    let fts_results = search_fts(db, tokenizer, query, limit * 2, None, vault_filter, None, None)?;
+    let vec_results = search_vec(db, embedder, query, limit * 2, None, vault_filter, None, None)?;
 
     let rrf_scores = compute_rrf(&fts_results, &vec_results, limit, K);
 
@@ -240,19 +305,21 @@ fn search_hybrid(
                     score,
                     search_mode: SearchMode::Hybrid,
                     vault_name: c.vault_name,
+                    tags: c.tags,
+                    frontmatter_date: c.frontmatter_date,
+                    title: c.title,
                 }
             })
         })
         .collect();
 
-    // Already filtered by vault via search_fts/search_vec; no need to refilter.
     results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
 
     if let Some(ms) = min_score {
         results.retain(|r| r.score >= ms);
     }
 
-    Ok(results)
+    Ok(apply_filters_and_boost(results, tag_filter, since_date, query))
 }
 
 /// Extract a snippet around the first query token match.
@@ -359,10 +426,13 @@ mod tests {
             content: "search engine test content".into(),
             tokenized_content: "search engine test content".into(),
             vault_name: String::new(),
+            tags: String::new(),
+            frontmatter_date: String::new(),
+            title: String::new(),
         }];
         db.insert_chunks(&chunks).unwrap();
 
-        let results = search(&db, &tokenizer, "search engine", 10, SearchMode::Fts, None, None, None).unwrap();
+        let results = search(&db, &tokenizer, "search engine", 10, SearchMode::Fts, None, None, None, None, None).unwrap();
         assert!(!results.is_empty());
         assert_eq!(results[0].file_path, "test.md");
         assert!(matches!(results[0].search_mode, SearchMode::Fts));
@@ -382,6 +452,9 @@ mod tests {
                 content: "alpha project plan".into(),
                 tokenized_content: "alpha project plan".into(),
                 vault_name: "work".into(),
+                tags: String::new(),
+                frontmatter_date: String::new(),
+                title: String::new(),
             },
             Chunk {
                 id: None,
@@ -391,24 +464,27 @@ mod tests {
                 content: "alpha social event".into(),
                 tokenized_content: "alpha social event".into(),
                 vault_name: "personal".into(),
+                tags: String::new(),
+                frontmatter_date: String::new(),
+                title: String::new(),
             },
         ];
         db.insert_chunks(&chunks).unwrap();
 
         // Filter by "work" vault
-        let results = search(&db, &tokenizer, "alpha", 10, SearchMode::Fts, None, None, Some("work")).unwrap();
+        let results = search(&db, &tokenizer, "alpha", 10, SearchMode::Fts, None, None, Some("work"), None, None).unwrap();
         assert_eq!(results.len(), 1, "expected 1 result in work vault");
         assert_eq!(results[0].vault_name, "work");
         assert_eq!(results[0].file_path, "vault_a.md");
 
         // Filter by "personal" vault
-        let results = search(&db, &tokenizer, "alpha", 10, SearchMode::Fts, None, None, Some("personal")).unwrap();
+        let results = search(&db, &tokenizer, "alpha", 10, SearchMode::Fts, None, None, Some("personal"), None, None).unwrap();
         assert_eq!(results.len(), 1, "expected 1 result in personal vault");
         assert_eq!(results[0].vault_name, "personal");
         assert_eq!(results[0].file_path, "vault_b.md");
 
         // No filter → both
-        let results = search(&db, &tokenizer, "alpha", 10, SearchMode::Fts, None, None, None).unwrap();
+        let results = search(&db, &tokenizer, "alpha", 10, SearchMode::Fts, None, None, None, None, None).unwrap();
         assert_eq!(results.len(), 2, "expected 2 results across all vaults");
     }
 
@@ -416,7 +492,7 @@ mod tests {
     fn test_search_empty_query_returns_empty() {
         let db = NoteDatabase::open_in_memory().unwrap();
         let tokenizer = crate::require_tokenizer!(crate::tokenizer::TokenizerConfig::default());
-        let results = search(&db, &tokenizer, "  ", 10, SearchMode::Fts, None, None, None).unwrap();
+        let results = search(&db, &tokenizer, "  ", 10, SearchMode::Fts, None, None, None, None, None).unwrap();
         assert!(results.is_empty());
     }
 
@@ -432,11 +508,14 @@ mod tests {
             content: "hybrid fallback test".into(),
             tokenized_content: "hybrid fallback test".into(),
             vault_name: String::new(),
+            tags: String::new(),
+            frontmatter_date: String::new(),
+            title: String::new(),
         }];
         db.insert_chunks(&chunks).unwrap();
 
         // Hybrid with no embedder → falls back to FTS
-        let results = search(&db, &tokenizer, "hybrid fallback", 10, SearchMode::Hybrid, None, None, None).unwrap();
+        let results = search(&db, &tokenizer, "hybrid fallback", 10, SearchMode::Hybrid, None, None, None, None, None).unwrap();
         assert!(!results.is_empty());
         assert!(matches!(results[0].search_mode, SearchMode::Fts));
     }
@@ -452,6 +531,9 @@ mod tests {
                 score,
                 search_mode: SearchMode::Fts,
                 vault_name: String::new(),
+                tags: String::new(),
+                frontmatter_date: String::new(),
+                title: String::new(),
             }
         };
 
@@ -479,6 +561,9 @@ mod tests {
                 score,
                 search_mode: SearchMode::Fts,
                 vault_name: String::new(),
+                tags: String::new(),
+                frontmatter_date: String::new(),
+                title: String::new(),
             }
         };
 
@@ -507,6 +592,9 @@ mod tests {
                 score,
                 search_mode: SearchMode::Fts,
                 vault_name: String::new(),
+                tags: String::new(),
+                frontmatter_date: String::new(),
+                title: String::new(),
             }
         };
 
@@ -534,6 +622,9 @@ mod tests {
                 score,
                 search_mode: SearchMode::Fts,
                 vault_name: String::new(),
+                tags: String::new(),
+                frontmatter_date: String::new(),
+                title: String::new(),
             }
         };
 
@@ -549,7 +640,7 @@ mod tests {
             Ok(tok) => tok,
             Err(_) => return,
         };
-        let result = search(&db, &tokenizer, "test", 10, SearchMode::Vec, None, None, None);
+        let result = search(&db, &tokenizer, "test", 10, SearchMode::Vec, None, None, None, None, None);
         match result {
             Err(crate::db::DbError::Other(msg)) => {
                 assert!(msg.contains("embedder"), "error should mention embedder");
@@ -565,7 +656,7 @@ mod tests {
             Ok(tok) => tok,
             Err(_) => return,
         };
-        let result = search(&db, &tokenizer, "test", 10, SearchMode::Hybrid, None, None, None);
+        let result = search(&db, &tokenizer, "test", 10, SearchMode::Hybrid, None, None, None, None, None);
         assert!(result.is_ok(), "Hybrid without embedder should fall back to FTS, got error");
     }
 
@@ -576,7 +667,7 @@ mod tests {
             Ok(tok) => tok,
             Err(_) => return,
         };
-        let result = search(&db, &tokenizer, "test", 10, SearchMode::Fts, None, None, None);
+        let result = search(&db, &tokenizer, "test", 10, SearchMode::Fts, None, None, None, None, None);
         assert!(result.is_ok());
     }
 

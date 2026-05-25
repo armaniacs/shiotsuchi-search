@@ -1,17 +1,16 @@
 use crate::commands::noise::{scan_vault, ExclusionCandidate, CANDIDATE_LIMIT};
 use crate::config::ShiotsuchiConfig;
+use crate::messages;
+use crate::msg_fmt;
 use clap::Args;
 use dialoguer::{theme::ColorfulTheme, Confirm, MultiSelect};
 use std::path::{Path, PathBuf};
 
 #[derive(Args, Debug)]
 pub struct InitArgs {
-    #[arg(long, help = "Overwrite existing config file")]
+    #[arg(long, help = messages::INIT_FORCE_HELP)]
     pub force: bool,
-    #[arg(
-        long,
-        help = "Non-interactive mode: auto-accept all detected exclusion candidates"
-    )]
+    #[arg(long, help = messages::INIT_YES_HELP)]
     pub yes: bool,
 }
 
@@ -25,11 +24,7 @@ pub fn run_init(
     // --- Backup existing config if --force ---
     if config_path.exists() {
         if !args.force {
-            return Err(format!(
-                "Config file already exists at {}. Use --force to overwrite.",
-                config_path.display()
-            )
-            .into());
+            return Err(msg_fmt!(messages::ERR_INIT_CONFIG_EXISTS, config_path.display()).into());
         }
         backup_config(config_path)?;
     }
@@ -50,11 +45,8 @@ pub fn run_init(
                 cfg.resolved_vaults().into_iter().next().unwrap().1
             } else {
                 let cwd = std::env::current_dir()?;
-                eprintln!(
-                    "info: --notes-dir not specified, scanning current directory: {}",
-                    cwd.display()
-                );
-                eprintln!("info: use --notes-dir <PATH> to scan a different vault root.");
+                eprintln!("{}", msg_fmt!(messages::INFO_INIT_NOTES_DIR_DEFAULT, cwd.display()));
+                eprintln!("{}", messages::INFO_INIT_USE_NOTES_DIR);
                 cwd
             }
         }
@@ -81,11 +73,7 @@ pub fn run_init(
 
     // --- Validate and scan vault ---
     if !effective_notes_dir.exists() {
-        return Err(format!(
-            "Notes directory does not exist: {}",
-            effective_notes_dir.display()
-        )
-        .into());
+        return Err(msg_fmt!(messages::ERR_INIT_NOTES_DIR_MISSING, effective_notes_dir.display()).into());
     }
     let (candidates, _truncated) = scan_vault(
         &effective_notes_dir,
@@ -104,17 +92,10 @@ pub fn run_init(
         select_exclusions_interactive(&candidates)?
     } else if !is_tty && !args.yes {
         // Non-TTY without --yes: require explicit opt-in when candidates exist.
-        return Err(
-            "Interactive mode requires a TTY. Use --yes to auto-accept all exclusion candidates, \
-             or run in a terminal."
-                .into(),
-        );
+        return Err(messages::ERR_INIT_NO_TTY.into());
     } else {
         // Non-TTY with --yes, or TTY with --yes: auto-accept all candidates.
-        eprintln!(
-            "info: auto-accepting {} exclusion candidate(s).",
-            candidates.len()
-        );
+        eprintln!("{}", msg_fmt!(messages::INFO_INIT_AUTO_ACCEPT, candidates.len()));
         candidates.iter().map(|c| c.relative_path.clone()).collect()
     };
 
@@ -139,19 +120,11 @@ pub fn run_init(
     }
     std::fs::rename(&tmp_path, config_path)?;
 
-    println!("Created config file at {}", config_path.display());
+    println!("{}", msg_fmt!(messages::INIT_CONFIG_CREATED, config_path.display()));
     if !candidates.is_empty() {
-        println!(
-            "Excluded {} director{} from indexing.",
-            out_cfg.indexing.exclude_dirs.len(),
-            if out_cfg.indexing.exclude_dirs.len() == 1 {
-                "y"
-            } else {
-                "ies"
-            }
-        );
+        println!("{}", msg_fmt!(messages::INIT_EXCLUDED_DIRS, out_cfg.indexing.exclude_dirs.len(), "リ"));
     }
-    println!("Next, run `shiotsuchi chart` to index your vault.");
+    println!("{}", messages::INIT_NEXT_STEP);
 
     Ok(())
 }
@@ -183,7 +156,7 @@ fn backup_config(config_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
             return Err(e.into());
         }
     }
-    println!("Backed up existing config to {}", backup_path.display());
+    println!("{}", msg_fmt!(messages::INIT_BACKED_UP, backup_path.display()));
     Ok(())
 }
 

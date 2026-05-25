@@ -19,12 +19,15 @@ fn test_insert_chunks_and_lookup() {
             content: "Title 1 body content".into(),
             tokenized_content: "Title 1 body content".into(),
             vault_name: "default".to_string(),
+            tags: String::new(),
+            frontmatter_date: String::new(),
+            title: String::new(),
         },
     ];
     let ids = db.insert_chunks(&chunks).unwrap();
     assert_eq!(ids.len(), 1);
 
-    db.upsert_file_cache("default", "note1.md", "hash1", 1_000, "none").unwrap();
+    db.upsert_file_cache("default", "note1.md", "hash1", 1_000, "none", 0).unwrap();
 
     let cached = db.cached_hash("default", "note1.md").unwrap();
     assert_eq!(cached, Some("hash1".to_string()));
@@ -56,6 +59,9 @@ fn test_delete_chunks_atomic() {
         content: "body a".into(),
         tokenized_content: "body a".into(),
         vault_name: "default".to_string(),
+        tags: String::new(),
+        frontmatter_date: String::new(),
+        title: String::new(),
     }];
     let chunks_b = vec![Chunk {
         id: None,
@@ -65,12 +71,15 @@ fn test_delete_chunks_atomic() {
         content: "body b".into(),
         tokenized_content: "body b".into(),
         vault_name: "default".to_string(),
+        tags: String::new(),
+        frontmatter_date: String::new(),
+        title: String::new(),
     }];
 
     db.insert_chunks(&chunks_a).unwrap();
-    db.upsert_file_cache("default", "a.md", "hash_a", 1, "none").unwrap();
+    db.upsert_file_cache("default", "a.md", "hash_a", 1, "none", 0).unwrap();
     db.insert_chunks(&chunks_b).unwrap();
-    db.upsert_file_cache("default", "b.md", "hash_b", 2, "none").unwrap();
+    db.upsert_file_cache("default", "b.md", "hash_b", 2, "none", 0).unwrap();
 
     assert_eq!(db.stats().unwrap().total_files, 2);
 

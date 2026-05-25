@@ -90,6 +90,21 @@ pub fn call_tool(
             let min_score = args["min_score"].as_f64();
             let vault_filter = args["vault"].as_str();
 
+            // Validate vault filter against known vaults
+            if let Some(vf) = vault_filter {
+                if !vaults.iter().any(|(name, _)| name == vf) {
+                    let known: Vec<&str> = vaults.iter().map(|(n, _)| n.as_str()).collect();
+                    return Ok(json!({
+                        "content": [{"type": "text", "text": format!(
+                            "vault '{}' is not defined in config. Available vaults: {}",
+                            vf,
+                            known.join(", ")
+                        )}],
+                        "isError": true
+                    }));
+                }
+            }
+
             // MCP server runs without an embedder. Return a guidance message for vec-only mode.
             // hybrid and fts both work — search() auto-falls-back to Fts when embedder is None.
             if mode_str == "vec" {
@@ -125,7 +140,7 @@ pub fn call_tool(
                     "content": [{"type": "text", "text": "Full-text search requires a tokenizer model. Run 'shiotsuchi setup' to configure one, or set SHIOTSUCHI_MODEL_PATH."}]
                 })),
             };
-            let results = search(&db, &tokenizer, &query, limit, mode, None, min_score, vault_filter)?;
+            let results = search(&db, &tokenizer, &query, limit, mode, None, min_score, vault_filter, None, None)?;
 
             let markdown = format_results_markdown(&results, &query);
             Ok(json!({
@@ -222,6 +237,22 @@ mod tests {
             "expected directory-not-found error, got: {}",
             msg
         );
+    }
+
+    #[test]
+    fn test_search_local_notes_rejects_nonexistent_vault_id() {
+        let temp = TempDir::new().unwrap();
+        let vaults = vec![("work".to_string(), temp.path().to_path_buf())];
+        let db_path = temp.path().join("test.db");
+        shiotsuchi_core::db::NoteDatabase::open(&db_path).unwrap();
+        let args = serde_json::json!({"query": "test", "mode": "fts", "vault": "hobby"});
+        let result = call_tool("search_local_notes", &args, &vaults, &db_path);
+        assert!(result.is_ok());
+        let resp = result.unwrap();
+        assert_eq!(resp["isError"], true);
+        let text = resp["content"][0]["text"].as_str().unwrap();
+        assert!(text.contains("vault 'hobby' is not defined"));
+        assert!(text.contains("work"));
     }
 
     #[test]

@@ -1,3 +1,4 @@
+use crate::frontmatter::extract_frontmatter;
 use crate::models::Chunk;
 use crate::tokenizer::JapaneseTokenizer;
 
@@ -19,6 +20,10 @@ pub fn split_into_chunks(
     file_path: &str,
     vault_name: &str,
 ) -> Vec<Chunk> {
+    // 1. Extract and strip YAML frontmatter
+    let (frontmatter, body) = extract_frontmatter(markdown);
+
+    let markdown = body;
     if markdown.trim().is_empty() {
         return vec![Chunk {
             id: None,
@@ -28,6 +33,9 @@ pub fn split_into_chunks(
             content: String::new(),
             tokenized_content: String::new(),
             vault_name: vault_name.to_string(),
+            tags: frontmatter.tags.join(","),
+            frontmatter_date: frontmatter.date.unwrap_or_default(),
+            title: frontmatter.title.unwrap_or_default(),
         }];
     }
 
@@ -64,6 +72,9 @@ pub fn split_into_chunks(
                     content: para.to_string(),
                     tokenized_content: tokenized,
                     vault_name: vault_name.to_string(),
+                    tags: frontmatter.tags.join(","),
+                    frontmatter_date: frontmatter.date.clone().unwrap_or_default(),
+                    title: frontmatter.title.clone().unwrap_or_default(),
                 });
             }
         } else {
@@ -77,6 +88,9 @@ pub fn split_into_chunks(
                 content: trimmed.to_string(),
                 tokenized_content: tokenized,
                 vault_name: vault_name.to_string(),
+                tags: frontmatter.tags.join(","),
+                frontmatter_date: frontmatter.date.clone().unwrap_or_default(),
+                title: frontmatter.title.clone().unwrap_or_default(),
             });
         }
     }
@@ -92,6 +106,9 @@ pub fn split_into_chunks(
             content: markdown.trim().to_string(),
             tokenized_content: tokenized,
             vault_name: vault_name.to_string(),
+            tags: frontmatter.tags.join(","),
+            frontmatter_date: frontmatter.date.unwrap_or_default(),
+            title: frontmatter.title.unwrap_or_default(),
         });
     }
 

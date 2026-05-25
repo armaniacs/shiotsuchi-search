@@ -51,16 +51,16 @@ fn migrate_v1_to_v2_drops_old_tables_and_creates_new() {
     assert_eq!(chunks_exists, 1, "chunks table should exist");
 
     let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
-    assert_eq!(version, 4);
+    assert_eq!(version, 6);
 }
 
 #[test]
-fn open_fresh_db_has_version_4() {
+fn open_fresh_db_has_version_6() {
     let temp = TempDir::new().unwrap();
     let db = NoteDatabase::open(temp.path().join("fresh.db")).unwrap();
     let version: i64 = db.write_conn.borrow()
         .query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
-    assert_eq!(version, 4);
+    assert_eq!(version, 6);
 }
 
 #[test]
@@ -74,10 +74,10 @@ fn migrate_is_idempotent_when_interrupted() {
         let conn = Connection::open(&db_path).unwrap();
         conn.execute_batch("
             CREATE TABLE IF NOT EXISTS file_cache (
-                path     TEXT PRIMARY KEY,
-                hash     TEXT NOT NULL,
-                mtime    INTEGER NOT NULL,
-                model_id TEXT NOT NULL
+                path      TEXT PRIMARY KEY,
+                hash      TEXT NOT NULL,
+                mtime     INTEGER NOT NULL,
+                model_id  TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS chunks (
                 id                INTEGER PRIMARY KEY,
@@ -103,17 +103,17 @@ fn migrate_is_idempotent_when_interrupted() {
 
     let conn = db.write_conn.borrow();
 
-    // Version should now be 3
+    // Version should now be 6
     let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
-    assert_eq!(version, 4, "migration should upgrade to version 4");
+    assert_eq!(version, 6, "migration should upgrade to version 6");
 
     // All expected tables exist
 
-    // Opening AGAIN should be a no-op (version is already 4)
+    // Opening AGAIN should be a no-op (version is already 6)
     drop(conn);
     drop(db);
     let db2 = NoteDatabase::open(&db_path).unwrap();
     let version2: i64 = db2.write_conn.borrow()
         .query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
-    assert_eq!(version2, 4, "second open should remain at version 4");
+    assert_eq!(version2, 6, "second open should remain at version 6");
 }

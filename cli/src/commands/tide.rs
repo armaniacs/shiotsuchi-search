@@ -1,3 +1,5 @@
+use crate::messages;
+use crate::msg_fmt;
 use shiotsuchi_core::{db::NoteDatabase, embedder::resolve_model_path, models::VaultStats};
 use std::path::Path;
 
@@ -13,17 +15,14 @@ pub fn run_tide(db_path: &Path) -> Result<VaultStats, Box<dyn std::error::Error>
 }
 
 pub fn print_stats(stats: &VaultStats) {
-    println!("Total files : {}", stats.total_files);
-    println!("Total chunks: {}", stats.total_chunks);
-    println!("DB size     : {} bytes", stats.total_size_bytes);
-    println!("Embedder    : {}", stats.embedder_status);
+    println!("{}", msg_fmt!(messages::TIDE_TOTAL_FILES, stats.total_files));
+    println!("{}", msg_fmt!(messages::TIDE_TOTAL_CHUNKS, stats.total_chunks));
+    println!("{}", msg_fmt!(messages::TIDE_DB_SIZE, stats.total_size_bytes));
+    println!("{}", msg_fmt!(messages::TIDE_EMBEDDER, stats.embedder_status));
     if let Some(ts) = stats.last_indexed_at {
-        println!(
-            "Last indexed: {}",
-            crate::commands::log::format_timestamp(ts)
-        );
+        println!("{}", msg_fmt!(messages::TIDE_LAST_INDEXED, crate::commands::log::format_timestamp(ts)));
     } else {
-        println!("Last indexed: never");
+        println!("{}", messages::TIDE_NEVER_INDEXED);
     }
 }
 

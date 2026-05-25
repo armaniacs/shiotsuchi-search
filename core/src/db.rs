@@ -141,13 +141,28 @@ impl NoteDatabase {
                         hash TEXT NOT NULL,
                         mtime INTEGER NOT NULL,
                         model_id TEXT NOT NULL,
+                        file_size INTEGER NOT NULL DEFAULT 0,
                         PRIMARY KEY (vault_name, path)
                     )
                 ")?;
-                conn.execute_batch("
-                    INSERT INTO file_cache_v3 (vault_name, path, hash, mtime, model_id)
-                    SELECT 'default', path, hash, mtime, model_id FROM file_cache
-                ")?;
+                // file_size may or may not exist in the source file_cache
+                // depending on whether create_schema already included it.
+                let fc_cols: Vec<String> = {
+                    let mut stmt = conn.prepare("PRAGMA table_info(file_cache)")?;
+                    let rows = stmt.query_map([], |r| r.get::<_, String>(1))?;
+                    rows.collect::<Result<Vec<_>, _>>()?
+                };
+                if fc_cols.iter().any(|c| c == "file_size") {
+                    conn.execute_batch("
+                        INSERT INTO file_cache_v3 (vault_name, path, hash, mtime, model_id, file_size)
+                        SELECT 'default', path, hash, mtime, model_id, file_size FROM file_cache
+                    ")?;
+                } else {
+                    conn.execute_batch("
+                        INSERT INTO file_cache_v3 (vault_name, path, hash, mtime, model_id, file_size)
+                        SELECT 'default', path, hash, mtime, model_id, 0 FROM file_cache
+                    ")?;
+                }
                 conn.execute_batch("DROP TABLE file_cache")?;
                 conn.execute_batch("ALTER TABLE file_cache_v3 RENAME TO file_cache")?;
                 conn.execute_batch("PRAGMA user_version = 3")?;
@@ -172,16 +187,51 @@ impl NoteDatabase {
             conn.execute_batch("PRAGMA user_version = 4")?;
         }
 
+        if version < 5 {
+            // v4→v5: add file_size column to file_cache for two-stage skip (mtime+size).
+            let cols: Vec<String> = {
+                let mut stmt = conn.prepare("PRAGMA table_info(file_cache)")?;
+                let rows = stmt.query_map([], |r| r.get::<_, String>(1))?;
+                rows.collect::<Result<Vec<_>, _>>()?
+            };
+            if !cols.iter().any(|c| c == "file_size") {
+                conn.execute_batch(
+                    "ALTER TABLE file_cache ADD COLUMN file_size INTEGER NOT NULL DEFAULT 0",
+                )?;
+            }
+            conn.execute_batch("PRAGMA user_version = 5")?;
+        }
+
+        if version < 6 {
+            // v5→v6: add tags, frontmatter_date, title columns to chunks table
+            let cols: Vec<String> = {
+                let mut stmt = conn.prepare("PRAGMA table_info(chunks)")?;
+                let rows = stmt.query_map([], |r| r.get::<_, String>(1))?;
+                rows.collect::<Result<Vec<_>, _>>()?
+            };
+            if !cols.iter().any(|c| c == "tags") {
+                conn.execute_batch("ALTER TABLE chunks ADD COLUMN tags TEXT NOT NULL DEFAULT ''")?;
+            }
+            if !cols.iter().any(|c| c == "frontmatter_date") {
+                conn.execute_batch("ALTER TABLE chunks ADD COLUMN frontmatter_date TEXT NOT NULL DEFAULT ''")?;
+            }
+            if !cols.iter().any(|c| c == "title") {
+                conn.execute_batch("ALTER TABLE chunks ADD COLUMN title TEXT NOT NULL DEFAULT ''")?;
+            }
+            conn.execute_batch("PRAGMA user_version = 6")?;
+        }
+
         Ok(())
     }
 
     fn create_schema(&self, conn: &Connection) -> SqliteResult<()> {
         conn.execute_batch("
             CREATE TABLE IF NOT EXISTS file_cache (
-                path     TEXT PRIMARY KEY,
-                hash     TEXT NOT NULL,
-                mtime    INTEGER NOT NULL,
-                model_id TEXT NOT NULL
+                path      TEXT PRIMARY KEY,
+                hash      TEXT NOT NULL,
+                mtime     INTEGER NOT NULL,
+                file_size INTEGER NOT NULL DEFAULT 0,
+                model_id  TEXT NOT NULL
             );
 
             CREATE TABLE IF NOT EXISTS chunks (
@@ -216,9 +266,9 @@ impl NoteDatabase {
         let mut ids = Vec::with_capacity(chunks.len());
         for chunk in chunks {
             tx.execute(
-                "INSERT INTO chunks (file_path, chunk_index, parent_header, content, tokenized_content, vault_name)
-                 VALUES (?1,?2,?3,?4,?5,?6)",
-                params![chunk.file_path, chunk.chunk_index, chunk.parent_header, chunk.content, chunk.tokenized_content, chunk.vault_name],
+                "INSERT INTO chunks (file_path, chunk_index, parent_header, content, tokenized_content, vault_name, tags, frontmatter_date, title)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+                params![chunk.file_path, chunk.chunk_index, chunk.parent_header, chunk.content, chunk.tokenized_content, chunk.vault_name, chunk.tags, chunk.frontmatter_date, chunk.title],
             )?;
             let id = tx.last_insert_rowid();
             // FTS insert (external content — fts_chunks maps to chunks.tokenized_content)
@@ -284,13 +334,14 @@ impl NoteDatabase {
         hash: &str,
         mtime: i64,
         model_id: &str,
+        file_size: i64,
     ) -> Result<(), DbError> {
         self.write_conn.borrow().execute(
-            "INSERT INTO file_cache (vault_name, path, hash, mtime, model_id)
-             VALUES (?1,?2,?3,?4,?5)
+            "INSERT INTO file_cache (vault_name, path, hash, mtime, model_id, file_size)
+             VALUES (?1,?2,?3,?4,?5,?6)
              ON CONFLICT(vault_name, path) DO UPDATE SET
-                 hash=excluded.hash, mtime=excluded.mtime, model_id=excluded.model_id",
-            params![vault_name, path, hash, mtime, model_id],
+                 hash=excluded.hash, mtime=excluded.mtime, model_id=excluded.model_id, file_size=excluded.file_size",
+            params![vault_name, path, hash, mtime, model_id, file_size],
         )?;
         Ok(())
     }
@@ -313,6 +364,7 @@ impl NoteDatabase {
         model_id: &str,
         chunks: &[Chunk],
         embeddings: &[Option<Vec<f32>>],
+        file_size: i64,
     ) -> Result<(), DbError> {
         let mut conn = self.write_conn.borrow_mut();
         let tx = conn.transaction()?;
@@ -337,8 +389,8 @@ impl NoteDatabase {
         let mut new_ids = Vec::with_capacity(chunks.len());
         for chunk in chunks {
             tx.execute(
-                "INSERT INTO chunks (file_path, chunk_index, parent_header, content, tokenized_content, vault_name)
-                 VALUES (?1,?2,?3,?4,?5,?6)",
+                "INSERT INTO chunks (file_path, chunk_index, parent_header, content, tokenized_content, vault_name, tags, frontmatter_date, title)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
                 params![
                     chunk.file_path,
                     chunk.chunk_index,
@@ -346,6 +398,9 @@ impl NoteDatabase {
                     chunk.content,
                     chunk.tokenized_content,
                     chunk.vault_name,
+                    chunk.tags,
+                    chunk.frontmatter_date,
+                    chunk.title,
                 ],
             )?;
             let id = tx.last_insert_rowid();
@@ -370,11 +425,11 @@ impl NoteDatabase {
 
         // 4. Upsert file cache
         tx.execute(
-            "INSERT INTO file_cache (vault_name, path, hash, mtime, model_id)
-             VALUES (?1,?2,?3,?4,?5)
+            "INSERT INTO file_cache (vault_name, path, hash, mtime, model_id, file_size)
+             VALUES (?1,?2,?3,?4,?5,?6)
              ON CONFLICT(vault_name, path) DO UPDATE SET
-                 hash=excluded.hash, mtime=excluded.mtime, model_id=excluded.model_id",
-            params![vault_name, relative_path, hash, mtime, model_id],
+                 hash=excluded.hash, mtime=excluded.mtime, model_id=excluded.model_id, file_size=excluded.file_size",
+            params![vault_name, relative_path, hash, mtime, model_id, file_size],
         )?;
 
         tx.commit()?;
@@ -404,6 +459,20 @@ impl NoteDatabase {
             |r| r.get(0),
         ) {
             Ok(m) => Ok(Some(m)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(DbError::Sqlite(e)),
+        }
+    }
+
+    /// Read cached file_size for a file. Paired with cached_mtime for two-stage skip.
+    pub fn cached_file_size(&self, vault_name: &str, path: &str) -> Result<Option<i64>, DbError> {
+        let conn = self.write_conn.borrow();
+        match conn.query_row(
+            "SELECT file_size FROM file_cache WHERE vault_name = ?1 AND path = ?2",
+            params![vault_name, path],
+            |r| r.get(0),
+        ) {
+            Ok(s) => Ok(Some(s)),
             Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
             Err(e) => Err(DbError::Sqlite(e)),
         }
@@ -511,7 +580,7 @@ impl NoteDatabase {
             .collect::<Vec<_>>()
             .join(",");
         let sql = format!(
-            "SELECT id, file_path, chunk_index, parent_header, content, tokenized_content, vault_name FROM chunks WHERE id IN ({})",
+            "SELECT id, file_path, chunk_index, parent_header, content, tokenized_content, vault_name, tags, frontmatter_date, title FROM chunks WHERE id IN ({})",
             placeholders
         );
         let mut stmt = conn.prepare(&sql)?;
@@ -527,6 +596,9 @@ impl NoteDatabase {
                 content: r.get(4)?,
                 tokenized_content: r.get(5)?,
                 vault_name: r.get(6)?,
+                tags: r.get(7)?,
+                frontmatter_date: r.get(8)?,
+                title: r.get(9)?,
             })
         })?;
         rows.collect::<SqliteResult<Vec<_>>>().map_err(DbError::Sqlite)
@@ -548,7 +620,7 @@ impl NoteDatabase {
         )?;
         let w = window as i64;
         let mut stmt = conn.prepare(
-            "SELECT id, file_path, chunk_index, parent_header, content, tokenized_content, vault_name FROM chunks
+            "SELECT id, file_path, chunk_index, parent_header, content, tokenized_content, vault_name, tags, frontmatter_date, title FROM chunks
              WHERE vault_name = ?1 AND file_path = ?2 AND chunk_index BETWEEN ?3 AND ?4
              ORDER BY chunk_index"
         )?;
@@ -561,6 +633,9 @@ impl NoteDatabase {
                 content: r.get(4)?,
                 tokenized_content: r.get(5)?,
                 vault_name: r.get(6)?,
+                tags: r.get(7)?,
+                frontmatter_date: r.get(8)?,
+                title: r.get(9)?,
             })
         })?;
         rows.collect::<SqliteResult<Vec<_>>>().map_err(DbError::Sqlite)
@@ -639,6 +714,9 @@ mod tests {
                 content: "hello".into(),
                 tokenized_content: "hello".into(),
                 vault_name: "default".into(),
+                tags: String::new(),
+                frontmatter_date: String::new(),
+                title: String::new(),
             },
         ];
         db.insert_chunks(&chunks).unwrap();
@@ -649,8 +727,8 @@ mod tests {
     fn test_insert_and_delete_chunks() {
         let db = NoteDatabase::open_in_memory().unwrap();
         let chunks = vec![
-            Chunk { id: None, file_path: "a.md".into(), chunk_index: 0, parent_header: None, content: "hello world".into(), tokenized_content: "hello world".into(), vault_name: "default".to_string() },
-            Chunk { id: None, file_path: "a.md".into(), chunk_index: 1, parent_header: Some("# H1".into()), content: "second chunk".into(), tokenized_content: "second chunk".into(), vault_name: "default".to_string() },
+            Chunk { id: None, file_path: "a.md".into(), chunk_index: 0, parent_header: None, content: "hello world".into(), tokenized_content: "hello world".into(), vault_name: "default".to_string(), tags: String::new(), frontmatter_date: String::new(), title: String::new() },
+            Chunk { id: None, file_path: "a.md".into(), chunk_index: 1, parent_header: Some("# H1".into()), content: "second chunk".into(), tokenized_content: "second chunk".into(), vault_name: "default".to_string(), tags: String::new(), frontmatter_date: String::new(), title: String::new() },
         ];
         let ids = db.insert_chunks(&chunks).unwrap();
         assert_eq!(ids.len(), 2);
@@ -663,10 +741,10 @@ mod tests {
     #[test]
     fn test_file_cache_upsert_and_lookup() {
         let db = NoteDatabase::open_in_memory().unwrap();
-        db.upsert_file_cache("default", "a.md", "hash1", 1000, "none").unwrap();
+        db.upsert_file_cache("default", "a.md", "hash1", 1000, "none", 42).unwrap();
         assert_eq!(db.cached_hash("default", "a.md").unwrap(), Some("hash1".to_string()));
         // Upsert again with new hash
-        db.upsert_file_cache("default", "a.md", "hash2", 2000, "none").unwrap();
+        db.upsert_file_cache("default", "a.md", "hash2", 2000, "none", 99).unwrap();
         assert_eq!(db.cached_hash("default", "a.md").unwrap(), Some("hash2".to_string()));
         // Unknown path
         assert_eq!(db.cached_hash("default", "missing.md").unwrap(), None);
@@ -675,7 +753,7 @@ mod tests {
     #[test]
     fn test_cached_mtime_returns_saved_mtime() {
         let db = NoteDatabase::open_in_memory().unwrap();
-        db.upsert_file_cache("default", "a.md", "hash1", 12345, "none").unwrap();
+        db.upsert_file_cache("default", "a.md", "hash1", 12345, "none", 42).unwrap();
         let mtime = db.cached_mtime("default", "a.md").unwrap();
         assert_eq!(mtime, Some(12345));
     }
@@ -690,17 +768,41 @@ mod tests {
     #[test]
     fn test_cached_mtime_updates_on_upsert() {
         let db = NoteDatabase::open_in_memory().unwrap();
-        db.upsert_file_cache("default", "a.md", "hash1", 1000, "none").unwrap();
+        db.upsert_file_cache("default", "a.md", "hash1", 1000, "none", 42).unwrap();
         assert_eq!(db.cached_mtime("default", "a.md").unwrap(), Some(1000));
-        db.upsert_file_cache("default", "a.md", "hash2", 2000, "none").unwrap();
+        db.upsert_file_cache("default", "a.md", "hash2", 2000, "none", 99).unwrap();
         assert_eq!(db.cached_mtime("default", "a.md").unwrap(), Some(2000));
+    }
+
+    #[test]
+    fn test_cached_file_size_returns_saved_size() {
+        let db = NoteDatabase::open_in_memory().unwrap();
+        db.upsert_file_cache("default", "a.md", "hash1", 1000, "none", 2048).unwrap();
+        let size = db.cached_file_size("default", "a.md").unwrap();
+        assert_eq!(size, Some(2048));
+    }
+
+    #[test]
+    fn test_cached_file_size_returns_none_for_missing() {
+        let db = NoteDatabase::open_in_memory().unwrap();
+        let size = db.cached_file_size("default", "missing.md").unwrap();
+        assert_eq!(size, None);
+    }
+
+    #[test]
+    fn test_cached_file_size_updates_on_upsert() {
+        let db = NoteDatabase::open_in_memory().unwrap();
+        db.upsert_file_cache("default", "a.md", "hash1", 1000, "none", 42).unwrap();
+        assert_eq!(db.cached_file_size("default", "a.md").unwrap(), Some(42));
+        db.upsert_file_cache("default", "a.md", "hash2", 2000, "none", 99).unwrap();
+        assert_eq!(db.cached_file_size("default", "a.md").unwrap(), Some(99));
     }
 
     #[test]
     fn test_fts_search_finds_inserted_chunk() {
         let db = NoteDatabase::open_in_memory().unwrap();
         let chunks = vec![
-            Chunk { id: None, file_path: "b.md".into(), chunk_index: 0, parent_header: None, content: "search engine test".into(), tokenized_content: "search engine test".into(), vault_name: "default".to_string() },
+            Chunk { id: None, file_path: "b.md".into(), chunk_index: 0, parent_header: None, content: "search engine test".into(), tokenized_content: "search engine test".into(), vault_name: "default".to_string(), tags: String::new(), frontmatter_date: String::new(), title: String::new() },
         ];
         db.insert_chunks(&chunks).unwrap();
         let results = db.fts_search("search AND engine", 10, None).unwrap();
@@ -715,6 +817,9 @@ mod tests {
             parent_header: None, content: format!("chunk {}", i),
             tokenized_content: format!("chunk {}", i),
             vault_name: "default".to_string(),
+            tags: String::new(),
+            frontmatter_date: String::new(),
+            title: String::new(),
         }).collect();
         let ids = db.insert_chunks(&chunks).unwrap();
         let middle_id = ids[2];
@@ -734,6 +839,9 @@ mod tests {
                 content: "Hello world content with unique marker 98765".into(),
                 tokenized_content: "Hello world content with unique marker 98765".into(),
                 vault_name: "default".to_string(),
+                tags: String::new(),
+                frontmatter_date: String::new(),
+                title: String::new(),
             },
             Chunk {
                 id: None,
@@ -743,6 +851,9 @@ mod tests {
                 content: "Second chunk with different text ABCDEF".into(),
                 tokenized_content: "Second chunk with different text ABCDEF".into(),
                 vault_name: "default".to_string(),
+                tags: String::new(),
+                frontmatter_date: String::new(),
+                title: String::new(),
             },
         ];
         let ids = db.insert_chunks(&chunks).unwrap();
@@ -774,7 +885,7 @@ mod tests {
     fn test_delete_chunks_removes_fts_entries() {
         let db = NoteDatabase::open_in_memory().unwrap();
         let chunks = vec![
-            Chunk { id: None, file_path: "d.md".into(), chunk_index: 0, parent_header: None, content: "unique token xyz987".into(), tokenized_content: "unique token xyz987".into(), vault_name: "default".to_string() },
+            Chunk { id: None, file_path: "d.md".into(), chunk_index: 0, parent_header: None, content: "unique token xyz987".into(), tokenized_content: "unique token xyz987".into(), vault_name: "default".to_string(), tags: String::new(), frontmatter_date: String::new(), title: String::new() },
         ];
         db.insert_chunks(&chunks).unwrap();
         // Verify findable before delete
@@ -793,7 +904,7 @@ mod tests {
         let db = NoteDatabase::open(&db_path).unwrap();
 
         // Perform a write to trigger WAL creation
-        db.upsert_file_cache("default", "test.md", "hash", 1000, "none").unwrap();
+        db.upsert_file_cache("default", "test.md", "hash", 1000, "none", 0).unwrap();
 
         // Check companion files while db is alive (SQLite may remove -wal on close
         // via autocheckpoint).
@@ -844,6 +955,9 @@ mod tests {
             content: "test".into(),
             tokenized_content: "test".into(),
                 vault_name: "default".to_string(),
+                tags: String::new(),
+                frontmatter_date: String::new(),
+                title: String::new(),
         };
         let ids = db.insert_chunks(&[chunk]).unwrap();
         assert_eq!(ids.len(), 1);
@@ -862,7 +976,7 @@ mod tests {
                 .pragma_query_value(None, "journal_mode", |r| r.get(0))
                 .unwrap();
             assert_eq!(journal.to_lowercase(), "wal", "journal mode should be WAL on fresh DB");
-            db.upsert_file_cache("default", "test.md", "hash", 1000, "none").unwrap();
+            db.upsert_file_cache("default", "test.md", "hash", 1000, "none", 0).unwrap();
         }
 
         let db2 = NoteDatabase::open(&db_path).unwrap();
@@ -885,6 +999,9 @@ mod tests {
             content: "content1".into(),
             tokenized_content: "content1".into(),
             vault_name: "default".to_string(),
+            tags: String::new(),
+            frontmatter_date: String::new(),
+            title: String::new(),
         };
         let chunk2 = Chunk {
             id: None,
@@ -894,6 +1011,9 @@ mod tests {
             content: "content2".into(),
             tokenized_content: "content2".into(),
             vault_name: "default".to_string(),
+            tags: String::new(),
+            frontmatter_date: String::new(),
+            title: String::new(),
         };
 
         let ids1 = db.insert_chunks(&[chunk1]).unwrap();
@@ -914,6 +1034,9 @@ mod tests {
                 content: format!("content{}", i),
                 tokenized_content: format!("content{}", i),
                 vault_name: "default".to_string(),
+                tags: String::new(),
+                frontmatter_date: String::new(),
+                title: String::new(),
             });
         }
 
@@ -933,6 +1056,9 @@ mod tests {
             content: "search term here".into(),
             tokenized_content: "search term here".into(),
             vault_name: "default".to_string(),
+            tags: String::new(),
+            frontmatter_date: String::new(),
+            title: String::new(),
         };
 
         db.insert_chunks(&[chunk]).unwrap();
@@ -995,7 +1121,7 @@ mod tests {
         let stats = db.stats().unwrap();
         assert!(stats.total_chunks == 0, "migration should be idempotent");
         // Insert something and verify DB works
-        db.upsert_file_cache("default", "test.md", "hash", 1000, "none").unwrap();
+        db.upsert_file_cache("default", "test.md", "hash", 1000, "none", 0).unwrap();
         assert_eq!(db.cached_hash("default", "test.md").unwrap(), Some("hash".to_string()));
     }
 
@@ -1037,7 +1163,7 @@ mod tests {
     #[test]
     fn test_metadata_consistency_after_chunk_insert() {
         let db = NoteDatabase::open_in_memory().unwrap();
-        db.upsert_file_cache("default", "test.md", "abcd1234", 1000, "hash").unwrap();
+        db.upsert_file_cache("default", "test.md", "abcd1234", 1000, "hash", 0).unwrap();
 
         let chunk = Chunk {
             id: None,
@@ -1047,6 +1173,9 @@ mod tests {
             content: "content".into(),
             tokenized_content: "content".into(),
             vault_name: "default".to_string(),
+            tags: String::new(),
+            frontmatter_date: String::new(),
+            title: String::new(),
         };
 
         let ids = db.insert_chunks(&[chunk]).unwrap();

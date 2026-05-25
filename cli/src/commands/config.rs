@@ -1,4 +1,6 @@
 use crate::commands::noise::{scan_vault, ExclusionCandidate, CANDIDATE_LIMIT};
+use crate::messages;
+use crate::msg_fmt;
 use clap::{Args, Subcommand};
 use std::path::PathBuf;
 
@@ -16,32 +18,24 @@ pub enum ConfigCommands {
 
 #[derive(Args, Debug)]
 pub struct DetectNoiseArgs {
-    /// Vault root to scan (defaults to all configured vaults).
-    #[arg(long)]
+    #[arg(long, help = messages::CONFIG_NOTES_DIR_HELP)]
     pub notes_dir: Option<PathBuf>,
 }
 
 fn print_noise_candidates(candidates: &[ExclusionCandidate], label: &str) {
     if candidates.is_empty() {
-        println!("No exclusion candidates detected in {}", label);
+        println!("{}", msg_fmt!(messages::CONFIG_NO_CANDIDATES, label));
         return;
     }
 
-    println!("Exclusion candidates in {}:", label);
+    println!("{}", msg_fmt!(messages::CONFIG_CANDIDATES_HEADER, label));
     for (i, candidate) in candidates.iter().enumerate() {
         let l = if candidate.is_known_pattern {
             "known"
         } else {
             "dynamic"
         };
-        println!(
-            "  {}. {} [{}] ({} file{})",
-            i + 1,
-            candidate.relative_path,
-            l,
-            candidate.file_count,
-            if candidate.file_count == 1 { "" } else { "s" }
-        );
+        println!("{}", msg_fmt!(messages::CONFIG_CANDIDATE_ITEM, i + 1, candidate.relative_path, l, candidate.file_count, "ル"));
     }
 }
 
@@ -79,8 +73,8 @@ pub fn run_config(
     }
 
     println!();
-    println!("Run `shiotsuchi init --force` to regenerate config with these exclusions.");
-    println!("Or add them manually to the [indexing] section of your config file.");
+    println!("{}", messages::CONFIG_RUN_INIT);
+    println!("{}", messages::CONFIG_MANUAL_HINT);
 
     Ok(())
 }

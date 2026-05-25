@@ -1,3 +1,5 @@
+use crate::messages;
+use crate::msg_fmt;
 use clap::Args;
 use shiotsuchi_core::{
     constants::DEFAULT_SNIPPET_LINES,
@@ -7,28 +9,28 @@ use shiotsuchi_core::{
     search::{extract_snippet, search},
     tokenizer::get_tokenizer,
 };
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 /// Output format for search results.
 #[derive(clap::ValueEnum, Clone, Debug)]
 pub enum OutputFormat {
-    /// Formatted table with file path, header, snippet, and score.
+    #[value(help = messages::FORMAT_TABLE_HELP)]
     Table,
-    /// Compact JSON array (one line).
+    #[value(help = messages::FORMAT_JSON_HELP)]
     Json,
-    /// Pretty-printed JSON array.
+    #[value(help = messages::FORMAT_JSON_PRETTY_HELP)]
     JsonPretty,
 }
 
 /// CLI-side wrapper for SearchMode so core remains clap-independent.
 #[derive(clap::ValueEnum, Clone, Debug, Default)]
 pub enum CliSearchMode {
-    /// Keyword search via FTS5 (always available).
+    #[value(help = messages::MODE_FTS_HELP)]
     Fts,
-    /// Semantic vector search (requires model).
+    #[value(help = messages::MODE_VEC_HELP)]
     Vec,
-    /// Hybrid FTS + vector with RRF fusion (default; falls back to FTS when no model).
+    #[value(help = messages::MODE_HYBRID_HELP)]
     #[default]
     Hybrid,
 }
@@ -48,29 +50,29 @@ pub struct DiveArgs {
     /// Search query string.
     pub query: String,
 
-    /// Output as compact JSON (deprecated: use --format json).
-    #[arg(long)]
+    #[arg(long, help = messages::DIVE_JSON_HELP)]
     pub json: bool,
 
-    /// Maximum number of results.
-    #[arg(long, default_value = "20")]
+    #[arg(long, default_value = "20", help = messages::DIVE_LIMIT_HELP)]
     pub limit: usize,
 
-    /// Output format (default: table, unless --json is set).
-    #[arg(long, value_enum, default_value_t = OutputFormat::Table)]
+    #[arg(long, value_enum, default_value_t = OutputFormat::Table, help = messages::DIVE_FORMAT_HELP)]
     pub format: OutputFormat,
 
-    /// Search mode: fts (keyword), vec (semantic), hybrid (default).
-    #[arg(long, value_enum, default_value_t = CliSearchMode::Hybrid)]
+    #[arg(long, value_enum, default_value_t = CliSearchMode::Hybrid, help = messages::DIVE_MODE_HELP)]
     pub mode: CliSearchMode,
 
-    /// Path to ONNX embedding model file (overrides SHIOTSUCHI_EMBED_MODEL_PATH and XDG default).
-    #[arg(long)]
+    #[arg(long, help = messages::DIVE_MODEL_PATH_HELP)]
     pub model_path: Option<std::path::PathBuf>,
 
-    /// Filter results to a specific vault.
-    #[arg(long)]
+    #[arg(long, help = messages::DIVE_VAULT_HELP)]
     pub vault: Option<String>,
+
+    #[arg(long, help = messages::DIVE_TAG_HELP)]
+    pub tag: Option<String>,
+
+    #[arg(long, help = messages::DIVE_SINCE_HELP)]
+    pub since: Option<String>,
 }
 
 impl DiveArgs {
@@ -87,9 +89,18 @@ impl DiveArgs {
 pub fn run_dive(
     args: &DiveArgs,
     db_path: &Path,
+    vaults: &[(String, PathBuf)],
 ) -> Result<Vec<ChunkSearchResult>, Box<dyn std::error::Error>> {
     if args.query.trim().is_empty() {
         return Ok(vec![]);
+    }
+
+    // Validate vault filter against known vaults
+    if let Some(ref vault_id) = args.vault {
+        if !vaults.iter().any(|(name, _)| name == vault_id) {
+            let known: Vec<&str> = vaults.iter().map(|(n, _)| n.as_str()).collect();
+            return Err(msg_fmt!(messages::ERR_VAULT_NOT_FOUND, vault_id, known.join(", ")).into());
+        }
     }
 
     let db = NoteDatabase::open(db_path)?;
@@ -101,16 +112,13 @@ pub fn run_dive(
         Some(p) => match Embedder::load(&p) {
             Ok(e) => Some(e),
             Err(e) => {
-                eprintln!("[warn] Could not load embedder: {}. Using FTS only.", e);
+                eprintln!("{}", msg_fmt!(messages::WARN_EMBEDDER_LOAD_FAILED, e));
                 None
             }
         },
         None => {
             if matches!(search_mode, SearchMode::Vec | SearchMode::Hybrid) {
-                eprintln!(
-                    "[warn] モデルファイルが見つかりません。ベクトル検索は無効です。\n\
-                     キーワード検索（FTS5）のみで動作します。"
-                );
+                eprintln!("{}", messages::WARN_EMBEDDER_NOT_FOUND);
             }
             None
         }
@@ -118,10 +126,10 @@ pub fn run_dive(
 
     // Vec mode with no embedder is a hard error; Hybrid gracefully falls back to FTS
     if embedder.is_none() && matches!(search_mode, SearchMode::Vec) {
-        return Err(
-            "Vector search requires a model. Set SHIOTSUCHI_EMBED_MODEL_PATH or use --model-path."
-                .into(),
-        );
+        if !shiotsuchi_core::SEMANTIC_ENABLED {
+            return Err(messages::ERR_SEMANTIC_DISABLED.into());
+        }
+        return Err(messages::ERR_VEC_NO_MODEL.into());
     }
 
     let results = search(
@@ -133,6 +141,8 @@ pub fn run_dive(
         embedder.as_ref(),
         None,
         args.vault.as_deref(),
+        args.tag.as_deref(),
+        args.since.as_deref(),
     )?;
     Ok(results)
 }
@@ -161,7 +171,7 @@ pub fn print_results(
 /// Print results as a human-readable table.
 fn print_table(results: &[ChunkSearchResult], query: &str, elapsed: Duration) {
     let separator = "━".repeat(78);
-    println!("Results for \"{query}\"");
+    println!("{}", msg_fmt!(messages::RESULTS_HEADER, query));
     println!("{separator}");
 
     for (i, result) in results.iter().enumerate() {
@@ -188,11 +198,7 @@ fn print_table(results: &[ChunkSearchResult], query: &str, elapsed: Duration) {
     }
 
     println!("{separator}");
-    println!(
-        "{} results found ({:.3}s)",
-        results.len(),
-        elapsed.as_secs_f64()
-    );
+    println!("{}", msg_fmt!(messages::RESULTS_COUNT, results.len(), elapsed.as_secs_f64()));
 }
 
 #[cfg(test)]
@@ -235,8 +241,10 @@ mod tests {
             mode: CliSearchMode::Fts,
             model_path: None,
             vault: None,
+            tag: None,
+            since: None,
         };
-        let output = run_dive(&args, &db_file).unwrap();
+        let output = run_dive(&args, &db_file, &[("default".to_string(), temp.path().to_path_buf())]).unwrap();
         assert!(!output.is_empty());
         assert!(output[0].file_path.contains("note"));
     }
@@ -246,6 +254,7 @@ mod tests {
         let temp = TempDir::new().unwrap();
         let db_file = temp.path().join("test.db");
 
+        let vaults: Vec<(String, PathBuf)> = vec![];
         let args = DiveArgs {
             query: "".to_string(),
             json: false,
@@ -254,8 +263,10 @@ mod tests {
             mode: CliSearchMode::Fts,
             model_path: None,
             vault: None,
+            tag: None,
+            since: None,
         };
-        let output = run_dive(&args, &db_file).unwrap();
+        let output = run_dive(&args, &db_file, &vaults).unwrap();
         assert!(output.is_empty());
     }
 
@@ -269,6 +280,8 @@ mod tests {
             mode: CliSearchMode::Fts,
             model_path: None,
             vault: None,
+            tag: None,
+            since: None,
         };
         assert!(matches!(args.effective_format(), OutputFormat::Json));
     }
@@ -283,6 +296,8 @@ mod tests {
             mode: CliSearchMode::Fts,
             model_path: None,
             vault: None,
+            tag: None,
+            since: None,
         };
         assert!(matches!(args.effective_format(), OutputFormat::Table));
     }
@@ -297,6 +312,8 @@ mod tests {
             mode: CliSearchMode::Fts,
             model_path: None,
             vault: None,
+            tag: None,
+            since: None,
         };
         assert!(matches!(args.effective_format(), OutputFormat::JsonPretty));
     }
@@ -312,6 +329,9 @@ mod tests {
             score: 0.1,
             search_mode: SearchMode::Fts,
             vault_name: "default".into(),
+            tags: String::new(),
+            frontmatter_date: String::new(),
+            title: String::new(),
         }];
         let json = serde_json::to_string(&results).unwrap();
         let decoded: Vec<ChunkSearchResult> = serde_json::from_str(&json).unwrap();
@@ -340,6 +360,8 @@ mod tests {
             mode: CliSearchMode::Fts,
             model_path: None,
             vault: None,
+            tag: None,
+            since: None,
         };
         assert!(matches!(args.effective_format(), OutputFormat::Json));
     }
@@ -358,6 +380,31 @@ mod tests {
             SearchMode::from(CliSearchMode::Hybrid),
             SearchMode::Hybrid
         ));
+    }
+
+    #[test]
+    fn test_dive_rejects_nonexistent_vault() {
+        let temp = TempDir::new().unwrap();
+        let db_file = temp.path().join("test.db");
+        shiotsuchi_core::db::NoteDatabase::open(&db_file).unwrap();
+
+        let vaults = vec![("work".to_string(), temp.path().join("work").to_path_buf())];
+        let args = DiveArgs {
+            query: "test".to_string(),
+            json: false,
+            limit: 10,
+            format: OutputFormat::Table,
+            mode: CliSearchMode::Fts,
+            model_path: None,
+            vault: Some("hobby".to_string()),
+            tag: None,
+            since: None,
+        };
+        let result = run_dive(&args, &db_file, &vaults);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("hobby"));
+        assert!(err.contains("work"));
     }
 
     #[test]
@@ -390,8 +437,11 @@ mod tests {
             mode: CliSearchMode::Vec,
             model_path: None,
             vault: None,
+            tag: None,
+            since: None,
         };
-        let result = run_dive(&args, &db_file);
+        let vaults: Vec<(String, PathBuf)> = vec![];
+        let result = run_dive(&args, &db_file, &vaults);
         assert!(result.is_err());
     }
 }

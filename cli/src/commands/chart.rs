@@ -1,3 +1,5 @@
+use crate::messages;
+use crate::msg_fmt;
 use crate::config::IndexingConfig;
 use clap::Args;
 use shiotsuchi_core::{
@@ -11,10 +13,9 @@ use std::path::{Path, PathBuf};
 
 #[derive(Args, Debug)]
 pub struct ChartArgs {
-    /// Deprecated: use `shiotsuchi init --force` instead.
-    #[arg(long, hide = true)]
+    #[arg(long, hide = true, help = messages::CHART_FORCE_HELP)]
     pub force: bool,
-    #[arg(long)]
+    #[arg(long, help = messages::CHART_QUIET_HELP)]
     pub quiet: bool,
 }
 
@@ -32,7 +33,7 @@ pub fn run_chart(
     indexing_cfg: &IndexingConfig,
 ) -> Result<ChartSummary, Box<dyn std::error::Error>> {
     if args.force {
-        eprintln!("warning: --force is deprecated and has no effect on chart; use `shiotsuchi init --force` instead");
+        eprintln!("{}", messages::CHART_FORCE_DEPRECATED);
     }
     if let Some(parent) = db_path.parent() {
         std::fs::create_dir_all(parent)?;
@@ -52,13 +53,13 @@ pub fn run_chart(
     let embedder = resolve_model_path(None).and_then(|p| match Embedder::load(&p) {
         Ok(e) => {
             if !args.quiet {
-                eprintln!("[info] Embedder model loaded — vector indexing enabled.");
+                eprintln!("{}", messages::INFO_EMBEDDER_LOADED);
             }
             Some(e)
         }
         Err(e) => {
             if !args.quiet {
-                eprintln!("[warn] Could not load embedder: {}.", e);
+                eprintln!("{}", msg_fmt!(messages::WARN_EMBEDDER_LOAD, e));
             }
             None
         }
@@ -81,29 +82,14 @@ pub fn run_chart(
     }
 
     if embedder.is_none() && !args.quiet {
-        eprintln!(
-            "[info] Embedder model not found — vector indexing skipped. \
-             Run `shiotsuchi setup` to enable semantic search."
-        );
+        eprintln!("{}", messages::INFO_EMBEDDER_SKIPPED);
     }
 
     if !args.quiet {
-        let mut msg = format!(
-            "Indexed {} files ({} skipped, {} errors)",
-            summary.indexed, summary.skipped, summary.errors
-        );
+        println!("{}", msg_fmt!(messages::INDEX_SUMMARY, summary.indexed, summary.skipped, summary.errors));
         if summary.invalid_patterns > 0 {
-            msg.push_str(&format!(
-                ", {} invalid pattern{}",
-                summary.invalid_patterns,
-                if summary.invalid_patterns == 1 {
-                    ""
-                } else {
-                    "s"
-                }
-            ));
+            println!("{}", msg_fmt!(messages::INDEX_PATTERN_WARN, summary.invalid_patterns));
         }
-        println!("{}", msg);
     }
 
     Ok(summary)

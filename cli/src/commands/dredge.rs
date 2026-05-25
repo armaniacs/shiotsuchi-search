@@ -1,3 +1,5 @@
+use crate::messages;
+use crate::msg_fmt;
 use clap::Args;
 use shiotsuchi_core::{db::NoteDatabase, indexer::cleanup_deleted, models::IndexConfig};
 use std::path::{Path, PathBuf};
@@ -20,7 +22,7 @@ pub fn run_dredge(
     indexing_cfg: &crate::config::IndexingConfig,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if !db_path.exists() {
-        eprintln!("Error: database not found. Run `shiotsuchi chart` first.");
+        eprintln!("{}", messages::DREDGE_DB_NOT_FOUND);
         std::process::exit(1);
     }
 
@@ -37,14 +39,14 @@ pub fn run_dredge(
     let stale = cleanup_deleted(&db, &config)?;
 
     if stale.is_empty() {
-        println!("No stale entries found.");
+        println!("{}", messages::DREDGE_NO_STALE);
     } else if args.dry_run {
-        println!("Would remove {} stale file(s):", stale.len());
+        println!("{}", msg_fmt!(messages::DREDGE_WOULD_REMOVE, stale.len()));
         for path in &stale {
             println!("  - {}", path);
         }
     } else {
-        println!("Removed {} stale file(s):", stale.len());
+        println!("{}", msg_fmt!(messages::DREDGE_REMOVED, stale.len()));
         for path in &stale {
             println!("  - {}", path);
         }
@@ -53,7 +55,7 @@ pub fn run_dredge(
     if args.vacuum && !args.dry_run {
         let conn = db.write_conn.borrow();
         conn.execute_batch("VACUUM")?;
-        println!("VACUUM complete.");
+        println!("{}", messages::DREDGE_VACUUM_DONE);
     }
 
     Ok(())

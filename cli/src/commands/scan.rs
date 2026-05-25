@@ -1,3 +1,5 @@
+use crate::messages;
+use crate::msg_fmt;
 use clap::Args;
 use shiotsuchi_core::{
     db::NoteDatabase,
@@ -13,8 +15,7 @@ use std::{
 
 #[derive(Args, Debug)]
 pub struct ScanArgs {
-    /// Deprecated: debounce is now managed internally by the file watcher.
-    #[arg(long, hide = true)]
+    #[arg(long, hide = true, help = messages::SCAN_DEBOUNCE_HELP)]
     pub debounce: Option<u64>,
 }
 
@@ -28,7 +29,7 @@ pub fn run_scan(
     indexing_cfg: &crate::config::IndexingConfig,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if let Some(_d) = args.debounce {
-        eprintln!("warning: --debounce is deprecated and has no effect; debounce is managed internally by the watcher");
+        eprintln!("{}", messages::SCAN_DEBOUNCE_DEPRECATED);
     }
     if let Some(parent) = db_path.parent() {
         std::fs::create_dir_all(parent)?;
@@ -37,20 +38,17 @@ pub fn run_scan(
 
     let embedder = resolve_model_path(None).and_then(|p| match Embedder::load(&p) {
         Ok(e) => {
-            eprintln!("[info] Embedder model loaded — vector indexing enabled.");
+            eprintln!("{}", messages::INFO_EMBEDDER_LOADED);
             Some(e)
         }
         Err(e) => {
-            eprintln!("[warn] Could not load embedder: {}.", e);
+            eprintln!("{}", msg_fmt!(messages::WARN_EMBEDDER_LOAD, e));
             None
         }
     });
 
     if embedder.is_none() {
-        eprintln!(
-            "[info] Embedder model not found — vector indexing skipped. \
-             Run `shiotsuchi setup` to enable semantic search."
-        );
+        eprintln!("{}", messages::INFO_EMBEDDER_SKIPPED);
     }
 
     let db = Arc::new(Mutex::new(NoteDatabase::open(db_path)?));

@@ -234,13 +234,18 @@ pub fn index_file_with_embedder(
     _config: &IndexConfig,
 ) -> IndexResult {
     let mtime = file_mtime(file_path);
+    let file_size = std::fs::metadata(file_path)
+        .map(|m| m.len() as i64)
+        .unwrap_or(0);
 
-    // Fast path: skip if mtime matches cached value (avoids reading the file).
-    // Uses millisecond-precision mtime to handle rapid successive writes.
+    // Fast path: skip if both mtime and file_size match cached values (avoids reading the file).
+    // Uses millisecond-precision mtime + file_size for two-stage check to handle rapid successive writes.
     let model_id = embedder.map_or("none", |e| e.model_id());
     if let Ok(Some(cached_mtime)) = db.cached_mtime(vault_name, relative_path) {
-        if cached_mtime == mtime {
-            return IndexResult::Skipped;
+        if let Ok(Some(cached_size)) = db.cached_file_size(vault_name, relative_path) {
+            if cached_mtime == mtime && cached_size == file_size {
+                return IndexResult::Skipped;
+            }
         }
     }
 
@@ -286,6 +291,7 @@ pub fn index_file_with_embedder(
         model_id,
         &chunks,
         &embeddings,
+        file_size,
     ) {
         return IndexResult::Error(e.to_string());
     }
@@ -751,6 +757,63 @@ mod tests {
             cached_mtime,
             file_mtime
         );
+    }
+
+    #[test]
+    fn test_index_file_skips_via_mtime_file_size_fast_path() {
+        let tokenizer = crate::require_tokenizer!(Default::default());
+        let temp = TempDir::new().unwrap();
+        let vault = temp.path().join("vault");
+        fs::create_dir(&vault).unwrap();
+        let path = vault.join("test.md");
+        fs::write(&path, "Mtime + size fast path test").unwrap();
+
+        let db = NoteDatabase::open_in_memory().unwrap();
+        let config = IndexConfig {
+            vaults: vec![("default".to_string(), vault.clone())],
+            ..Default::default()
+        };
+
+        // First call: insert
+        let r1 = index_file(&db, &tokenizer, &path, "default", "test.md", &config);
+        assert_eq!(r1, IndexResult::Inserted);
+
+        // Verify both cached_mtime and cached_file_size have values
+        assert!(db.cached_mtime("default", "test.md").unwrap().is_some());
+        assert!(db.cached_file_size("default", "test.md").unwrap().is_some());
+
+        // Second call with same content → skipped (mtime + size match)
+        let r2 = index_file(&db, &tokenizer, &path, "default", "test.md", &config);
+        assert_eq!(r2, IndexResult::Skipped);
+    }
+
+    #[test]
+    fn test_index_file_reindexes_on_file_size_change_only() {
+        let tokenizer = crate::require_tokenizer!(Default::default());
+        let temp = TempDir::new().unwrap();
+        let vault = temp.path().join("vault");
+        fs::create_dir(&vault).unwrap();
+        let path = vault.join("test.md");
+        fs::write(&path, "Initial content for size change test").unwrap();
+
+        let db = NoteDatabase::open_in_memory().unwrap();
+        let config = IndexConfig {
+            vaults: vec![("default".to_string(), vault.clone())],
+            ..Default::default()
+        };
+
+        // First call: insert
+        let r1 = index_file(&db, &tokenizer, &path, "default", "test.md", &config);
+        assert_eq!(r1, IndexResult::Inserted);
+
+        // Overwrite the file with different content (size will change)
+        // Force a sleep to ensure mtime actually changes due to filesystem limitations
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        fs::write(&path, "Different content that changes file size significantly").unwrap();
+
+        // Second call: should detect change (either mtime or size or both)
+        let r2 = index_file(&db, &tokenizer, &path, "default", "test.md", &config);
+        assert_eq!(r2, IndexResult::Updated);
     }
 
     #[test]

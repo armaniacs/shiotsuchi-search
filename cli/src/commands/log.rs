@@ -1,3 +1,5 @@
+use crate::messages;
+use crate::msg_fmt;
 use shiotsuchi_core::db::NoteDatabase;
 use std::path::Path;
 
@@ -6,16 +8,16 @@ pub fn run_log(db_path: &Path, vault_name: &str) -> Result<(), Box<dyn std::erro
     let paths = db.list_cached_paths(vault_name)?;
 
     if paths.is_empty() {
-        println!("No files indexed yet. Run `shiotsuchi chart` first.");
+        println!("{}", messages::LOG_NO_FILES);
         return Ok(());
     }
 
-    println!("{:<60} Path", "File");
+    println!("{}", msg_fmt!(messages::LOG_HEADER, "File"));
     println!("{}", "-".repeat(80));
     for path in &paths {
         println!("{}", path);
     }
-    println!("\nTotal: {} files", paths.len());
+    println!("{}", msg_fmt!(messages::LOG_TOTAL, paths.len()));
     // kept for callers that expect "Total: N" pattern
 
     Ok(())

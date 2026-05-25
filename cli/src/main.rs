@@ -1,6 +1,7 @@
 mod build_info;
 mod commands;
 mod config;
+mod messages;
 mod util;
 
 use clap::{Parser, Subcommand};
@@ -11,7 +12,7 @@ use std::time::Instant;
     name = "shiotsuchi",
     version,
     long_version = crate::build_info::long_version(),
-    about = "Guiding your path through the data tide."
+    about = crate::messages::CLI_ABOUT
 )]
 struct Cli {
     #[arg(long, env = "SHIOTSUCHI_NOTES_DIR", global = true)]
@@ -92,20 +93,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Commands::Dive(args) => {
             if !db_path.exists() {
-                eprintln!(
-                    "Error: database not found. Run `shiotsuchi chart` to index your vault first."
-                );
+                eprintln!("{}", crate::messages::ERR_DB_NOT_FOUND);
                 std::process::exit(1);
             }
             let start = Instant::now();
-            match commands::dive::run_dive(&args, &db_path) {
+            match commands::dive::run_dive(&args, &db_path, &resolved_vaults) {
                 Ok(results) => {
                     let elapsed = start.elapsed();
                     let fmt = args.effective_format();
                     commands::dive::print_results(&results, &args.query, &fmt, elapsed);
                 }
                 Err(e) => {
-                    eprintln!("Error: {}", e);
+                    eprintln!("{}: {}", crate::messages::ERR_PREFIX, e);
                     std::process::exit(1);
                 }
             }

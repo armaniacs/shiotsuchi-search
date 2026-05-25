@@ -1,10 +1,12 @@
+use crate::messages;
+use crate::msg_fmt;
 use clap::Args;
 use shiotsuchi_core::db::NoteDatabase;
 use std::path::{Path, PathBuf};
 
 #[derive(Args, Debug)]
 pub struct DeleteArgs {
-    #[arg(help = "Path to the note relative to vault root (e.g., meeting/notes.md)")]
+    #[arg(help = messages::DELETE_PATH_HELP)]
     pub path: String,
 }
 
@@ -16,11 +18,11 @@ pub fn run_delete(
     let path = &args.path;
     // Reject absolute paths or paths with directory traversal components
     if Path::new(path).is_absolute() || path.split('/').any(|c| c == "..") {
-        return Err("Invalid path: must be relative and within vault".into());
+        return Err(messages::ERR_DELETE_INVALID_PATH.into());
     }
 
     if vaults.is_empty() {
-        return Err("No vaults configured. Nothing to delete.".into());
+        return Err(messages::ERR_DELETE_NO_VAULTS.into());
     }
 
     // Find which vault this file belongs to
@@ -44,14 +46,14 @@ pub fn run_delete(
     if full_path.exists() {
         let canonical = full_path.canonicalize()?;
         if !canonical.starts_with(&vault_canonical) {
-            return Err("Path escapes vault directory".into());
+            return Err(messages::ERR_DELETE_PATH_ESCAPES.into());
         }
     }
 
     let db = NoteDatabase::open(db_path)?;
     db.delete_chunks_for_file(vault_name, path)?;
     db.delete_file_cache(vault_name, path)?;
-    println!("Deleted: {}", path);
+    println!("{}", msg_fmt!(messages::DELETED_FILE, path));
     Ok(())
 }
 
@@ -73,7 +75,7 @@ mod tests {
         let result = run_delete(&args, &[], &tmp.path().join("nonexistent.db"));
         assert!(result.is_err());
         let msg = format!("{}", result.unwrap_err());
-        assert!(msg.contains("Invalid"), "expected Invalid path error, got: {}", msg);
+        assert!(msg.contains("無効"), "expected invalid path error, got: {}", msg);
     }
 
     #[test]
@@ -85,7 +87,7 @@ mod tests {
         let result = run_delete(&args, &[], &tmp.path().join("nonexistent.db"));
         assert!(result.is_err());
         let msg = format!("{}", result.unwrap_err());
-        assert!(msg.contains("Invalid"), "expected Invalid path error, got: {}", msg);
+        assert!(msg.contains("無効"), "expected invalid path error, got: {}", msg);
     }
 
     #[test]
@@ -97,7 +99,7 @@ mod tests {
         let result = run_delete(&args, &[], &tmp.path().join("nonexistent.db"));
         assert!(result.is_err());
         let msg = format!("{}", result.unwrap_err());
-        assert!(msg.contains("Invalid"), "expected Invalid path error, got: {}", msg);
+        assert!(msg.contains("無効"), "expected invalid path error, got: {}", msg);
     }
 
     // ------------------------------------------------------------------
@@ -162,7 +164,7 @@ mod tests {
         assert!(result.is_err());
         let msg = result.unwrap_err();
         assert!(
-            msg.contains("escape") || msg.contains("traversal") || msg.contains("outside"),
+            msg.contains("外に出"),
             "expected escape rejection, got: {}",
             msg
         );
@@ -206,8 +208,8 @@ mod tests {
         assert!(result.is_err());
         let msg = format!("{}", result.unwrap_err());
         assert!(
-            msg.contains("No vaults"),
-            "expected 'No vaults' error, got: {}",
+            msg.contains("ボールト"),
+            "expected 'vaults' error, got: {}",
             msg
         );
     }

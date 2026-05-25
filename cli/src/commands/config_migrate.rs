@@ -1,4 +1,6 @@
 use crate::config::{self, DatabaseConfig, ShiotsuchiConfig, VaultEntry};
+use crate::messages;
+use crate::msg_fmt;
 use clap::Args;
 use std::collections::HashMap;
 use std::fs;
@@ -7,7 +9,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Args, Debug)]
 pub struct ConfigMigrateArgs {
-    #[arg(long)]
+    #[arg(long, help = messages::CONFIG_MIGRATE_HELP)]
     pub config: Option<PathBuf>,
 }
 
@@ -15,14 +17,14 @@ pub fn run_config_migrate(args: &ConfigMigrateArgs) -> Result<(), Box<dyn std::e
     let config_path = args.config.clone().unwrap_or_else(config::default_config_path);
 
     if !config_path.exists() {
-        eprintln!("Config file not found: {}", config_path.display());
+        eprintln!("{}", msg_fmt!(messages::ERR_CONFIG_NOT_FOUND, config_path.display()));
         return Ok(());
     }
 
     let old_cfg = ShiotsuchiConfig::load_from(&config_path)?;
 
     if old_cfg.vault.is_none() {
-        eprintln!("Config is already in new format — no migration needed.");
+        eprintln!("{}", messages::ERR_CONFIG_ALREADY_NEW);
         return Ok(());
     }
 
@@ -74,9 +76,9 @@ pub fn run_config_migrate(args: &ConfigMigrateArgs) -> Result<(), Box<dyn std::e
         log::warn!("Config file permissions not restricted — not supported on this platform.");
     }
 
-    eprintln!("Config migrated successfully.");
-    eprintln!("Backup saved to: {}", backup_path.display());
-    eprintln!("New format written to: {}", config_path.display());
+    eprintln!("{}", messages::CONFIG_MIGRATED);
+    eprintln!("{}", msg_fmt!(messages::CONFIG_MIGRATE_BACKUP, backup_path.display()));
+    eprintln!("{}", msg_fmt!(messages::CONFIG_MIGRATE_NEW, config_path.display()));
 
     Ok(())
 }

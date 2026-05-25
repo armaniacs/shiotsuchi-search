@@ -1,3 +1,5 @@
+use crate::messages;
+use crate::msg_fmt;
 use crate::config::IndexingConfig;
 use clap::Args;
 use shiotsuchi_core::{
@@ -51,7 +53,7 @@ pub(crate) fn backup_file(path: &Path) -> Option<PathBuf> {
             Some(backup_path)
         }
         Err(e) => {
-            eprintln!("Warning: failed to backup {}: {}", path.display(), e);
+            eprintln!("{}", msg_fmt!(messages::CLEAN_BACKUP_FAILED, path.display(), e));
             None
         }
     }
@@ -84,7 +86,7 @@ pub fn run_clean(
     indexing_cfg: &IndexingConfig,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if !db_path.exists() {
-        return Err(format!("Database not found at {}. Run `shiotsuchi chart` to create the index first.", db_path.display()).into());
+        return Err(msg_fmt!(messages::CLEAN_DB_NOT_FOUND, db_path.display()).into());
     }
 
     // Build IndexConfig
@@ -101,11 +103,11 @@ pub fn run_clean(
 
     let embedder = resolve_model_path(None).and_then(|p| match Embedder::load(&p) {
         Ok(e) => {
-            eprintln!("[info] Embedder model loaded — vector indexing enabled.");
+            eprintln!("{}", messages::INFO_EMBEDDER_LOADED);
             Some(e)
         }
         Err(e) => {
-            eprintln!("[warn] Could not load embedder: {}.", e);
+            eprintln!("{}", msg_fmt!(messages::WARN_EMBEDDER_LOAD, e));
             None
         }
     });
@@ -147,12 +149,9 @@ pub fn run_clean(
                 IndexResult::Error(_) => errors += 1,
             }
         }
-        println!(
-            "Re-indexed {} files ({} skipped, {} errors)",
-            indexed, skipped, errors
-        );
+        println!("{}", msg_fmt!(messages::CLEAN_REINDEXED, indexed, skipped, errors));
         if invalid_patterns > 0 {
-            println!("  {} invalid pattern(s) in exclude_dirs", invalid_patterns);
+            println!("{}", msg_fmt!(messages::INDEX_PATTERN_WARN, invalid_patterns));
         }
     }
 
@@ -171,7 +170,7 @@ pub fn run_clean(
     // On the same filesystem this is an atomic metadata swap.
     // Cross-device fallback: copy + delete.
     if let Err(e) = std::fs::rename(&tmp_path, db_path) {
-        eprintln!("Warning: rename failed (cross-device?), falling back to copy: {}", e);
+        eprintln!("{}", msg_fmt!(messages::CLEAN_RENAME_FAILED, e));
         std::fs::copy(&tmp_path, db_path)?;
         std::fs::remove_file(&tmp_path)?;
     }
@@ -182,14 +181,11 @@ pub fn run_clean(
     }
 
     if let Some(ref backup_path) = backed_up {
-        println!("Backup saved to: {}", backup_path.display());
+        println!("{}", msg_fmt!(messages::CLEAN_BACKUP_SAVED, backup_path.display()));
     }
 
     if embedder.is_none() {
-        eprintln!(
-            "[info] Embedder model not found — vector indexing skipped. \
-             Run `shiotsuchi setup` to enable semantic search."
-        );
+        eprintln!("{}", messages::INFO_EMBEDDER_SKIPPED);
     }
 
     Ok(())
@@ -304,7 +300,7 @@ mod tests {
         let result = super::run_clean(&vaults, &db_path, &IndexingConfig::default());
         assert!(result.is_err(), "clean without DB should return error");
         let msg = format!("{}", result.unwrap_err());
-        assert!(msg.contains("not found"), "error should mention 'not found', got: {}", msg);
+        assert!(msg.contains("見つかりません"), "error should mention '見つかりません', got: {}", msg);
     }
 
     // ---------------------------------------------------------------------------

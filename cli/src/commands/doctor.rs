@@ -1,4 +1,6 @@
 use crate::config::{IndexingConfig, ShiotsuchiConfig};
+use crate::messages;
+use crate::msg_fmt;
 use clap::Args;
 use dialoguer::{theme::ColorfulTheme, Confirm};
 use shiotsuchi_core::{
@@ -94,7 +96,7 @@ fn fix_config_unknown_fields(
     std::fs::write(config_path, output)?;
     set_restrictive_permissions(config_path);
 
-    println!("  Backup saved to: {}", backup_path.display());
+    println!("{}", msg_fmt!(messages::DOCTOR_BACKUP_SAVED, backup_path.display()));
     Ok(())
 }
 
@@ -139,7 +141,7 @@ fn fix_config_old_vault_format(config_path: &Path) -> Result<(), Box<dyn std::er
     std::fs::write(config_path, toml_str)?;
     set_restrictive_permissions(config_path);
 
-    println!("  Backup saved to: {}", backup_path.display());
+    println!("{}", msg_fmt!(messages::DOCTOR_BACKUP_SAVED, backup_path.display()));
     Ok(())
 }
 
@@ -187,11 +189,11 @@ fn index_vault(
     };
     let embedder = resolve_model_path(None).and_then(|p| match Embedder::load(&p) {
         Ok(e) => {
-            eprintln!("[info] Embedder model loaded — vector indexing enabled.");
+            eprintln!("{}", messages::INFO_EMBEDDER_LOADED);
             Some(e)
         }
         Err(e) => {
-            eprintln!("[warn] Could not load embedder: {}.", e);
+            eprintln!("{}", msg_fmt!(messages::WARN_EMBEDDER_LOAD, e));
             None
         }
     });
@@ -209,19 +211,13 @@ fn index_vault(
             IndexResult::Error(_) => errors += 1,
         }
     }
-    println!(
-        "  Indexed {} files ({} skipped, {} errors)",
-        indexed, skipped, errors
-    );
+    println!("{}", msg_fmt!(messages::INDEX_SUMMARY, indexed, skipped, errors));
     if invalid_patterns > 0 {
-        println!("  {} invalid pattern(s) in exclude_dirs", invalid_patterns);
+        println!("{}", msg_fmt!(messages::INDEX_PATTERN_WARN, invalid_patterns));
     }
 
     if embedder.is_none() {
-        eprintln!(
-            "[info] Embedder model not found — vector indexing skipped. \
-             Run `shiotsuchi setup` to enable semantic search."
-        );
+        eprintln!("{}", messages::INFO_EMBEDDER_SKIPPED);
     }
 
     let stats = db.stats()?;
@@ -245,7 +241,7 @@ fn rebuild_db(
     // Index fresh
     let result = index_vault(db_path, vaults, indexing_cfg);
     if let Some(ref backup_path) = backed_up {
-        println!("  Old database backed up to: {}", backup_path.display());
+        println!("{}", msg_fmt!(messages::DOCTOR_BACKUP_SAVED, backup_path.display()));
     }
     result
 }
@@ -271,39 +267,28 @@ pub fn run_doctor(
         // Try to actually parse the config
         match ShiotsuchiConfig::load_from(&config_path) {
             Ok(_) => {
-                println!("[ok] Config: {}", config_path.display());
+                println!("{}", msg_fmt!(messages::DOCTOR_CONFIG_OK, config_path.display()));
             }
             Err(e) => {
                 let msg = format!("{}", e);
                 if msg.contains("unknown field") {
-                    println!(
-                        "[!!] Config: {} (parse error: {})",
-                        config_path.display(),
-                        e
-                    );
+                    println!("{}", msg_fmt!(messages::DOCTOR_CONFIG_ERROR, config_path.display(), e));
                     all_ok = false;
 
                     let unknown = find_unknown_indexing_fields(&config_path);
                     if tty && !unknown.is_empty() {
                         let field_list = unknown.join(", ");
-                        if ask(&format!(
-                            "Remove unknown field(s) `{}` from [indexing]?",
-                            field_list
-                        ))? {
+                        if ask(&msg_fmt!(messages::DOCTOR_CONFIG_FIX_PROMPT, field_list))? {
                             match fix_config_unknown_fields(&config_path, &unknown) {
-                                Ok(()) => println!("[ok] Config: fixed"),
+                                Ok(()) => println!("{}", messages::DOCTOR_CONFIG_FIXED),
                                 Err(fix_err) => {
-                                    eprintln!("[!!] Config: fix failed: {}", fix_err)
+                                    eprintln!("{}", msg_fmt!(messages::DOCTOR_CONFIG_FIX_FAILED, fix_err))
                                 }
                             }
                         }
                     }
                 } else {
-                    println!(
-                        "[!!] Config: {} (parse error: {})",
-                        config_path.display(),
-                        e
-                    );
+                    println!("{}", msg_fmt!(messages::DOCTOR_CONFIG_ERROR, config_path.display(), e));
                     all_ok = false;
                 }
             }
@@ -312,27 +297,19 @@ pub fn run_doctor(
         // Check for old [vault] format (re-load the config after any fix)
         if let Ok(reloaded) = ShiotsuchiConfig::load_from(&config_path) {
             if reloaded.vault.is_some() {
-                println!(
-                    "[..] Config: {} (uses old [vault] format — migration recommended)",
-                    config_path.display()
-                );
+                println!("{}", msg_fmt!(messages::DOCTOR_CONFIG_OLD_FORMAT, config_path.display()));
                 if tty
-                    && ask(
-                        "Your config uses the old [vault] format. Migrate to new format?",
-                    )?
+                    && ask(messages::DOCTOR_CONFIG_MIGRATE_PROMPT)?
                 {
                     match fix_config_old_vault_format(&config_path) {
-                        Ok(()) => println!("[ok] Config: migrated"),
-                        Err(err) => eprintln!("[!!] Config: migration failed: {}", err),
+                        Ok(()) => println!("{}", messages::DOCTOR_CONFIG_MIGRATED),
+                        Err(err) => eprintln!("{}", msg_fmt!(messages::DOCTOR_CONFIG_MIGRATE_FAILED, err)),
                     }
                 }
             }
         }
     } else {
-        println!(
-            "[..] Config: {} (not found — using defaults)",
-            config_path.display()
-        );
+        println!("{}", msg_fmt!(messages::DOCTOR_CONFIG_NOT_FOUND, config_path.display()));
     }
 
     // -----------------------------------------------------------------------
@@ -341,65 +318,40 @@ pub fn run_doctor(
     if db_path.exists() {
         match NoteDatabase::open(db_path) {
             Ok(db) => match db.stats() {
-                Ok(stats) => println!(
-                    "[ok] Database: {} ({} files, {} chunks)",
-                    db_path.display(),
-                    stats.total_files,
-                    stats.total_chunks
-                ),
+                Ok(stats) => println!("{}", msg_fmt!(messages::DOCTOR_DB_OK, db_path.display(), stats.total_files, stats.total_chunks)),
                 Err(e) => {
-                    println!(
-                        "[!!] Database: {} (open ok but stats failed: {})",
-                        db_path.display(),
-                        e
-                    );
+                    println!("{}", msg_fmt!(messages::DOCTOR_DB_STATS_FAILED, db_path.display(), e));
                     all_ok = false;
                     drop(db);
-                    if tty && ask("Rebuild database from scratch?")? {
+                    if tty && ask(messages::DOCTOR_DB_REBUILD_PROMPT)? {
                         match rebuild_db(db_path, vaults, indexing_cfg) {
-                            Ok((files, chunks)) => println!(
-                                "[ok] Database: rebuilt ({} files, {} chunks)",
-                                files, chunks
-                            ),
+                            Ok((files, chunks)) => println!("{}", msg_fmt!(messages::DOCTOR_DB_REBUILT, files, chunks)),
                             Err(fix_err) => {
-                                eprintln!("[!!] Database: rebuild failed: {}", fix_err)
+                                eprintln!("{}", msg_fmt!(messages::DOCTOR_DB_REBUILD_FAILED, fix_err))
                             }
                         }
                     }
                 }
             },
             Err(e) => {
-                println!(
-                    "[!!] Database: {} (open failed: {})",
-                    db_path.display(),
-                    e
-                );
+                println!("{}", msg_fmt!(messages::DOCTOR_DB_OPEN_FAILED, db_path.display(), e));
                 all_ok = false;
-                if tty && ask("Rebuild database from scratch?")? {
+                if tty && ask(messages::DOCTOR_DB_REBUILD_PROMPT)? {
                     match rebuild_db(db_path, vaults, indexing_cfg) {
-                        Ok((files, chunks)) => println!(
-                            "[ok] Database: rebuilt ({} files, {} chunks)",
-                            files, chunks
-                        ),
+                        Ok((files, chunks)) => println!("{}", msg_fmt!(messages::DOCTOR_DB_REBUILT, files, chunks)),
                         Err(fix_err) => {
-                            eprintln!("[!!] Database: rebuild failed: {}", fix_err)
+                            eprintln!("{}", msg_fmt!(messages::DOCTOR_DB_REBUILD_FAILED, fix_err))
                         }
                     }
                 }
             }
         }
     } else {
-        println!(
-            "[..] Database: {} (not found — run `shiotsuchi chart`)",
-            db_path.display()
-        );
-        if tty && ask("Index your vault now?")? {
+        println!("{}", msg_fmt!(messages::DOCTOR_DB_NOT_FOUND, db_path.display()));
+        if tty && ask(messages::DOCTOR_DB_CREATE_PROMPT)? {
             match index_vault(db_path, vaults, indexing_cfg) {
-                Ok((files, chunks)) => println!(
-                    "[ok] Database: created ({} files, {} chunks)",
-                    files, chunks
-                ),
-                Err(fix_err) => eprintln!("[!!] Database: index failed: {}", fix_err),
+                Ok((files, chunks)) => println!("{}", msg_fmt!(messages::DOCTOR_DB_CREATED, files, chunks)),
+                Err(fix_err) => eprintln!("{}", msg_fmt!(messages::DOCTOR_DB_INDEX_FAILED, fix_err)),
             }
         }
     }
@@ -408,8 +360,8 @@ pub fn run_doctor(
     // 3. Vaporetto tokenizer
     // -----------------------------------------------------------------------
     match get_tokenizer() {
-        Ok(_) => println!("[ok] Tokenizer: Vaporetto model loaded"),
-        Err(e) => println!("[..] Tokenizer: {} (FTS fallback)", e),
+        Ok(_) => println!("{}", messages::DOCTOR_TOKENIZER_OK),
+        Err(e) => println!("{}", msg_fmt!(messages::DOCTOR_TOKENIZER_FALLBACK, e)),
     }
 
     // -----------------------------------------------------------------------
@@ -417,12 +369,12 @@ pub fn run_doctor(
     // -----------------------------------------------------------------------
     match resolve_model_path(None) {
         Some(p) => match Embedder::load(&p) {
-            Ok(_) => println!("[ok] Embedder: ONNX model loaded"),
-            Err(e) => println!("[..] Embedder: model found but load failed: {}", e),
+            Ok(_) => println!("{}", messages::DOCTOR_EMBEDDER_OK),
+            Err(e) => println!("{}", msg_fmt!(messages::DOCTOR_EMBEDDER_LOAD_FAILED, e)),
         },
         None => {
-            println!("[..] Embedder: ONNX model not found (vector search disabled)");
-            println!("     [hint] Run `shiotsuchi setup` to install the embedder model.");
+            println!("{}", messages::DOCTOR_EMBEDDER_NOT_FOUND);
+            println!("{}", messages::DOCTOR_EMBEDDER_HINT);
         }
     }
 
@@ -430,17 +382,14 @@ pub fn run_doctor(
     // 5. Vault directories
     // -----------------------------------------------------------------------
     if vaults.is_empty() {
-        println!("[..] Vaults: none configured");
+        println!("{}", messages::DOCTOR_VAULT_NONE);
     } else {
         for (name, dir) in vaults {
             if dir.exists() {
-                println!("[ok] Vault '{}': {}", name, dir.display());
+                println!("{}", msg_fmt!(messages::DOCTOR_VAULT_OK, name, dir.display()));
             } else {
-                println!("[!!] Vault '{}': {}", name, dir.display());
-                println!(
-                    "     [hint] Directory does not exist. \
-                     Configure the correct path or create the directory."
-                );
+                println!("{}", msg_fmt!(messages::DOCTOR_VAULT_ERROR, name, dir.display()));
+                println!("{}", messages::DOCTOR_VAULT_NOT_EXIST);
                 all_ok = false;
             }
         }
@@ -450,9 +399,9 @@ pub fn run_doctor(
     // Summary
     // -----------------------------------------------------------------------
     if all_ok {
-        println!("\nAll checks passed.");
+        println!("{}", messages::DOCTOR_ALL_PASSED);
     } else {
-        println!("\nSome checks failed. See messages above.");
+        println!("{}", messages::DOCTOR_SOME_FAILED);
     }
 
     Ok(())
