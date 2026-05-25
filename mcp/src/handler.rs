@@ -206,6 +206,25 @@ mod tests {
     }
 
     #[test]
+    fn test_search_local_notes_rejects_nonexistent_vault_dir() {
+        // The vault dir canonicalize check (line 116-119) must reject
+        // non-existent directories to prevent path traversal.
+        let temp = TempDir::new().unwrap();
+        let vaults = vec![("default".to_string(), temp.path().join("nonexistent"))];
+        let db_path = temp.path().join("test.db");
+        shiotsuchi_core::db::NoteDatabase::open(&db_path).unwrap();
+        let args = serde_json::json!({"query": "test", "mode": "fts"});
+        let result = call_tool("search_local_notes", &args, &vaults, &db_path);
+        assert!(result.is_err());
+        let msg = format!("{}", result.unwrap_err());
+        assert!(
+            msg.contains("No such file") || msg.contains("not found") || msg.contains("不存在"),
+            "expected directory-not-found error, got: {}",
+            msg
+        );
+    }
+
+    #[test]
     fn test_search_local_notes_fts_returns_content() {
         let temp = TempDir::new().unwrap();
         let vaults = vec![("default".to_string(), temp.path().to_path_buf())];

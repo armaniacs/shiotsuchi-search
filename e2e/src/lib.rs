@@ -645,4 +645,43 @@ mod tests {
             text
         );
     }
+
+    /// §8: doctor runs in non-TTY mode (diagnostics only, no prompts).
+    #[test]
+    fn e2e_doctor_diagnoses_without_tty() {
+        let temp = TempDir::new().unwrap();
+        let db = temp.path().join("db.sqlite3");
+        setup_vault(&temp);
+
+        // Index first so the DB exists
+        let output = cmd(&["chart", "--quiet"], temp.path(), &db);
+        assert!(output.status.success(), "chart should succeed");
+
+        // Run doctor (non-TTY → diagnose only, no prompts)
+        let output = cmd(&["doctor"], temp.path(), &db);
+        assert!(output.status.success(), "doctor should exit with 0");
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+
+        // Should see check results
+        assert!(
+            stdout.contains("[ok]") || stdout.contains("[..]") || stdout.contains("[!!]"),
+            "doctor should produce diagnostic output, got: {}",
+            stdout
+        );
+
+        // Should NOT contain interactive prompt text (non-TTY)
+        assert!(
+            !stdout.contains("? [y/N]"),
+            "non-TTY doctor should not prompt, got: {}",
+            stdout
+        );
+
+        // Should end with a summary line
+        assert!(
+            stdout.contains("All checks passed") || stdout.contains("Some checks failed"),
+            "doctor should show summary, got: {}",
+            stdout
+        );
+    }
 }

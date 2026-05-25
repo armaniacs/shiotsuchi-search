@@ -80,3 +80,144 @@ pub fn run_config_migrate(args: &ConfigMigrateArgs) -> Result<(), Box<dyn std::e
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use tempfile::TempDir;
+
+    fn test_config_path(temp: &TempDir) -> PathBuf {
+        temp.path().join("config.toml")
+    }
+
+    #[test]
+    fn test_nonexistent_config_is_noop() {
+        let temp = TempDir::new().unwrap();
+        let path = test_config_path(&temp);
+        let args = ConfigMigrateArgs {
+            config: Some(path.clone()),
+        };
+        // Should not error — just prints "not found" and returns
+        run_config_migrate(&args).unwrap();
+        assert!(!path.exists(), "no config file should be created");
+    }
+
+    #[test]
+    fn test_already_new_format_is_noop() {
+        let temp = TempDir::new().unwrap();
+        let path = test_config_path(&temp);
+        fs::write(
+            &path,
+            r#"
+[vaults.work]
+notes_dir = "/work/notes"
+
+[database]
+db_path = "/tmp/db.sqlite"
+"#,
+        )
+        .unwrap();
+
+        let args = ConfigMigrateArgs {
+            config: Some(path.clone()),
+        };
+        run_config_migrate(&args).unwrap();
+
+        // Content should be unchanged
+        let contents = fs::read_to_string(&path).unwrap();
+        assert!(
+            contents.contains("vaults.work"),
+            "new format should be preserved: {}",
+            contents
+        );
+
+        // No backup should have been created
+        let backups: Vec<_> = fs::read_dir(temp.path())
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_name().to_string_lossy().contains(".bak."))
+            .collect();
+        assert!(
+            backups.is_empty(),
+            "no backup expected for already-new format"
+        );
+    }
+
+    #[test]
+    fn test_migrates_old_vault_format() {
+        let temp = TempDir::new().unwrap();
+        let path = test_config_path(&temp);
+        fs::write(
+            &path,
+            r#"
+[vault]
+notes_dir = "/tmp/notes"
+
+[indexing]
+exclude_dirs = ["node_modules"]
+"#,
+        )
+        .unwrap();
+
+        let args = ConfigMigrateArgs {
+            config: Some(path.clone()),
+        };
+        run_config_migrate(&args).unwrap();
+
+        // File should now have new format
+        let contents = fs::read_to_string(&path).unwrap();
+        assert!(
+            !contents.contains("[vault]"),
+            "old [vault] section should be removed"
+        );
+        assert!(
+            contents.contains("[vaults.default]"),
+            "new vaults.default should exist"
+        );
+        assert!(
+            contents.contains("exclude_dirs"),
+            "indexing section should be preserved"
+        );
+
+        // Backup should exist
+        let backups: Vec<_> = fs::read_dir(temp.path())
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_name().to_string_lossy().contains("config.toml.bak."))
+            .collect();
+        assert!(
+            !backups.is_empty(),
+            "backup file should exist after migration"
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_migrated_config_permissions_0600() {
+        use std::os::unix::fs::PermissionsExt;
+        let temp = TempDir::new().unwrap();
+        let path = test_config_path(&temp);
+        fs::write(
+            &path,
+            r#"
+[vault]
+notes_dir = "/tmp/notes"
+"#,
+        )
+        .unwrap();
+
+        let args = ConfigMigrateArgs {
+            config: Some(path.clone()),
+        };
+        run_config_migrate(&args).unwrap();
+
+        let meta = fs::metadata(&path).unwrap();
+        let mode = meta.permissions().mode() & 0o777;
+        assert_eq!(
+            mode, 0o600,
+            "migrated config should have 0o600 permissions, got {:o}",
+            mode
+        );
+    }
+}
