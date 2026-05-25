@@ -124,11 +124,6 @@ pub fn run_clean(
         let _ = std::fs::remove_file(PathBuf::from(format!("{}{}", tmp_base, suffix)));
     }
 
-    if let Some(parent) = db_path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    crate::util::secure_parent_dir(db_path);
-
     // Index into temp DB first (before touching original)
     {
         let db = NoteDatabase::open(&tmp_path)?;

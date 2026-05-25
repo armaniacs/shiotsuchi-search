@@ -31,11 +31,6 @@ pub fn run_scan(
     if let Some(_d) = args.debounce {
         eprintln!("{}", messages::SCAN_DEBOUNCE_DEPRECATED);
     }
-    if let Some(parent) = db_path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    crate::util::secure_parent_dir(db_path);
-
     let embedder = resolve_model_path(None).and_then(|p| match Embedder::load(&p) {
         Ok(e) => {
             eprintln!("{}", messages::INFO_EMBEDDER_LOADED);

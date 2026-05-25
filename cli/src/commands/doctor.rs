@@ -172,11 +172,6 @@ fn index_vault(
     vaults: &[(String, PathBuf)],
     indexing_cfg: &IndexingConfig,
 ) -> Result<(usize, usize), Box<dyn std::error::Error>> {
-    if let Some(parent) = db_path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    crate::util::secure_parent_dir(db_path);
-
     let db = NoteDatabase::open(db_path)?;
     let tokenizer = get_tokenizer()?;
     let config = IndexConfig {

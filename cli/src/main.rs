@@ -5,7 +5,31 @@ mod messages;
 mod util;
 
 use clap::{Parser, Subcommand};
+use std::path::PathBuf;
 use std::time::Instant;
+
+/// Returns `true` when the user has not explicitly configured a db_path
+/// via config file, legacy vault config, or CLI flag.
+fn is_default_db_path(cfg: &config::ShiotsuchiConfig, cli_db_path: Option<&PathBuf>) -> bool {
+    cfg.database.db_path.is_none()
+        && cfg.vault.as_ref().and_then(|v| v.db_path.as_ref()).is_none()
+        && cli_db_path.is_none()
+}
+
+/// Returns the previous default database path (~/.cache/shiotsuchi/db.sqlite3),
+/// used before PBI-06 migrated to `dirs::data_dir()`.
+///
+/// Note: The previous implementation used `$XDG_CACHE_HOME` as an override.
+/// This function only checks the common `~/.cache` fallback — users who set
+/// `XDG_CACHE_HOME` to a custom value won't see the migration notice. This is
+/// an acceptable simplification for the migration message.
+fn old_default_db_path() -> PathBuf {
+    dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(".cache")
+        .join("shiotsuchi")
+        .join("db.sqlite3")
+}
 
 #[derive(Parser)]
 #[command(
@@ -78,6 +102,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let resolved_vaults = cfg.resolved_vaults();
     let db_path = cfg.resolved_db_path();
+
+    // Migration notice: if no explicit db_path is configured and the old
+    // default path (~/.cache/shiotsuchi/db.sqlite3) has a database, inform
+    // the user about the new location.
+    if is_default_db_path(&cfg, cli.db_path.as_ref()) {
+        let old_path = old_default_db_path();
+        if old_path.exists() && !db_path.exists() {
+            eprintln!(
+                "{}",
+                msg_fmt!(
+                    crate::messages::DB_PATH_MIGRATION_NOTICE,
+                    db_path.parent().unwrap().display(),
+                    old_path.display(),
+                    db_path.display(),
+                )
+            );
+        }
+    }
 
     match cli.command {
         Commands::Chart(args) => {

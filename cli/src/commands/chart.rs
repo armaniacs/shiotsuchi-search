@@ -35,10 +35,6 @@ pub fn run_chart(
     if args.force {
         eprintln!("{}", messages::CHART_FORCE_DEPRECATED);
     }
-    if let Some(parent) = db_path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    crate::util::secure_parent_dir(db_path);
     let db = NoteDatabase::open(db_path)?;
     let tokenizer = get_tokenizer()?;
     let config = IndexConfig {
@@ -174,8 +170,8 @@ mod tests {
         let idx_cfg = IndexingConfig::default();
         let _result = run_chart(&args, &[("default".to_string(), vault.to_path_buf())], &db_path, &idx_cfg);
 
-        // secure_parent_dir sets 0o700 on the immediate parent (c)
-        // ancestor directories (a, b) are not modified by the utility
+        // NoteDatabase::open() sets 0o700 on the immediate parent (c)
+        // ancestor directories (a, b) are not modified
         let immediate_parent = db_path.parent().unwrap();
         if immediate_parent.exists() {
             let mode = std::fs::metadata(immediate_parent)

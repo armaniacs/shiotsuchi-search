@@ -61,6 +61,22 @@ impl NoteDatabase {
         // SAFETY: sqlite-vec extension registration is safe under the Once guard
         // (see register_vec_extension doc-comment).
         unsafe { register_vec_extension(); }
+        if let Some(parent) = path.as_ref().parent() {
+            std::fs::create_dir_all(parent)?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                if let Ok(meta) = std::fs::metadata(parent) {
+                    if meta.permissions().mode() & 0o777 != 0o700 {
+                        if let Err(e) =
+                            std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700))
+                        {
+                            log::warn!("Failed to set parent directory permissions to 0o700: {}", e);
+                        }
+                    }
+                }
+            }
+        }
         let conn = Connection::open(&path)?;
         conn.pragma_update(None, "journal_mode", "WAL")?;
         let db = Self { write_conn: RefCell::new(conn) };
@@ -1180,5 +1196,21 @@ mod tests {
 
         let ids = db.insert_chunks(&[chunk]).unwrap();
         assert!(!ids.is_empty(), "chunk insert should succeed after metadata insert");
+    }
+
+    #[test]
+    fn test_open_creates_parent_directory() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let db_path = tmp.path().join("deep").join("nested").join("dir").join("test.db");
+
+        // Parent should not exist before open
+        assert!(!db_path.parent().unwrap().exists());
+
+        // open() should create parent directories
+        let db = NoteDatabase::open(&db_path).unwrap();
+        drop(db);
+
+        assert!(db_path.parent().unwrap().exists(), "open() should create parent directories");
+        assert!(db_path.exists(), "DB file should exist after open");
     }
 }
