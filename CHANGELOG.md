@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > For project overview, features, installation, and usage, see [README.md](README.md).
 
+## [0.4.8] - 2026-05-25
+
+### Added
+
+- **Coverage audit and gap closure**: Systematic audit identified and closed 6
+  test coverage gaps across security-critical and core-flow paths:
+  - `delete.rs`: 7 new tests for path traversal rejection (absolute, `..`,
+    symlink escape), vault resolution fallback, and empty-vault panic
+  - `config_migrate.rs`: 4 new tests for nonexistent config, already-new-format
+    noop, full migration, and file permissions
+  - MCP handler: 1 new test for vault-dir canonicalize check in
+    `search_local_notes`
+  - E2E: 1 new `e2e_doctor_diagnoses_without_tty` smoke test verifying non-TTY
+    diagnostics
+
+### Changed
+
+- `docs/CLI-USE.md` / `docs/CLI-USE.ja.md`: Expanded doctor section with
+  fixable-issues table, interactive prompt example, and non-TTY behavior note
+- `ref/cli.md`: Added `doctor` to commands table, implementation files list,
+  and outputs table
+
 ## [0.4.7] - 2026-05-25
 
 ### Added
@@ -576,7 +598,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `docs/MODEL_LICENSES.md` with BSD-3-Clause notice for the bundled tokenizer model
 - `README.md` (English) and `README.ja.md` (Japanese)
 
-[Unreleased]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.4.7...HEAD
+[Unreleased]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.4.8...HEAD
+[0.4.8]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.4.7...v0.4.8
 [0.4.7]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.4.6...v0.4.7
 [0.4.6]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.4.5...v0.4.6
 [0.4.5]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.4.4...v0.4.5
