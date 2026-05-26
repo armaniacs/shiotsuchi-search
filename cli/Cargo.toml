@@ -14,7 +14,7 @@ name = "shiotsuchi"
 path = "src/main.rs"
 
 [dependencies]
-shiotsuchi-core = { version = "0.4.2", path = "../core" }
+shiotsuchi-core = { version = "0.4.2", path = "../core", default-features = false, features = ["watcher", "async-index"] }
 clap = { version = "4", features = ["derive", "env"] }
 clap_complete = "4"
 serde = { version = "1", features = ["derive"] }
@@ -33,3 +33,7 @@ walkdir = "2"
 
 [dev-dependencies]
 tempfile = "3"
+
+[features]
+default = ["semantic"]
+semantic = ["shiotsuchi-core/semantic"]

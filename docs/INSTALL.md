@@ -92,6 +92,29 @@ If the shell cannot find the binary, add `~/.local/bin` to your `PATH`:
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
+### Lightweight build (FTS5 only, no semantic search)
+
+For environments where binary size or ONNX Runtime compatibility is a concern, build without the default `semantic` feature. This produces a much smaller binary that supports FTS5 keyword search and the file watcher, but excludes vector/semantic search:
+
+```sh
+cargo install --path cli --no-default-features
+```
+
+Trade-offs:
+
+| Feature | Default build | `--no-default-features` |
+|---------|-------------|------------------------|
+| FTS5 keyword search | Yes | Yes |
+| Vector/semantic search | Yes | No |
+| File watcher (`scan`) | Yes | Yes |
+| Binary size | Larger (includes ONNX Runtime) | Smaller |
+
+To build the MCP server without semantic search:
+
+```sh
+cargo install --path mcp --no-default-features
+```
+
 ## Custom install prefix
 
 To install into `/usr/local` (requires `sudo`) or a different prefix:

@@ -29,11 +29,11 @@ Scenario: 軽量ビルドでセマンティック検索を試みるとわかり�
 ```
 
 ## 受け入れ基準
-- [ ] `Cargo.toml` に feature `semantic` を定義（デフォルト: enabled）
-- [ ] `ort` 依存・埋め込みモデル・ベクトル検索コードが `#[cfg(feature = "semantic")]` で囲まれる
-- [ ] `--no-default-features` ビルドでコンパイルエラーが出ない
-- [ ] semantic 無効時に `--semantic` フラグを使うと明確なエラーメッセージが返る
-- [ ] README にビルドオプションの説明が追記される
+- [x] `Cargo.toml` に feature `semantic` を定義（デフォルト: enabled）
+- [x] `ort` 依存・埋め込みモデル・ベクトル検索コードが `#[cfg(feature = "semantic")]` で囲まれる
+- [x] `--no-default-features` ビルドでコンパイルエラーが出ない
+- [x] semantic 無効時に `--semantic` フラグを使うと明確なエラーメッセージが返る
+- [x] README にビルドオプションの説明が追記される
 
 ## テスト戦略（t_wada スタイル）
 
