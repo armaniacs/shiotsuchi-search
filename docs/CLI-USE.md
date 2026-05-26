@@ -138,6 +138,8 @@ shiotsuchi search "project plan"                     # alias for dive
 | `--threshold` | — | Minimum score threshold. FTS/Vec: excludes results with score above threshold. Hybrid: excludes results below threshold. |
 | `--model-path` | — | Path to ONNX embedding model file (overrides config/env) |
 
+> **ANSI highlighting:** Matched search terms are highlighted in the table format output. Set `NO_COLOR=1` or pipe to a file to disable colors.
+
 **Search modes:**
 
 | Mode | Description | Model required |
@@ -386,10 +388,14 @@ Create `~/.config/shiotsuchi/config.toml` (or `$XDG_CONFIG_HOME/shiotsuchi/confi
 
 ```toml
 [database]
-db_path = "/home/name/.cache/shiotsuchi/db.sqlite3"
+db_path = "~/.cache/shiotsuchi/db.sqlite3"
+vault_default = "personal"          # optional: default vault when --vault omitted
 
-[vaults.default]
-notes_dir = "/home/name/Notes"
+[vaults.personal]
+notes_dir = "/Users/name/Documents/Personal"
+
+[vaults.work]
+notes_dir = "/Users/name/Documents/Work"
 
 [indexing]
 snippet_lines       = 3
@@ -399,6 +405,15 @@ exclude_dirs        = ["node_modules"]
 auto_exclude_hidden = true
 follow_links        = false
 dynamic_threshold   = 5
+user_dictionary     = ["Vaporetto", "shiotsuchi"]  # custom Vaporetto tokens
+
+# Thesaurus synonyms (also managed via `shiotsuchi synonym`)
+[synonyms]
+AWS = ["Amazon Web Services", "アマゾンウェブサービス"]
+
+# Search tuning (optional)
+hybrid_alpha       = 0.5   # blend ratio (0.0=vec only, 1.0=FTS only, default 0.5)
+semantic_threshold = 0.75  # minimum score threshold
 ```
 
 ### Old format (pre-v0.3.7, still readable)

@@ -136,6 +136,8 @@ shiotsuchi search "プロジェクト計画"                   # dive のエイ�
 | `--threshold` | — | 最小スコア閾値。FTS/Vec: 閾値以上のスコアを除外。Hybrid: 閾値未満のスコアを除外。 |
 | `--model-path` | — | ONNX 埋め込みモデルファイルのパス（設定・環境変数を上書き） |
 
+> **ANSI ハイライト:** マッチした検索語はテーブル形式出力で強調表示されます。`NO_COLOR=1` またはパイプへのリダイレクトで色を無効化できます。
+
 **検索モード:**
 
 | モード | 説明 | モデル |
@@ -384,10 +386,14 @@ shiotsuchi completion powershell | Out-String | Invoke-Expression
 
 ```toml
 [database]
-db_path = "/home/name/.cache/shiotsuchi/db.sqlite3"
+db_path = "~/.cache/shiotsuchi/db.sqlite3"
+vault_default = "personal"          # 省略時のデフォルト vault
 
-[vaults.default]
-notes_dir = "/home/name/Notes"
+[vaults.personal]
+notes_dir = "/Users/name/Documents/Personal"
+
+[vaults.work]
+notes_dir = "/Users/name/Documents/Work"
 
 [indexing]
 snippet_lines       = 3
@@ -397,6 +403,15 @@ exclude_dirs        = ["node_modules"]
 auto_exclude_hidden = true
 follow_links        = false
 dynamic_threshold   = 5
+user_dictionary     = ["Vaporetto", "shiotsuchi"]  # カスタムトークン
+
+# 同義語（`shiotsuchi synonym` でも管理可）
+[synonyms]
+AWS = ["Amazon Web Services", "アマゾンウェブサービス"]
+
+# 検索チューニング（オプション）
+hybrid_alpha       = 0.5   # ブレンド比率 (0.0=vecのみ, 1.0=FTSのみ)
+semantic_threshold = 0.75  # 最小スコア閾値
 ```
 
 ### 旧形式（v0.4.0 未満、読み取り互換あり）
@@ -439,6 +454,7 @@ CLI フラグは常に設定ファイルの値より優先されます。
 ```toml
 [database]
 db_path = "~/.cache/shiotsuchi/db.sqlite3"
+vault_default = "personal"
 
 [vaults.personal]
 notes_dir = "/Users/name/Documents/Personal"

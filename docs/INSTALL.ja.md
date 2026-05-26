@@ -92,6 +92,29 @@ shiotsuchi --help
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
+### 軽量ビルド（FTS5 のみ、セマンティック検索なし）
+
+ONNX Runtime の互換性やバイナリサイズが問題になる環境では、`semantic` フィーチャーを無効にしてビルドできます。FTS5 キーワード検索とファイル監視はそのまま使えます。
+
+```sh
+cargo install --path cli --no-default-features
+```
+
+トレードオフ:
+
+| 機能 | 通常ビルド | `--no-default-features` |
+|------|-----------|------------------------|
+| FTS5 キーワード検索 | 〇 | 〇 |
+| ベクトル/セマンティック検索 | 〇 | ✗ |
+| ファイル監視（scan） | 〇 | 〇 |
+| バイナリサイズ | 大（ONNX Runtime 含む） | 小 |
+
+MCP サーバーの軽量ビルド:
+
+```sh
+cargo install --path mcp --no-default-features
+```
+
 ## インストール先を変更する
 
 `/usr/local` などに入れたい場合は `PREFIX` を指定します：

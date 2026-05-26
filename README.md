@@ -16,20 +16,29 @@ Powered by [Vaporetto](https://github.com/daac-tools/vaporetto) × SQLite FTS5.
 - **Multiple interfaces**: CLI, MCP (Claude Desktop)
 - **Incremental indexing**: only re-indexes changed files (SHA-256 hash tracking)
 
-> **Note:** All command output and error messages are currently in English only. Japanese localization may be added in a future release.
+> **Note:** CLI output and help text are in Japanese by default. English usage docs are available in [docs/CLI-USE.md](docs/CLI-USE.md).
 
 ## Commands
 
 | Command | Description |
 |---------|-------------|
 | `chart` | Index/re-index all Markdown files |
+| `check-ignore <path>` | Check if a path matches exclude rules |
 | `clean` | Backup database, delete, and re-index from scratch |
+| `config` | Manage indexing settings (detect-noise) |
 | `config-migrate` | Upgrade config from legacy `[vault]` to new format |
 | `delete <path>` | Remove a note from the index (does not delete the file) |
-| `dive <query>` / `search <query>` | Search notes (AND search, JSON output) |
+| `dive <query>` / `search <query>` | Search notes (fts/vec/hybrid modes, filters, MMR) |
+| `doctor` | Environment health check with interactive repair |
+| `dredge` | Chunk migration for pre-v0.3.3 vaults |
+| `init` | Create config file with interactive exclusion selection |
 | `log` | Show indexing history |
 | `scan` | Watch for file changes and auto-re-index |
-| `tide` | Show vault statistics |
+| `setup` | Download/check ONNX embedding model |
+| `synonym` | Manage thesaurus entries (add/remove/list) |
+| `tasks` | Cross-vault task checkbox search |
+| `tide` | Show vault statistics (files, chunks, tags, --json) |
+| `support` | Show build info and dependency versions |
 
 ## Claude Desktop Integration (MCP)
 
@@ -68,19 +77,30 @@ Restart Claude Desktop and ask: "Search my notes for project"
 
 ```toml
 [database]
-db_path = "/home/name/.cache/shiotsuchi/db.sqlite3"
+db_path = "~/.cache/shiotsuchi/db.sqlite3"
+vault_default = "personal"
 
-[vaults.default]
-notes_dir = "/home/name/Notes"
+[vaults.personal]
+notes_dir = "/Users/name/Documents/Personal"
+
+[vaults.work]
+notes_dir = "/Users/name/Documents/Work"
 
 [indexing]
-snippet_lines = 3
-max_snippet_chars = 1000
-include_extensions = ["md", "markdown"]
-exclude_dirs = ["node_modules"]
+snippet_lines       = 3
+max_snippet_chars   = 1000
+include_extensions  = ["md", "markdown"]
+exclude_dirs        = ["node_modules"]
+user_dictionary     = ["Vaporetto", "shiotsuchi"]  # custom tokenization words
+hybrid_alpha        = 0.5                           # FTS ↔ vec blend ratio
+semantic_threshold  = 0.75                          # minimum score threshold
 ```
 
-Multiple vaults can share a single database:
+Multiple vaults can share a single database. Use `--vault <name>` to restrict operations to one vault. Set `vault_default = "..."` to always use a specific vault when `--vault` is omitted.
+
+## Building from Source
+
+See [docs/INSTALL.md](docs/INSTALL.md) for build options including lightweight builds (`cargo build --no-default-features`).
 
 ```toml
 [database]
