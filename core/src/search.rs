@@ -13,7 +13,6 @@ use log;
 #[allow(clippy::too_many_arguments)]
 #[allow(clippy::too_many_arguments)]
 #[allow(clippy::too_many_arguments)]
-#[allow(clippy::too_many_arguments)]
 pub fn search(
     db: &NoteDatabase,
     tokenizer: &JapaneseTokenizer,
@@ -28,6 +27,7 @@ pub fn search(
     user_dictionary: &[String],
     synonyms: &HashMap<String, Vec<String>>,
     fuzzy: bool,
+    alpha: Option<f64>,
 ) -> Result<Vec<ChunkSearchResult>, DbError> {
     if query.trim().is_empty() {
         return Ok(vec![]);
@@ -47,7 +47,7 @@ pub fn search(
         }
         SearchMode::Hybrid => {
             let emb = embedder.ok_or_else(|| DbError::Other("Hybrid mode requires embedder — model not loaded".into()))?;
-            search_hybrid(db, tokenizer, emb, query, limit, min_score, vault_filter, tag_filter, since_date, user_dictionary, synonyms, fuzzy)
+            search_hybrid(db, tokenizer, emb, query, limit, min_score, vault_filter, tag_filter, since_date, user_dictionary, synonyms, fuzzy, alpha)
         }
     }
 }
@@ -300,6 +300,49 @@ pub(crate) fn compute_rrf(
     rrf_scores
 }
 
+/// RRF with alpha weighting: `score = alpha * 1/(k + rank_fts) + (1-alpha) * 1/(k + rank_vec)`.
+/// Avoids the score-normalization complexity of a linear blend by operating on
+/// ranks (like standard RRF), but lets the user control the relative contribution
+/// of each search method.
+fn compute_rrf_weighted(
+    fts_results: &[ChunkSearchResult],
+    vec_results: &[ChunkSearchResult],
+    limit: usize,
+    k: f64,
+    alpha: f64,
+) -> Vec<(i64, f64)> {
+    let fts_ranks: HashMap<i64, usize> = fts_results
+        .iter()
+        .enumerate()
+        .map(|(i, r)| (r.chunk_id, i + 1))
+        .collect();
+    let vec_ranks: HashMap<i64, usize> = vec_results
+        .iter()
+        .enumerate()
+        .map(|(i, r)| (r.chunk_id, i + 1))
+        .collect();
+
+    let mut all_ids: Vec<i64> = fts_ranks.keys().chain(vec_ranks.keys()).copied().collect();
+    all_ids.sort_unstable();
+    all_ids.dedup();
+
+    let fts_weight = alpha;
+    let vec_weight = 1.0 - alpha;
+
+    let mut scores: Vec<(i64, f64)> = all_ids
+        .into_iter()
+        .map(|id| {
+            let f = fts_ranks.get(&id).map(|&r| fts_weight / (k + r as f64)).unwrap_or(0.0);
+            let v = vec_ranks.get(&id).map(|&r| vec_weight / (k + r as f64)).unwrap_or(0.0);
+            (id, f + v)
+        })
+        .collect();
+
+    scores.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    scores.truncate(limit);
+    scores
+}
+
 /// Hybrid search using Reciprocal Rank Fusion (RRF) to merge FTS + vec results.
 /// RRF score = 1/(k + rank_fts) + 1/(k + rank_vec), higher = more relevant.
 fn search_hybrid(
@@ -315,20 +358,24 @@ fn search_hybrid(
     user_dictionary: &[String],
     synonyms: &HashMap<String, Vec<String>>,
     fuzzy: bool,
+    alpha: Option<f64>,
 ) -> Result<Vec<ChunkSearchResult>, DbError> {
     const K: f64 = 60.0;
 
     let fts_results = search_fts(db, tokenizer, query, limit * 2, None, vault_filter, None, None, user_dictionary, synonyms, fuzzy)?;
     let vec_results = search_vec(db, embedder, query, limit * 2, None, vault_filter, None, None)?;
 
-    let rrf_scores = compute_rrf(&fts_results, &vec_results, limit, K);
+    let blended_scores = match alpha {
+        Some(a) => compute_rrf_weighted(&fts_results, &vec_results, limit, K, a.clamp(0.0, 1.0)),
+        None => compute_rrf(&fts_results, &vec_results, limit, K),
+    };
 
-    if rrf_scores.is_empty() {
+    if blended_scores.is_empty() {
         return Ok(vec![]);
     }
 
-    let ids: Vec<i64> = rrf_scores.iter().map(|(id, _)| *id).collect();
-    let score_map: HashMap<i64, f64> = rrf_scores.into_iter().collect();
+    let ids: Vec<i64> = blended_scores.iter().map(|(id, _)| *id).collect();
+    let score_map: HashMap<i64, f64> = blended_scores.into_iter().collect();
     let chunks = db.get_chunks_by_ids(&ids)?;
 
     // Build a lookup so we can re-order by score
@@ -485,7 +532,7 @@ mod tests {
         }];
         db.insert_chunks(&chunks).unwrap();
 
-        let results = search(&db, &tokenizer, "search engine", 10, SearchMode::Fts, None, None, None, None, None, &[], &HashMap::new(), false).unwrap();
+        let results = search(&db, &tokenizer, "search engine", 10, SearchMode::Fts, None, None, None, None, None, &[], &HashMap::new(), false, None).unwrap();
         assert!(!results.is_empty());
         assert_eq!(results[0].file_path, "test.md");
         assert!(matches!(results[0].search_mode, SearchMode::Fts));
@@ -525,19 +572,19 @@ mod tests {
         db.insert_chunks(&chunks).unwrap();
 
         // Filter by "work" vault
-        let results = search(&db, &tokenizer, "alpha", 10, SearchMode::Fts, None, None, Some("work"), None, None, &[], &HashMap::new(), false).unwrap();
+        let results = search(&db, &tokenizer, "alpha", 10, SearchMode::Fts, None, None, Some("work"), None, None, &[], &HashMap::new(), false, None).unwrap();
         assert_eq!(results.len(), 1, "expected 1 result in work vault");
         assert_eq!(results[0].vault_name, "work");
         assert_eq!(results[0].file_path, "vault_a.md");
 
         // Filter by "personal" vault
-        let results = search(&db, &tokenizer, "alpha", 10, SearchMode::Fts, None, None, Some("personal"), None, None, &[], &HashMap::new(), false).unwrap();
+        let results = search(&db, &tokenizer, "alpha", 10, SearchMode::Fts, None, None, Some("personal"), None, None, &[], &HashMap::new(), false, None).unwrap();
         assert_eq!(results.len(), 1, "expected 1 result in personal vault");
         assert_eq!(results[0].vault_name, "personal");
         assert_eq!(results[0].file_path, "vault_b.md");
 
         // No filter → both
-        let results = search(&db, &tokenizer, "alpha", 10, SearchMode::Fts, None, None, None, None, None, &[], &HashMap::new(), false).unwrap();
+        let results = search(&db, &tokenizer, "alpha", 10, SearchMode::Fts, None, None, None, None, None, &[], &HashMap::new(), false, None).unwrap();
         assert_eq!(results.len(), 2, "expected 2 results across all vaults");
     }
 
@@ -545,7 +592,7 @@ mod tests {
     fn test_search_empty_query_returns_empty() {
         let db = NoteDatabase::open_in_memory().unwrap();
         let tokenizer = crate::require_tokenizer!(crate::tokenizer::TokenizerConfig::default());
-        let results = search(&db, &tokenizer, "  ", 10, SearchMode::Fts, None, None, None, None, None, &[], &HashMap::new(), false).unwrap();
+        let results = search(&db, &tokenizer, "  ", 10, SearchMode::Fts, None, None, None, None, None, &[], &HashMap::new(), false, None).unwrap();
         assert!(results.is_empty());
     }
 
@@ -568,7 +615,7 @@ mod tests {
         db.insert_chunks(&chunks).unwrap();
 
         // Hybrid with no embedder → falls back to FTS
-        let results = search(&db, &tokenizer, "hybrid fallback", 10, SearchMode::Hybrid, None, None, None, None, None, &[], &HashMap::new(), false).unwrap();
+        let results = search(&db, &tokenizer, "hybrid fallback", 10, SearchMode::Hybrid, None, None, None, None, None, &[], &HashMap::new(), false, None).unwrap();
         assert!(!results.is_empty());
         assert!(matches!(results[0].search_mode, SearchMode::Fts));
     }
@@ -664,6 +711,82 @@ mod tests {
         assert!(result.is_empty(), "empty inputs should produce empty results");
     }
 
+    // ── RRF weighted (alpha) ─────────────────────────────────────
+
+    fn make_parent(id: i64) -> ChunkSearchResult {
+        ChunkSearchResult {
+            chunk_id: id,
+            file_path: format!("{}.md", id),
+            parent_header: None,
+            content: String::new(),
+            score: 0.0,
+            search_mode: SearchMode::Fts,
+            vault_name: String::new(),
+            tags: String::new(),
+            frontmatter_date: String::new(),
+            title: String::new(),
+        }
+    }
+
+    #[test]
+    fn test_rrf_weighted_alpha_1_0_uses_fts_only() {
+        let fts = vec![make_parent(1), make_parent(2)];
+        let vec = vec![make_parent(1), make_parent(2)];
+        let result = compute_rrf_weighted(&fts, &vec, 2, 60.0, 1.0);
+        // alpha=1.0 → only FTS rank matters
+        // FTS: chunk 1 (rank 1) > chunk 2 (rank 2)
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].0, 1, "chunk 1 should be first with alpha=1.0");
+    }
+
+    #[test]
+    fn test_rrf_weighted_alpha_0_0_uses_vec_only() {
+        let fts = vec![make_parent(1), make_parent(2)];
+        let vec = vec![make_parent(2), make_parent(1)]; // reversed order
+        let result = compute_rrf_weighted(&fts, &vec, 2, 60.0, 0.0);
+        // alpha=0.0 → only vec rank matters
+        // Vec: chunk 2 (rank 1) > chunk 1 (rank 2)
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].0, 2, "chunk 2 should be first with alpha=0.0 (vec rank 1)");
+    }
+
+    #[test]
+    fn test_rrf_weighted_alpha_0_5_balanced() {
+        let fts = vec![make_parent(1), make_parent(2)];
+        let vec = vec![make_parent(2), make_parent(1)];
+        let result = compute_rrf_weighted(&fts, &vec, 2, 60.0, 0.5);
+        // Both rank 1 in one source and rank 2 in the other → equal scores
+        assert_eq!(result.len(), 2);
+        let score1 = result.iter().find(|(id, _)| *id == 1).map(|(_, s)| *s).unwrap();
+        let score2 = result.iter().find(|(id, _)| *id == 2).map(|(_, s)| *s).unwrap();
+        let diff = (score1 - score2).abs();
+        assert!(diff < 0.001, "scores should be equal with alpha=0.5, got {:.6} vs {:.6}", score1, score2);
+    }
+
+    #[test]
+    fn test_rrf_weighted_empty_inputs() {
+        let result = compute_rrf_weighted(&[], &[], 10, 60.0, 0.5);
+        assert!(result.is_empty(), "empty inputs should produce empty results");
+    }
+
+    #[test]
+    fn test_rrf_weighted_only_fts_results() {
+        let fts = vec![make_parent(1), make_parent(2)];
+        let vec = vec![];
+        let result = compute_rrf_weighted(&fts, &vec, 2, 60.0, 0.5);
+        assert_eq!(result.len(), 2);
+        // FTS alone determines order (vec weight contributes 0)
+        assert_eq!(result[0].0, 1, "chunk 1 (FTS rank 1) should be first");
+    }
+
+    #[test]
+    fn test_rrf_weighted_respects_limit() {
+        let fts = vec![make_parent(1), make_parent(2), make_parent(3)];
+        let vec = vec![make_parent(1), make_parent(2), make_parent(3)];
+        let result = compute_rrf_weighted(&fts, &vec, 1, 60.0, 0.5);
+        assert_eq!(result.len(), 1, "should return only 1 result (limited)");
+    }
+
     #[test]
     fn test_compute_rrf_one_source_empty() {
         let make = |id: i64, score: f64| -> ChunkSearchResult {
@@ -693,7 +816,7 @@ mod tests {
             Ok(tok) => tok,
             Err(_) => return,
         };
-        let result = search(&db, &tokenizer, "test", 10, SearchMode::Vec, None, None, None, None, None, &[], &HashMap::new(), false);
+        let result = search(&db, &tokenizer, "test", 10, SearchMode::Vec, None, None, None, None, None, &[], &HashMap::new(), false, None);
         match result {
             Err(crate::db::DbError::Other(msg)) => {
                 assert!(msg.contains("embedder"), "error should mention embedder");
@@ -709,7 +832,7 @@ mod tests {
             Ok(tok) => tok,
             Err(_) => return,
         };
-        let result = search(&db, &tokenizer, "test", 10, SearchMode::Hybrid, None, None, None, None, None, &[], &HashMap::new(), false);
+        let result = search(&db, &tokenizer, "test", 10, SearchMode::Hybrid, None, None, None, None, None, &[], &HashMap::new(), false, None);
         assert!(result.is_ok(), "Hybrid without embedder should fall back to FTS, got error");
     }
 
@@ -720,7 +843,7 @@ mod tests {
             Ok(tok) => tok,
             Err(_) => return,
         };
-        let result = search(&db, &tokenizer, "test", 10, SearchMode::Fts, None, None, None, None, None, &[], &HashMap::new(), false);
+        let result = search(&db, &tokenizer, "test", 10, SearchMode::Fts, None, None, None, None, None, &[], &HashMap::new(), false, None);
         assert!(result.is_ok());
     }
 
@@ -752,11 +875,11 @@ mod tests {
         db.insert_chunks(&chunks).unwrap();
 
         // fuzzy=false with uppercase query → no match (case-sensitive FTS5)
-        let results = search(&db, &tokenizer, "HELLO", 10, SearchMode::Fts, None, None, None, None, None, &[], &HashMap::new(), false).unwrap();
+        let results = search(&db, &tokenizer, "HELLO", 10, SearchMode::Fts, None, None, None, None, None, &[], &HashMap::new(), false, None).unwrap();
         assert!(results.is_empty(), "non-fuzzy search should not match uppercase 'HELLO' against 'hello'");
 
         // fuzzy=true → query is normalized to lowercase → matches
-        let results = search(&db, &tokenizer, "HELLO", 10, SearchMode::Fts, None, None, None, None, None, &[], &HashMap::new(), true).unwrap();
+        let results = search(&db, &tokenizer, "HELLO", 10, SearchMode::Fts, None, None, None, None, None, &[], &HashMap::new(), true, None).unwrap();
         assert!(!results.is_empty(), "fuzzy search should match 'HELLO' against 'hello'");
         assert_eq!(results[0].file_path, "test.md");
     }
@@ -787,7 +910,7 @@ mod tests {
         db.insert_chunks(&chunks).unwrap();
 
         // fuzzy=true with fullwidth query → normalized to "apple" → matches
-        let results = search(&db, &tokenizer, "ａｐｐｌｅ", 10, SearchMode::Fts, None, None, None, None, None, &[], &HashMap::new(), true).unwrap();
+        let results = search(&db, &tokenizer, "ａｐｐｌｅ", 10, SearchMode::Fts, None, None, None, None, None, &[], &HashMap::new(), true, None).unwrap();
         assert!(!results.is_empty(), "fuzzy search should match fullwidth 'ａｐｐｌｅ' against 'apple'");
     }
 
@@ -817,11 +940,11 @@ mod tests {
         db.insert_chunks(&chunks).unwrap();
 
         // fuzzy=false with exact case → matches
-        let results = search(&db, &tokenizer, "Hello", 10, SearchMode::Fts, None, None, None, None, None, &[], &HashMap::new(), false).unwrap();
+        let results = search(&db, &tokenizer, "Hello", 10, SearchMode::Fts, None, None, None, None, None, &[], &HashMap::new(), false, None).unwrap();
         assert!(!results.is_empty(), "non-fuzzy should match exact case 'Hello'");
 
         // fuzzy=false with different case → no match
-        let results = search(&db, &tokenizer, "hello", 10, SearchMode::Fts, None, None, None, None, None, &[], &HashMap::new(), false).unwrap();
+        let results = search(&db, &tokenizer, "hello", 10, SearchMode::Fts, None, None, None, None, None, &[], &HashMap::new(), false, None).unwrap();
         assert!(results.is_empty(), "non-fuzzy should not match different case 'hello' against 'Hello'");
     }
 
