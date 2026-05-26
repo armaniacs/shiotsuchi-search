@@ -182,7 +182,7 @@ mod tests {
     #[test]
     fn test_frontmatter_with_multi_line_tags() {
         let content = "---\ntitle: Multi Tags\ntags:\n  - rust\n  - cli\n  - search\ndate: 2026-03-01\n---\n\nContent.";
-        let (fm, body) = extract_frontmatter(content);
+        let (fm, _body) = extract_frontmatter(content);
         assert_eq!(fm.title.as_deref(), Some("Multi Tags"));
         assert_eq!(fm.tags, vec!["rust", "cli", "search"]);
         assert_eq!(fm.date.as_deref(), Some("2026-03-01"));

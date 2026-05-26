@@ -163,7 +163,6 @@ mod tests {
     #[test]
     #[cfg(unix)]
     fn test_chart_parent_dir_0700_with_nested_path() {
-        use std::os::unix::fs::PermissionsExt;
         let temp = TempDir::new().unwrap();
         let vault = temp.path();
         fs::write(vault.join("note.md"), "# Test").unwrap();
