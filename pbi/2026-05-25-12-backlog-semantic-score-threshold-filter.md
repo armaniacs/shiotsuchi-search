@@ -22,9 +22,14 @@ Scenario: 閾値設定なしでは全結果を返す
 ```
 
 ## 受け入れ基準
-- [ ] `config.toml` に `semantic_threshold` (0.0〜1.0) を設定できる
-- [ ] `--threshold` フラグで実行時上書き可能
-- [ ] 閾値未設定時は従来通り全件返す
+- [x] `config.toml` に `semantic_threshold` (0.0〜1.0) を設定できる
+- [x] `--threshold` フラグで実行時上書き可能（CLI > config）
+- [x] 閾値未設定時は従来通り全件返す
+
+## テスト戦略（t_wada スタイル）
+
+### 単体テスト
+- 各モード（FTS/Vec/Hybrid）で min_score がエラーにならないことを確認
 
 ## 見積もり
 2 ポイント

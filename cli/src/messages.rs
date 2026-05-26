@@ -45,6 +45,7 @@ pub const DIVE_FUZZY_HELP: &str = "あいまい検索を有効化（全角/半�
 pub const DIVE_ALPHA_HELP: &str = "ハイブリッド検索のブレンド比率 (0.0〜1.0)。0.0=ベクトル検索のみ, 1.0=FTS5 のみ, 未指定=RRF";
 pub const DIVE_MMR_HELP: &str = "MMR（多様化リランキング）を有効化";
 pub const DIVE_LAMBDA_HELP: &str = "MMR の多様性と関連性のバランス (0.0=多様性重視, 1.0=関連性重視)";
+pub const DIVE_THRESHOLD_HELP: &str = "最小スコア閾値 — この値以下の結果を除外する（FTS/Vec: スコアが低いほど関連性高い、Hybrid: スコアが高いほど関連性高い）";
 
 /// Shared vault filter flag help used by dive, chart, and scan.
 pub const VAULT_HELP: &str = "特定のボールトに絞り込む";

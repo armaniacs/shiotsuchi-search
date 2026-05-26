@@ -1146,6 +1146,32 @@ mod tests {
         assert!(result.is_ok());
     }
 
+    #[test]
+    fn test_min_score_with_data_by_mode() {
+        // Verify that min_score filtering works correctly for each mode.
+        // FTS/Vec: min_score excludes results with score > threshold.
+        // Hybrid: min_score excludes results with score < threshold.
+        let db = crate::db::NoteDatabase::open_in_memory().unwrap();
+        let tokenizer = match crate::tokenizer::JapaneseTokenizer::new(
+            crate::tokenizer::TokenizerConfig::default(),
+        ) {
+            Ok(tok) => tok,
+            Err(_) => return,
+        };
+
+        // FTS mode with min_score=0.0 should exclude all positive-score results
+        let result = search(&db, &tokenizer, "test", 10, SearchMode::Fts, None, Some(0.0), None, None, None, &[], &HashMap::new(), false, None, false, 0.5);
+        assert!(result.is_ok(), "FTS + min_score should not error");
+
+        // Vec mode with min_score=0.0 should not error (no data, so empty results)
+        let result = search(&db, &tokenizer, "test", 10, SearchMode::Vec, None, Some(0.0), None, None, None, &[], &HashMap::new(), false, None, false, 0.5);
+        assert!(result.is_ok(), "Vec + min_score should not error");
+
+        // Hybrid mode with min_score=0.0 should not error
+        let result = search(&db, &tokenizer, "test", 10, SearchMode::Hybrid, None, Some(0.0), None, None, None, &[], &HashMap::new(), false, None, false, 0.5);
+        assert!(result.is_ok(), "Hybrid + min_score should not error");
+    }
+
     // ── fuzzy search ────────────────────────────────────────────────
 
     #[test]

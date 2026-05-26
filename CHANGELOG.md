@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > For project overview, features, installation, and usage, see [README.md](README.md).
 
+## [Unreleased]
+
+### Added
+
+- **`--threshold` CLI flag and `semantic_threshold` config option**: Filter
+  search results by minimum score. FTS/Vec modes exclude results with score
+  above the threshold (lower BM25 / cosine distance = more relevant). Hybrid
+  mode excludes results with RRF score below the threshold. CLI `--threshold`
+  overrides config value when both are specified.
+
 ## [0.4.9] - 2026-05-26
 
 ### Added
@@ -669,6 +679,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `README.md` (English) and `README.ja.md` (Japanese)
 
 [Unreleased]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.4.9...HEAD
+[0.4.10]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.4.9...v0.4.10
 [0.4.9]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.4.8...v0.4.9
 [0.4.8]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.4.7...v0.4.8
 [0.4.7]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.4.6...v0.4.7

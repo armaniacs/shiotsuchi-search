@@ -101,6 +101,13 @@ pub struct ShiotsuchiConfig {
     /// Example config.toml: `vault_default = "work"`
     #[serde(default)]
     pub vault_default: Option<String>,
+    /// Minimum score threshold for search results.
+    /// FTS: excludes results with score > threshold (lower BM25 = more relevant).
+    /// Vec: excludes results with distance > threshold.
+    /// Hybrid: excludes results with RRF score < threshold.
+    /// Example config.toml: `semantic_threshold = 0.75`
+    #[serde(default)]
+    pub semantic_threshold: Option<f64>,
 }
 
 impl ShiotsuchiConfig {

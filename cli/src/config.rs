@@ -188,6 +188,7 @@ mod tests {
             synonyms: HashMap::new(),
             hybrid_alpha: None,
             vault_default: None,
+            semantic_threshold: None,
         };
         let vaults = config.resolved_vaults();
         assert_eq!(vaults.len(), 2);
@@ -210,6 +211,7 @@ mod tests {
             synonyms: HashMap::new(),
             hybrid_alpha: None,
             vault_default: None,
+            semantic_threshold: None,
         };
         assert_eq!(config.resolved_db_path(), PathBuf::from("/custom/db.sqlite"));
     }
@@ -228,6 +230,7 @@ mod tests {
             synonyms: HashMap::new(),
             hybrid_alpha: None,
             vault_default: None,
+            semantic_threshold: None,
         };
         assert_eq!(config.resolved_db_path(), PathBuf::from("/legacy/db.sqlite"));
     }
@@ -248,6 +251,7 @@ mod tests {
             synonyms: HashMap::new(),
             hybrid_alpha: None,
             vault_default: None,
+            semantic_threshold: None,
         };
         assert_eq!(config.resolved_db_path(), PathBuf::from("/new/db.sqlite"));
     }

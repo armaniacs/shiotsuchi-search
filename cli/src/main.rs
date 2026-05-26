@@ -186,7 +186,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             // CLI --vault overrides config vault_default; pass actual vault filter to run_dive
             // by modifying the resolved vaults and passing the filter as args.vault
             let _vault_filter = args.vault.as_deref().or(cfg.vault_default.as_deref());
-            match commands::dive::run_dive(&args, &db_path, &resolved_vaults, &cfg.indexing.user_dictionary, &cfg.synonyms, args.fuzzy, Some(effective_alpha), args.mmr, args.lambda) {
+            // CLI --threshold overrides config semantic_threshold
+            let effective_threshold = args.threshold.or(cfg.semantic_threshold);
+            match commands::dive::run_dive(&args, &db_path, &resolved_vaults, &cfg.indexing.user_dictionary, &cfg.synonyms, args.fuzzy, Some(effective_alpha), args.mmr, args.lambda, effective_threshold) {
                 Ok(results) => {
                     let elapsed = start.elapsed();
                     let fmt = args.effective_format();
