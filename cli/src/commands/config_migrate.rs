@@ -56,6 +56,7 @@ pub fn run_config_migrate(args: &ConfigMigrateArgs) -> Result<(), Box<dyn std::e
         indexing: old_cfg.indexing,
         watcher: old_cfg.watcher,
         synonyms: HashMap::new(),
+        hybrid_alpha: old_cfg.hybrid_alpha,
     };
 
     let timestamp = SystemTime::now()

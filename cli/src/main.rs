@@ -143,7 +143,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 std::process::exit(1);
             }
             let start = Instant::now();
-            match commands::dive::run_dive(&args, &db_path, &resolved_vaults, &cfg.indexing.user_dictionary, &cfg.synonyms, args.fuzzy, args.alpha, args.mmr, args.lambda) {
+            // CLI --alpha overrides config hybrid_alpha; if neither set, default to 0.5
+            let effective_alpha = args.alpha
+                .or(cfg.hybrid_alpha)
+                .unwrap_or(0.5);
+            match commands::dive::run_dive(&args, &db_path, &resolved_vaults, &cfg.indexing.user_dictionary, &cfg.synonyms, args.fuzzy, Some(effective_alpha), args.mmr, args.lambda) {
                 Ok(results) => {
                     let elapsed = start.elapsed();
                     let fmt = args.effective_format();

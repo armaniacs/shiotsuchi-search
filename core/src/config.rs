@@ -92,6 +92,10 @@ pub struct ShiotsuchiConfig {
     /// Example: { "AWS" -> ["Amazon Web Services", "アマゾンウェブサービス"] }
     #[serde(default)]
     pub synonyms: HashMap<String, Vec<String>>,
+    /// Blend ratio for hybrid search (0.0 = semantic only, 1.0 = FTS only).
+    /// Default: 0.5 (equal blend). Can be overridden at runtime with --alpha.
+    #[serde(default)]
+    pub hybrid_alpha: Option<f64>,
 }
 
 impl ShiotsuchiConfig {

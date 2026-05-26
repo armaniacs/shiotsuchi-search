@@ -19,6 +19,27 @@ mod tests {
         assert!(config.vault.is_none());
         assert!(config.database.db_path.is_none());
         assert_eq!(config.indexing.include_extensions, vec!["md", "markdown"]);
+        assert_eq!(config.hybrid_alpha, None);
+    }
+
+    #[test]
+    fn test_hybrid_alpha_from_toml() {
+        let temp = TempDir::new().unwrap();
+        let config_path = temp.path().join("config.toml");
+        fs::write(&config_path, "hybrid_alpha = 0.8\n").unwrap();
+
+        let config = ShiotsuchiConfig::load_from(&config_path).unwrap();
+        assert_eq!(config.hybrid_alpha, Some(0.8));
+    }
+
+    #[test]
+    fn test_hybrid_alpha_omitted_from_toml_is_none() {
+        let temp = TempDir::new().unwrap();
+        let config_path = temp.path().join("config.toml");
+        fs::write(&config_path, "[indexing]\nexclude_dirs = []\n").unwrap();
+
+        let config = ShiotsuchiConfig::load_from(&config_path).unwrap();
+        assert_eq!(config.hybrid_alpha, None);
     }
 
     #[test]
@@ -165,6 +186,7 @@ mod tests {
             indexing: IndexingConfig::default(),
             watcher: WatcherConfig::default(),
             synonyms: HashMap::new(),
+            hybrid_alpha: None,
         };
         let vaults = config.resolved_vaults();
         assert_eq!(vaults.len(), 2);
@@ -185,6 +207,7 @@ mod tests {
             indexing: IndexingConfig::default(),
             watcher: WatcherConfig::default(),
             synonyms: HashMap::new(),
+            hybrid_alpha: None,
         };
         assert_eq!(config.resolved_db_path(), PathBuf::from("/custom/db.sqlite"));
     }
@@ -201,6 +224,7 @@ mod tests {
             indexing: IndexingConfig::default(),
             watcher: WatcherConfig::default(),
             synonyms: HashMap::new(),
+            hybrid_alpha: None,
         };
         assert_eq!(config.resolved_db_path(), PathBuf::from("/legacy/db.sqlite"));
     }
@@ -219,6 +243,7 @@ mod tests {
             indexing: IndexingConfig::default(),
             watcher: WatcherConfig::default(),
             synonyms: HashMap::new(),
+            hybrid_alpha: None,
         };
         assert_eq!(config.resolved_db_path(), PathBuf::from("/new/db.sqlite"));
     }
