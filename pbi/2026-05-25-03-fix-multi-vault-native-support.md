@@ -33,11 +33,11 @@ Scenario: 旧来の単一 vault 設定でも動作する（後方互換）
 ```
 
 ## 受け入れ基準
-- [ ] `config.toml` に `[[vault]]` セクション（id, notes_dir, db_path）を追加できる
-- [ ] `default = "<id>"` でデフォルト vault を指定できる
-- [ ] `dive`, `chart`, `scan` コマンドに `--vault <id>` フラグが追加される
-- [ ] MCP ツールの `search_notes` 等に `vault` パラメータが追加される
-- [ ] 旧来の単一 vault 設定でも動作が維持される
+- [x] `config.toml` に `[[vault]]` セクション（id, notes_dir, db_path）を追加できる
+- [x] `default = "<id>"` でデフォルト vault を指定できる
+- [x] `dive`, `chart`, `scan` コマンドに `--vault <id>` フラグが追加される
+- [x] MCP ツールの `search_notes` 等に `vault` パラメータが追加される
+- [x] 旧来の単一 vault 設定でも動作が維持される
 
 ## テスト戦略（t_wada スタイル）
 
