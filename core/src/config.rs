@@ -80,6 +80,12 @@ pub struct ShiotsuchiConfig {
     pub vault: Option<VaultEntry>,
     pub indexing: IndexingConfig,
     pub watcher: WatcherConfig,
+    /// Synonym mappings for search query expansion.
+    /// Keys are query tokens, values are lists of synonyms.
+    /// Synonyms are OR-expanded in FTS5 queries.
+    /// Example: { "AWS" -> ["Amazon Web Services", "アマゾンウェブサービス"] }
+    #[serde(default)]
+    pub synonyms: HashMap<String, Vec<String>>,
 }
 
 impl ShiotsuchiConfig {

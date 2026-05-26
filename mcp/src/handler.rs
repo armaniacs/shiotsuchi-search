@@ -5,6 +5,7 @@ use shiotsuchi_core::{
     search::{extract_snippet, search},
     tokenizer::get_tokenizer,
 };
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 use std::sync::Mutex;
@@ -140,7 +141,7 @@ pub fn call_tool(
                     "content": [{"type": "text", "text": "Full-text search requires a tokenizer model. Run 'shiotsuchi setup' to configure one, or set SHIOTSUCHI_MODEL_PATH."}]
                 })),
             };
-            let results = search(&db, &tokenizer, &query, limit, mode, None, min_score, vault_filter, None, None, &[])?;
+            let results = search(&db, &tokenizer, &query, limit, mode, None, min_score, vault_filter, None, None, &[], &HashMap::new())?;
 
             let markdown = format_results_markdown(&results, &query);
             Ok(json!({

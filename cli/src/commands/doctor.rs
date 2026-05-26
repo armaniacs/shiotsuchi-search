@@ -10,6 +10,7 @@ use shiotsuchi_core::{
     models::IndexConfig,
     tokenizer::get_tokenizer,
 };
+use std::collections::HashMap;
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 
@@ -134,6 +135,7 @@ fn fix_config_old_vault_format(config_path: &Path) -> Result<(), Box<dyn std::er
         vault: None,
         indexing: old_cfg.indexing,
         watcher: old_cfg.watcher,
+        synonyms: HashMap::new(),
     };
 
     let backup_path = backup_config_file(config_path)?;

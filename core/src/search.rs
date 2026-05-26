@@ -12,6 +12,7 @@ use log;
 /// `since_date` — ISO 8601 date string for minimum frontmatter date filter.
 #[allow(clippy::too_many_arguments)]
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments)]
 pub fn search(
     db: &NoteDatabase,
     tokenizer: &JapaneseTokenizer,
@@ -24,6 +25,7 @@ pub fn search(
     tag_filter: Option<&str>,
     since_date: Option<&str>,
     user_dictionary: &[String],
+    synonyms: &HashMap<String, Vec<String>>,
 ) -> Result<Vec<ChunkSearchResult>, DbError> {
     if query.trim().is_empty() {
         return Ok(vec![]);
@@ -36,14 +38,14 @@ pub fn search(
     };
 
     match effective_mode {
-        SearchMode::Fts => search_fts(db, tokenizer, query, limit, min_score, vault_filter, tag_filter, since_date, user_dictionary),
+        SearchMode::Fts => search_fts(db, tokenizer, query, limit, min_score, vault_filter, tag_filter, since_date, user_dictionary, synonyms),
         SearchMode::Vec => {
             let emb = embedder.ok_or_else(|| DbError::Other("Vec mode requires embedder — model not loaded".into()))?;
             search_vec(db, emb, query, limit, min_score, vault_filter, tag_filter, since_date)
         }
         SearchMode::Hybrid => {
             let emb = embedder.ok_or_else(|| DbError::Other("Hybrid mode requires embedder — model not loaded".into()))?;
-            search_hybrid(db, tokenizer, emb, query, limit, min_score, vault_filter, tag_filter, since_date, user_dictionary)
+            search_hybrid(db, tokenizer, emb, query, limit, min_score, vault_filter, tag_filter, since_date, user_dictionary, synonyms)
         }
     }
 }
@@ -157,6 +159,40 @@ fn build_results(
     Ok(results)
 }
 
+/// Expand tokens with synonyms using FTS5 OR syntax.
+/// Each token that has synonyms becomes `("token" OR "synonym1" OR "synonym2")`.
+/// Tokens without synonyms remain as `"token"`.
+/// All clauses are AND-joined.
+fn expand_synonyms(
+    tokens: &[String],
+    synonyms: &HashMap<String, Vec<String>>,
+) -> String {
+    if synonyms.is_empty() {
+        return tokens
+            .iter()
+            .map(|t| format!("\"{}\"", t.replace('"', "\"\"")))
+            .collect::<Vec<_>>()
+            .join(" AND ");
+    }
+
+    let clauses: Vec<String> = tokens
+        .iter()
+        .map(|token| {
+            if let Some(syns) = synonyms.get(token) {
+                let mut parts = vec![format!("\"{}\"", token.replace('"', "\"\""))];
+                for syn in syns {
+                    parts.push(format!("\"{}\"", syn.replace('"', "\"\"")));
+                }
+                format!("({})", parts.join(" OR "))
+            } else {
+                format!("\"{}\"", token.replace('"', "\"\""))
+            }
+        })
+        .collect();
+
+    clauses.join(" AND ")
+}
+
 fn search_fts(
     db: &NoteDatabase,
     tokenizer: &JapaneseTokenizer,
@@ -167,13 +203,11 @@ fn search_fts(
     tag_filter: Option<&str>,
     since_date: Option<&str>,
     user_dictionary: &[String],
+    synonyms: &HashMap<String, Vec<String>>,
 ) -> Result<Vec<ChunkSearchResult>, DbError> {
     let tokens = tokenizer.collect_tokens(query);
     let tokens = apply_user_dictionary(&tokens, user_dictionary);
-    let fts5_query = tokens.iter()
-        .map(|t| format!("\"{}\"", t.replace('"', "\"\"")))
-        .collect::<Vec<_>>()
-        .join(" AND ");
+    let fts5_query = expand_synonyms(&tokens, synonyms);
     let fts5_query = if fts5_query.is_empty() {
         simple_and_query(query)
     } else {
@@ -271,10 +305,11 @@ fn search_hybrid(
     tag_filter: Option<&str>,
     since_date: Option<&str>,
     user_dictionary: &[String],
+    synonyms: &HashMap<String, Vec<String>>,
 ) -> Result<Vec<ChunkSearchResult>, DbError> {
     const K: f64 = 60.0;
 
-    let fts_results = search_fts(db, tokenizer, query, limit * 2, None, vault_filter, None, None, user_dictionary)?;
+    let fts_results = search_fts(db, tokenizer, query, limit * 2, None, vault_filter, None, None, user_dictionary, synonyms)?;
     let vec_results = search_vec(db, embedder, query, limit * 2, None, vault_filter, None, None)?;
 
     let rrf_scores = compute_rrf(&fts_results, &vec_results, limit, K);
@@ -441,7 +476,7 @@ mod tests {
         }];
         db.insert_chunks(&chunks).unwrap();
 
-        let results = search(&db, &tokenizer, "search engine", 10, SearchMode::Fts, None, None, None, None, None, &[]).unwrap();
+        let results = search(&db, &tokenizer, "search engine", 10, SearchMode::Fts, None, None, None, None, None, &[], &HashMap::new()).unwrap();
         assert!(!results.is_empty());
         assert_eq!(results[0].file_path, "test.md");
         assert!(matches!(results[0].search_mode, SearchMode::Fts));
@@ -481,19 +516,19 @@ mod tests {
         db.insert_chunks(&chunks).unwrap();
 
         // Filter by "work" vault
-        let results = search(&db, &tokenizer, "alpha", 10, SearchMode::Fts, None, None, Some("work"), None, None, &[]).unwrap();
+        let results = search(&db, &tokenizer, "alpha", 10, SearchMode::Fts, None, None, Some("work"), None, None, &[], &HashMap::new()).unwrap();
         assert_eq!(results.len(), 1, "expected 1 result in work vault");
         assert_eq!(results[0].vault_name, "work");
         assert_eq!(results[0].file_path, "vault_a.md");
 
         // Filter by "personal" vault
-        let results = search(&db, &tokenizer, "alpha", 10, SearchMode::Fts, None, None, Some("personal"), None, None, &[]).unwrap();
+        let results = search(&db, &tokenizer, "alpha", 10, SearchMode::Fts, None, None, Some("personal"), None, None, &[], &HashMap::new()).unwrap();
         assert_eq!(results.len(), 1, "expected 1 result in personal vault");
         assert_eq!(results[0].vault_name, "personal");
         assert_eq!(results[0].file_path, "vault_b.md");
 
         // No filter → both
-        let results = search(&db, &tokenizer, "alpha", 10, SearchMode::Fts, None, None, None, None, None, &[]).unwrap();
+        let results = search(&db, &tokenizer, "alpha", 10, SearchMode::Fts, None, None, None, None, None, &[], &HashMap::new()).unwrap();
         assert_eq!(results.len(), 2, "expected 2 results across all vaults");
     }
 
@@ -501,7 +536,7 @@ mod tests {
     fn test_search_empty_query_returns_empty() {
         let db = NoteDatabase::open_in_memory().unwrap();
         let tokenizer = crate::require_tokenizer!(crate::tokenizer::TokenizerConfig::default());
-        let results = search(&db, &tokenizer, "  ", 10, SearchMode::Fts, None, None, None, None, None, &[]).unwrap();
+        let results = search(&db, &tokenizer, "  ", 10, SearchMode::Fts, None, None, None, None, None, &[], &HashMap::new()).unwrap();
         assert!(results.is_empty());
     }
 
@@ -524,7 +559,7 @@ mod tests {
         db.insert_chunks(&chunks).unwrap();
 
         // Hybrid with no embedder → falls back to FTS
-        let results = search(&db, &tokenizer, "hybrid fallback", 10, SearchMode::Hybrid, None, None, None, None, None, &[]).unwrap();
+        let results = search(&db, &tokenizer, "hybrid fallback", 10, SearchMode::Hybrid, None, None, None, None, None, &[], &HashMap::new()).unwrap();
         assert!(!results.is_empty());
         assert!(matches!(results[0].search_mode, SearchMode::Fts));
     }
@@ -649,7 +684,7 @@ mod tests {
             Ok(tok) => tok,
             Err(_) => return,
         };
-        let result = search(&db, &tokenizer, "test", 10, SearchMode::Vec, None, None, None, None, None, &[]);
+        let result = search(&db, &tokenizer, "test", 10, SearchMode::Vec, None, None, None, None, None, &[], &HashMap::new());
         match result {
             Err(crate::db::DbError::Other(msg)) => {
                 assert!(msg.contains("embedder"), "error should mention embedder");
@@ -665,7 +700,7 @@ mod tests {
             Ok(tok) => tok,
             Err(_) => return,
         };
-        let result = search(&db, &tokenizer, "test", 10, SearchMode::Hybrid, None, None, None, None, None, &[]);
+        let result = search(&db, &tokenizer, "test", 10, SearchMode::Hybrid, None, None, None, None, None, &[], &HashMap::new());
         assert!(result.is_ok(), "Hybrid without embedder should fall back to FTS, got error");
     }
 
@@ -676,7 +711,7 @@ mod tests {
             Ok(tok) => tok,
             Err(_) => return,
         };
-        let result = search(&db, &tokenizer, "test", 10, SearchMode::Fts, None, None, None, None, None, &[]);
+        let result = search(&db, &tokenizer, "test", 10, SearchMode::Fts, None, None, None, None, None, &[], &HashMap::new());
         assert!(result.is_ok());
     }
 
@@ -750,5 +785,76 @@ mod tests {
         let text = "最初のマッチ\n途中のテキスト\n最後のマッチ";
         let snippet = extract_snippet(text, "マッチ", 1, 100);
         assert!(snippet.contains("最初"), "should prioritize earliest match position");
+    }
+
+    // ── synonym expansion ──────────────────────────────────────
+
+    #[test]
+    fn test_expand_synonyms_no_synonyms_returns_basic_and_query() {
+        let tokens = vec!["AWS".to_string(), "service".to_string()];
+        let synonyms = std::collections::HashMap::new();
+        let result = expand_synonyms(&tokens, &synonyms);
+        assert_eq!(result, r#""AWS" AND "service""#);
+    }
+
+    #[test]
+    fn test_expand_synonyms_single_token_expanded_with_or() {
+        let tokens = vec!["AWS".to_string()];
+        let mut synonyms = std::collections::HashMap::new();
+        synonyms.insert(
+            "AWS".to_string(),
+            vec!["Amazon Web Services".to_string(), "アマゾン".to_string()],
+        );
+        let result = expand_synonyms(&tokens, &synonyms);
+        assert_eq!(
+            result,
+            r#"("AWS" OR "Amazon Web Services" OR "アマゾン")"#
+        );
+    }
+
+    #[test]
+    fn test_expand_synonyms_mixed_tokens() {
+        let tokens = vec!["AWS".to_string(), "database".to_string()];
+        let mut synonyms = std::collections::HashMap::new();
+        synonyms.insert(
+            "AWS".to_string(),
+            vec!["Amazon".to_string()],
+        );
+        let result = expand_synonyms(&tokens, &synonyms);
+        assert_eq!(
+            result,
+            r#"("AWS" OR "Amazon") AND "database""#
+        );
+    }
+
+    #[test]
+    fn test_expand_synonyms_multiple_tokens_with_synonyms() {
+        let tokens = vec!["AWS".to_string(), "k8s".to_string()];
+        let mut synonyms = std::collections::HashMap::new();
+        synonyms.insert(
+            "AWS".to_string(),
+            vec!["Amazon".to_string()],
+        );
+        synonyms.insert(
+            "k8s".to_string(),
+            vec!["Kubernetes".to_string()],
+        );
+        let result = expand_synonyms(&tokens, &synonyms);
+        assert_eq!(
+            result,
+            r#"("AWS" OR "Amazon") AND ("k8s" OR "Kubernetes")"#
+        );
+    }
+
+    #[test]
+    fn test_expand_synonyms_escapes_quotes_in_terms() {
+        let tokens = vec!["term".to_string()];
+        let mut synonyms = std::collections::HashMap::new();
+        synonyms.insert(
+            "term".to_string(),
+            vec!["say \"hi\"".to_string()],
+        );
+        let result = expand_synonyms(&tokens, &synonyms);
+        assert_eq!(result, r#"("term" OR "say ""hi""")"#);
     }
 }

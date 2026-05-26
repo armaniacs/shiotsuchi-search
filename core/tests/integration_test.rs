@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use shiotsuchi_core::{
     db::NoteDatabase,
     indexer::{cleanup_deleted, index_directory},
@@ -44,9 +45,9 @@ fn test_end_to_end_index_and_search() {
     assert_eq!(results.len(), 3);
 
     // FTS search
-    let search_results = search(&db, &tokenizer, "search engine", 10, SearchMode::Fts, None, None, None, None, None, &[]).unwrap();
+    let search_results = search(&db, &tokenizer, "search engine", 10, SearchMode::Fts, None, None, None, None, None, &[], &HashMap::new()).unwrap();
 
-    let ja_results = search(&db, &tokenizer, "形態素", 10, SearchMode::Fts, None, None, None, None, None, &[]).unwrap();
+    let ja_results = search(&db, &tokenizer, "形態素", 10, SearchMode::Fts, None, None, None, None, None, &[], &HashMap::new()).unwrap();
     assert!(!ja_results.is_empty());
 
     // Stats
