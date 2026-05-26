@@ -31,6 +31,12 @@ pub fn default_config_path() -> PathBuf {
     xdg_config_home().join("shiotsuchi").join("config.toml")
 }
 
+/// Path to the standalone thesaurus file for synonym management.
+/// This file is managed by the `shiotsuchi synonym` CLI command.
+pub fn thesaurus_path() -> PathBuf {
+    xdg_config_home().join("shiotsuchi").join("thesaurus.toml")
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct IndexingConfig {
@@ -129,7 +135,7 @@ impl ShiotsuchiConfig {
 
     pub fn load() -> Self {
         let default_path = xdg_config_home().join("shiotsuchi").join("config.toml");
-        if default_path.exists() {
+        let mut cfg = if default_path.exists() {
             let cfg = Self::load_from(&default_path).unwrap_or_else(|e| {
                 eprintln!(
                     "Warning: failed to load config from {}: {}. Using defaults.",
@@ -146,6 +152,39 @@ impl ShiotsuchiConfig {
             cfg
         } else {
             Self::default()
+        };
+
+        // Merge thesaurus.toml into synonyms (thesaurus entries take priority).
+        let thes_path = thesaurus_path();
+        if thes_path.exists() {
+            match Self::load_synonyms_from(&thes_path) {
+                Ok(thesaurus_syns) => {
+                    for (word, syns) in thesaurus_syns {
+                        cfg.synonyms.insert(word, syns);
+                    }
+                }
+                Err(e) => {
+                    eprintln!(
+                        "Warning: failed to load thesaurus from {}: {}",
+                        thes_path.display(),
+                        e
+                    );
+                }
+            }
         }
+
+        cfg
+    }
+
+    /// Load synonyms from a thesaurus file. The file is a flat TOML table
+    /// mapping words to arrays of synonym strings:
+    /// ```toml
+    /// AWS = ["Amazon Web Services", "アマゾンウェブサービス"]
+    /// k8s = ["Kubernetes"]
+    /// ```
+    pub fn load_synonyms_from(path: &Path) -> Result<HashMap<String, Vec<String>>, Box<dyn std::error::Error>> {
+        let content = std::fs::read_to_string(path)?;
+        let syns: HashMap<String, Vec<String>> = toml::from_str(&content)?;
+        Ok(syns)
     }
 }

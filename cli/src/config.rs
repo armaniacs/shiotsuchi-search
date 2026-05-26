@@ -1,6 +1,6 @@
 pub use shiotsuchi_core::config::{
-    default_config_path, DatabaseConfig, IndexingConfig, ShiotsuchiConfig, VaultEntry,
-    WatcherConfig,
+    default_config_path, thesaurus_path, DatabaseConfig, IndexingConfig, ShiotsuchiConfig,
+    VaultEntry, WatcherConfig,
 };
 
 #[cfg(test)]

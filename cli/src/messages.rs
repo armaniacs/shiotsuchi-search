@@ -260,3 +260,24 @@ pub const DOCTOR_ALL_PASSED: &str = "\nすべてのチェックが合格しま�
 pub const DOCTOR_SOME_FAILED: &str = "\nいくつかのチェックに失敗しました。上記のメッセージを確認してください。";
 
 pub const DOCTOR_BACKUP_SAVED: &str = "  バックアップを保存しました: {}";
+
+// ──────────────────────────────────────────────
+// synonym.rs — 同義語管理
+// ──────────────────────────────────────────────
+
+#[allow(dead_code)]
+pub const SYNONYM_ABOUT: &str = "同義語辞書を管理する（シソーラス）";
+#[allow(dead_code)]
+pub const SYNONYM_ADD_HELP: &str = "同義語ペアを追加: 単語（例: AWS）と1つ以上の同義語（例: Amazon Web Services）";
+#[allow(dead_code)]
+pub const SYNONYM_REMOVE_HELP: &str = "指定した単語のエントリを削除";
+#[allow(dead_code)]
+pub const SYNONYM_LIST_HELP: &str = "登録済みの全エントリを一覧表示";
+pub const SYNONYM_ADDED: &str = "追加: '{}' → '{}'";
+pub const SYNONYM_ALREADY_EXISTS: &str = "スキップ: '{}' は '{}' の同義語としてすでに登録されています";
+pub const SYNONYM_REMOVED: &str = "削除: '{}' のエントリを削除しました";
+pub const SYNONYM_NOT_FOUND: &str = "エラー: '{}' は登録されていません";
+pub const SYNONYM_CREATED: &str = "新しい辞書ファイルを作成しました: {}";
+pub const SYNONYM_LIST_EMPTY: &str = "同義語は登録されていません。`shiotsuchi synonym add <単語> <同義語>` で追加できます。";
+pub const SYNONYM_LIST_HEADER: &str = "登録済み同義語:";
+pub const SYNONYM_LOAD_ERROR: &str = "警告: 同義語辞書の読み込みに失敗しました。デフォルトを使用します。";

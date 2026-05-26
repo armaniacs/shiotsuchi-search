@@ -72,7 +72,10 @@ enum Commands {
     Log,
     Scan(commands::scan::ScanArgs),
     Setup(commands::setup::SetupArgs),
+    #[command(subcommand, about = messages::SYNONYM_ABOUT)]
+    Synonym(commands::synonym::SynonymCommand),
     Support(commands::support::SupportArgs),
+    /// Build and runtime information
     Tide,
 }
 
@@ -194,6 +197,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Commands::Support(args) => {
             commands::support::run_support(&args, &cfg)?;
+        }
+        Commands::Synonym(cmd) => {
+            commands::synonym::run_synonym(&cmd)?;
         }
         Commands::Config(args) => {
             commands::config::run_config(

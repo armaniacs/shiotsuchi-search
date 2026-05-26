@@ -12,4 +12,5 @@ pub mod noise;
 pub mod scan;
 pub mod setup;
 pub mod support;
+pub mod synonym;
 pub mod tide;

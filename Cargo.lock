@@ -2068,6 +2068,7 @@ dependencies = [
  "thiserror",
  "tokenizers",
  "tokio",
+ "toml",
  "unicode-normalization",
  "vaporetto",
  "vaporetto_rules",

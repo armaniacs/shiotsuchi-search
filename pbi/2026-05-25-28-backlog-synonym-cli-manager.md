@@ -37,15 +37,15 @@ Scenario: 専用ファイルがない場合は新規作成する
 ```
 
 ## 受け入れ基準
-- [ ] `shiotsuchi synonym add <word> <synonym>` コマンドで同義語を追加できる
-- [ ] `shiotsuchi synonym list` コマンドで全エントリを表示できる
-- [ ] `shiotsuchi synonym remove <word>` コマンドでエントリを削除できる
-- [ ] 辞書は専用ファイル（`~/.config/shiotsuchi/thesaurus.toml`）に保存される
-- [ ] 専用ファイルが存在しない場合、`synonym` コマンド実行時に自動生成される
-- [ ] 専用ファイルの内容は起動時に `ShiotsuchiConfig.synonyms` にマージされる
-- [ ] 重複追加の防止（同じ語＝同義語ペアの再追加は無視または警告）
-- [ ] 存在しないエントリの削除はエラーメッセージを表示
-- [ ] 辞書なしでも従来通り動作する
+- [x] `shiotsuchi synonym add <word> <synonym>` コマンドで同義語を追加できる
+- [x] `shiotsuchi synonym list` コマンドで全エントリを表示できる
+- [x] `shiotsuchi synonym remove <word>` コマンドでエントリを削除できる
+- [x] 辞書は専用ファイル（`~/.config/shiotsuchi/thesaurus.toml`）に保存される
+- [x] 専用ファイルが存在しない場合、`synonym` コマンド実行時に自動生成される
+- [x] 専用ファイルの内容は起動時に `ShiotsuchiConfig.synonyms` にマージされる
+- [x] 重複追加の防止（同じ語＝同義語ペアの再追加は無視または警告）
+- [x] 存在しないエントリの削除はエラーメッセージを表示
+- [x] 辞書なしでも従来通り動作する
 
 ## 見積もり
 5 ポイント
