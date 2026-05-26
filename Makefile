@@ -75,7 +75,9 @@ integration-test: build
 	cd integration && npm install --silent && npm test
 
 # test-all requires Docker/Act installed for the local-ci target
-test-all: clean test test-e2e integration-test local-ci
+test-all: test test-e2e integration-test local-ci
+
+clean-all: clean
 
 # On Apple Silicon (arm64), run arm64 containers natively to avoid QEMU linker crashes.
 local-ci: $(MODEL_FILE)

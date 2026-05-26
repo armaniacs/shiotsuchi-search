@@ -12,7 +12,7 @@ Crate path: `cli/`
 | `config detect-noise` | `[--notes-dir]` | Scan vault for exclusion candidates (read-only) |
 | `config-migrate` | `[--config]` | Migrate config from old `[vault]` format to new `[database]` + `[vaults.xxx]` format |
 | `delete <path>` | `[--notes-dir]` `[--db-path]` | Remove a note from the index by its vault-relative path |
-| `dive <query>` | `[--notes-dir]` `[--db-path]` `[--limit]` `[--mode]` `[--json]` `[--json-pretty]` `[--fuzzy]` `[--alpha]` `[--tag]` `[--since]` `[--vault]` `[--mmr]` `[--lambda]` `[--threshold]` `[--model-path]` | Search notes. `--mode`: `keyword` (default), `semantic`, `hybrid`. |
+| `dive <query>` | `[--notes-dir]` `[--db-path]` `[--limit]` `[--mode]` `[--json]` `[--json-pretty]` `[--fuzzy]` `[--alpha]` `[--tag]` `[--since]` `[--vault]` `[--mmr]` `[--lambda]` `[--threshold]` `[--model-path]` | Search notes. `--mode`: `fts` (default), `vec`, `hybrid`. |
 | `doctor` | (no args) | Environment health check with interactive repair for config, database, tokenizer, embedder, and vault directories |
 | `dredge` | `[--notes-dir]` `[--db-path]` | Extract and index chunks from existing notes without re-embedding content. Migrates pre-v0.3.3 vaults to chunked schema. |
 | `init` | `[--notes-dir]` `[--db-path]` `[--force]` `[--yes]` | Create config file with interactive exclusion selection |

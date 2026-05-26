@@ -49,7 +49,7 @@ impl From<CliSearchMode> for SearchMode {
 #[derive(Args, Debug)]
 #[command(about = crate::messages::DIVE_ABOUT)]
 pub struct DiveArgs {
-    #[arg(help = "検索クエリ文字列")]
+    #[arg(help = messages::DIVE_QUERY_HELP)]
     pub query: String,
 
     #[arg(long, help = messages::DIVE_JSON_HELP)]
@@ -210,7 +210,7 @@ fn highlight_matches(text: &str, query: &str) -> String {
     for (start, _) in text_lower.match_indices(&query_lower) {
         let end = start + query.len();
         result.push_str(&text[last_end..start]);
-        result.push_str("\x1b[1;31m");
+        result.push_str("\x1b[1;7;31m"); // bold + inverse + red (accessible for colorblind via inverse)
         result.push_str(&text[start..end]);
         result.push_str("\x1b[0m");
         last_end = end;

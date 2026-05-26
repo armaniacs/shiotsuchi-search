@@ -234,12 +234,17 @@ fn date_matches(date: &str, since: &str) -> bool {
 }
 
 /// Apply tag and date filters to a list of results, then apply title and
-/// emphasized_text score boosts.
+/// Apply tag/date filters and title/emphasized_text score boosts.
+///
+/// For FTS/Vec modes (lower score = more relevant), matching boosts reduce the
+/// score (multiply by <1.0). For Hybrid mode (higher RRF score = more relevant),
+/// the boost increases the score (divide by the same factor).
 fn apply_filters_and_boost(
     mut results: Vec<ChunkSearchResult>,
     tag_filter: Option<&str>,
     since_date: Option<&str>,
     query: &str,
+    mode: SearchMode,
 ) -> Vec<ChunkSearchResult> {
     let tag_f = tag_filter.unwrap_or("");
     let since_d = since_date.unwrap_or("");
@@ -252,26 +257,30 @@ fn apply_filters_and_boost(
         let query_lower = query.to_lowercase();
         let query_tokens: Vec<&str> = query_lower.split_whitespace().collect();
 
+        // For Hybrid mode, higher score = more relevant, so boost by dividing.
+        // For FTS/Vec, lower score = more relevant, so boost by multiplying.
+        let (title_factor, emph_factor) = match mode {
+            SearchMode::Hybrid => (1.0 / 0.3, 1.0 / 0.5),
+            _ => (0.3, 0.5),
+        };
+
         // Title score boost: if a chunk's title contains a query token,
-        // reduce its score (lower = more relevant in FTS5 BM25).
+        // adjust its score to indicate higher relevance.
         for r in &mut results {
             if !r.title.is_empty() {
                 let title_lower = r.title.to_lowercase();
                 if query_tokens.iter().any(|t| title_lower.contains(t)) {
-                    r.score *= 0.3;
+                    r.score = r.score * title_factor;
                 }
             }
         }
 
-        // Emphasized text score boost: if a chunk's emphasized_text contains
-        // a query token, reduce its score (lower = better in FTS/Vec; for Hybrid
-        // where higher RRF = better, this multiplication is consistent with the
-        // existing title boost behavior).
+        // Emphasized text score boost: same logic for ==highlight== and **bold**.
         for r in &mut results {
             if !r.emphasized_text.is_empty() {
                 let emph_lower = r.emphasized_text.to_lowercase();
                 if query_tokens.iter().any(|t| emph_lower.contains(t)) {
-                    r.score *= 0.5;
+                    r.score = r.score * emph_factor;
                 }
             }
         }
@@ -402,7 +411,7 @@ fn search_fts(
     }
 
     let results = build_results(db, hits, SearchMode::Fts, min_score)?;
-    Ok(apply_filters_and_boost(results, tag_filter, since_date, query))
+    Ok(apply_filters_and_boost(results, tag_filter, since_date, query, SearchMode::Fts))
 }
 
 /// Vec KNN search. Returns (results, embedding_map).
@@ -429,7 +438,7 @@ fn search_vec(
     let hits: Vec<(i64, f64)> = raw_hits.into_iter().map(|(id, dist, _)| (id, dist)).collect();
 
     let results = build_results(db, hits, SearchMode::Vec, min_score)?;
-    Ok((apply_filters_and_boost(results, tag_filter, since_date, query), emb_map))
+    Ok((apply_filters_and_boost(results, tag_filter, since_date, query, SearchMode::Vec), emb_map))
 }
 
 /// Compute Reciprocal Rank Fusion scores from FTS and vec search results.
@@ -597,7 +606,7 @@ fn search_hybrid(
         results.retain(|r| r.score >= ms);
     }
 
-    Ok((apply_filters_and_boost(results, tag_filter, since_date, query), emb_map))
+    Ok((apply_filters_and_boost(results, tag_filter, since_date, query, SearchMode::Hybrid), emb_map))
 }
 
 /// Extract a snippet around the first query token match.
@@ -1306,6 +1315,94 @@ mod tests {
         assert!(results.is_empty(), "non-fuzzy should not match different case 'hello' against 'Hello'");
     }
 
+    // ── apply_filters_and_boost direction (FTS/Vec vs Hybrid) ────────
+
+    #[test]
+    fn test_apply_filters_and_boost_fts_direction() {
+        let mut results = vec![ChunkSearchResult {
+            chunk_id: 1,
+            file_path: "test.md".into(),
+            parent_header: Some("Title".into()),
+            content: "content".into(),
+            score: 10.0,
+            search_mode: SearchMode::Fts,
+            vault_name: String::new(),
+            tags: String::new(),
+            frontmatter_date: String::new(),
+            title: "Important Title".into(),
+            emphasized_text: String::new(),
+        }];
+        let boosted = apply_filters_and_boost(results, None, None, "important", SearchMode::Fts);
+        assert!(!boosted.is_empty());
+        // FTS: lower = better, score *= 0.3 should reduce the score
+        assert!(boosted[0].score < 10.0, "FTS title boost should reduce score (lower=better)");
+    }
+
+    #[test]
+    fn test_apply_filters_and_boost_hybrid_direction() {
+        // Verify that hybrid mode (where higher=better) INCREASES scores via division
+        let results = vec![ChunkSearchResult {
+            chunk_id: 1,
+            file_path: "test.md".into(),
+            parent_header: Some("Title".into()),
+            content: "content".into(),
+            score: 0.5,
+            search_mode: SearchMode::Hybrid,
+            vault_name: String::new(),
+            tags: String::new(),
+            frontmatter_date: String::new(),
+            title: "Important Title".into(),
+            emphasized_text: String::new(),
+        }];
+        let boosted = apply_filters_and_boost(results, None, None, "important", SearchMode::Hybrid);
+        assert!(!boosted.is_empty());
+        // Hybrid: higher = better, score /= 0.3 should increase the score
+        assert!(boosted[0].score > 0.5,
+            "Hybrid title boost should increase score (higher=better)");
+    }
+
+    #[test]
+    fn test_apply_filters_and_boost_tag_filter() {
+        let results = vec![
+            ChunkSearchResult {
+                chunk_id: 1, file_path: "a.md".into(), parent_header: None,
+                content: "content".into(), score: 1.0, search_mode: SearchMode::Fts,
+                vault_name: String::new(), tags: "project".into(),
+                frontmatter_date: String::new(), title: String::new(), emphasized_text: String::new(),
+            },
+            ChunkSearchResult {
+                chunk_id: 2, file_path: "b.md".into(), parent_header: None,
+                content: "content".into(), score: 2.0, search_mode: SearchMode::Fts,
+                vault_name: String::new(), tags: "personal".into(),
+                frontmatter_date: String::new(), title: String::new(), emphasized_text: String::new(),
+            },
+        ];
+        let filtered = apply_filters_and_boost(results, Some("project"), None, "", SearchMode::Fts);
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].chunk_id, 1);
+    }
+
+    #[test]
+    fn test_apply_filters_and_boost_date_filter() {
+        let results = vec![
+            ChunkSearchResult {
+                chunk_id: 1, file_path: "a.md".into(), parent_header: None,
+                content: "content".into(), score: 1.0, search_mode: SearchMode::Fts,
+                vault_name: String::new(), tags: String::new(),
+                frontmatter_date: "2026-01-15".into(), title: String::new(), emphasized_text: String::new(),
+            },
+            ChunkSearchResult {
+                chunk_id: 2, file_path: "b.md".into(), parent_header: None,
+                content: "content".into(), score: 2.0, search_mode: SearchMode::Fts,
+                vault_name: String::new(), tags: String::new(),
+                frontmatter_date: "2025-12-01".into(), title: String::new(), emphasized_text: String::new(),
+            },
+        ];
+        let filtered = apply_filters_and_boost(results, None, Some("2026-01-01"), "", SearchMode::Fts);
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].chunk_id, 1);
+    }
+
     // ── extract_snippet edge cases ───────────────────────────────────
 
     #[test]
@@ -1350,6 +1447,23 @@ mod tests {
         let text = "HELLO\nWorld\nFOO";
         let snippet = extract_snippet(text, "hello", 1, 100);
         assert!(snippet.contains("HELLO"));
+    }
+
+    #[test]
+    fn test_extract_snippet_unicode_case_change_byte_offset() {
+        let text = "İstanbul is a city\nnot constant case";
+        let snippet = extract_snippet(text, "istanbul", 1, 200);
+        assert!(snippet.contains("İstanbul"),
+            "Turkish İ (U+0130) to_lowercase() should not cause byte offset panic: {}",
+            snippet);
+    }
+
+    #[test]
+    fn test_extract_snippet_german_eszett() {
+        let text = "straße\nnext line\nmore content";
+        let snippet = extract_snippet(text, "STRASSE", 1, 200);
+        assert!(!snippet.is_empty(),
+            "German ß→SS case mapping should not cause issues");
     }
 
     #[test]
