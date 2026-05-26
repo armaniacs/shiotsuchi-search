@@ -25,5 +25,17 @@ MCP 経由でのノート作成・編集・削除はプロジェクトの範囲�
 
 この PBI は **PBI-27（Obsidian プラグイン）の後に実装する**。
 理由: Backlink 情報は Obsidian プラグイン経由で取得する方が効率的であり、
-スタンドアロンでのリンク解析よりも精度が高い。 
+スタンドアロンでのリンク解析よりも精度が高い。
+
+### PBI-13: 埋め込みモデルの差し替え（API 方式）
+
+以下の方針で実装する:
+
+- **API エンドポイント**: `https://api.ai.sakura.ad.jp/v1/embeddings`
+- **モデル**: `multilingual-e5-large`（OpenAI API 互換）
+- **API キー**: 環境変数 `SAKURA_AI_API_KEY` で指定
+- **無料枠**: 月 10,000 回のリクエストまで無料
+- **実装方式**: ONNX ローカル推論に加えて、OpenAI 互換 API クライアントを
+  `core/src/embedder.rs` に追加する。`Embedder` トレイト（または enum）で
+  ローカル / API を切り替えられるようにする。 
 
