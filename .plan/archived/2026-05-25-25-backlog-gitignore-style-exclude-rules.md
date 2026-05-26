@@ -24,7 +24,10 @@ Scenario: 除外設定なしでは全 .md ファイルをインデックスす�
 ## 受け入れ基準
 - [x] config.toml に `exclude_dirs` 配列でパターンを設定できる（既存）
 - [x] glob パターン（`*`・`**`・`?`）をサポートする
-- [ ] `.shiotsuchiignore` ファイルでも設定できる（オプション）
+- [x] `.shiotsuchiignore` ファイルで除外ルールを設定できる（vault ルート直下のみ）
+- [x] `shiotsuchi check-ignore <path>` 診断コマンドで除外理由を確認できる
+- [x] 除外されたファイル数が chart のサマリに表示される
+- [x] `--verbose` 時に除外理由がログ出力される
 
 ## 見積もり
 3 ポイント

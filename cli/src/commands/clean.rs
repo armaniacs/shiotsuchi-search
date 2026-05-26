@@ -129,7 +129,7 @@ pub fn run_clean(
     // Index into temp DB first (before touching original)
     {
         let db = NoteDatabase::open(&tmp_path)?;
-        let (results, invalid_patterns) =
+        let (results, invalid_patterns, _excluded) =
             index_directory(&db, &tokenizer, &config, embedder.as_ref(), None)?;
 
         // Checkpoint WAL so all data is in the main .db file before rename

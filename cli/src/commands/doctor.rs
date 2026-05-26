@@ -200,7 +200,7 @@ fn index_vault(
         }
     });
 
-    let (results, invalid_patterns) =
+    let (results, invalid_patterns, _excluded) =
         index_directory(&db, &tokenizer, &config, embedder.as_ref(), None)?;
 
     let mut indexed = 0usize;

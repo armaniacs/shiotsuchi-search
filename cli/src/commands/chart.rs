@@ -27,6 +27,7 @@ pub struct ChartSummary {
     pub skipped: usize,
     pub errors: usize,
     pub invalid_patterns: usize,
+    pub excluded: usize,
 }
 
 pub fn run_chart(
@@ -65,13 +66,14 @@ pub fn run_chart(
         }
     });
 
-    let (results, invalid_patterns) = index_directory(&db, &tokenizer, &config, embedder.as_ref(), None)?;
+    let (results, invalid_patterns, excluded_count) = index_directory(&db, &tokenizer, &config, embedder.as_ref(), None)?;
 
     let mut summary = ChartSummary {
         indexed: 0,
         skipped: 0,
         errors: 0,
         invalid_patterns,
+        excluded: excluded_count,
     };
     for (_, _, result) in &results {
         match result {
@@ -86,7 +88,7 @@ pub fn run_chart(
     }
 
     if !args.quiet {
-        println!("{}", msg_fmt!(messages::INDEX_SUMMARY, summary.indexed, summary.skipped, summary.errors));
+        println!("{}", msg_fmt!(messages::INDEX_SUMMARY, summary.indexed, summary.skipped, summary.errors, summary.excluded));
         if summary.invalid_patterns > 0 {
             println!("{}", msg_fmt!(messages::INDEX_PATTERN_WARN, summary.invalid_patterns));
         }

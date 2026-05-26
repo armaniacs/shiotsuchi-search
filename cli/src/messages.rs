@@ -33,6 +33,7 @@ pub const ERR_PREFIX: &str = "エラー";
 // dive.rs — 検索コマンド
 // ──────────────────────────────────────────────
 
+pub const DIVE_QUERY_HELP: &str = "検索クエリ文字列";
 pub const DIVE_JSON_HELP: &str = "コンパクトな JSON で出力（非推奨: --format json を使用してください）";
 pub const DIVE_LIMIT_HELP: &str = "最大結果件数";
 pub const DIVE_FORMAT_HELP: &str = "出力フォーマット（デフォルト: テーブル。--json が設定されている場合は JSON）";
@@ -74,6 +75,11 @@ pub const FORMAT_JSON_PRETTY_HELP: &str = "見やすい形式の JSON 配列";
 // ──────────────────────────────────────────────
 
 pub const CHART_ABOUT: &str = "ノートボールトをインデックスしてデータベースを構築する";
+
+pub const CHECK_IGNORE_ABOUT: &str = "パスが除外ルールにマッチするか確認する";
+pub const CHECK_IGNORE_HELP: &str = "確認する相対パス（例: 'private/notes.md'）";
+pub const CHECK_IGNORE_VAULT_HELP: &str = "確認対象のボールト（省略時は最初のボールト）";
+
 pub const CLEAN_ABOUT: &str = "データベースを削除して最初からインデックスを再構築する";
 pub const CONFIG_ABOUT: &str = "インデックス設定を管理する";
 pub const CONFIG_MIGRATE_ABOUT: &str = "設定ファイルを古い形式から新しい形式に移行する";
@@ -88,6 +94,7 @@ pub const SETUP_ABOUT: &str = "セマンティック検索用の埋め込みモ�
 pub const SUPPORT_ABOUT: &str = "ビルド情報・ランタイム情報を表示する";
 pub const TASKS_ABOUT: &str = "全ノートのタスク（チェックボックス）を横断検索する";
 pub const TASKS_ALL_HELP: &str = "完了済みタスクも含めて表示";
+pub const TASKS_TOTAL: &str = "合計: {} 件のタスク";
 pub const TIDE_ABOUT: &str = "インデックスの統計情報（ファイル数・チャンク数・DB サイズ等）を表示する";
 
 // ──────────────────────────────────────────────
@@ -101,7 +108,7 @@ pub const CHART_FORCE_DEPRECATED: &str = "警告: --force は chart コマンド
 pub const INFO_EMBEDDER_LOADED: &str = "[情報] 埋め込みモデルを読み込みました — ベクトルインデックスを有効化";
 pub const WARN_EMBEDDER_LOAD: &str = "[警告] 埋め込みモデルを読み込めませんでした: {}";
 pub const INFO_EMBEDDER_SKIPPED: &str = "[情報] 埋め込みモデルが見つかりません — ベクトルインデックスをスキップします。`shiotsuchi setup` を実行してセマンティック検索を有効にしてください";
-pub const INDEX_SUMMARY: &str = "{} ファイルをインデックスしました（{} スキップ、{} エラー）";
+pub const INDEX_SUMMARY: &str = "{} ファイルをインデックスしました（{} スキップ、{} エラー、{} 除外）";
 pub const INDEX_PATTERN_WARN: &str = "  {} 個の無効なパターンが exclude_dirs に含まれています";
 
 // ──────────────────────────────────────────────

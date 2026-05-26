@@ -71,6 +71,45 @@ fn build_exclude_globset(patterns: &[String]) -> (GlobSet, usize) {
     (set, invalid)
 }
 
+/// Load patterns from a `.shiotsuchiignore` file at the vault root.
+/// Returns an empty vec if the file doesn't exist or can't be read.
+pub fn load_shiotsuchiignore(vault_dir: &Path) -> Vec<String> {
+    let ignore_file = vault_dir.join(".shiotsuchiignore");
+    match std::fs::read_to_string(&ignore_file) {
+        Ok(content) => content
+            .lines()
+            .map(|l| l.trim())
+            .filter(|l| !l.is_empty() && !l.starts_with('#'))
+            .map(|l| l.to_string())
+            .collect(),
+        Err(_) => Vec::new(),
+    }
+}
+
+/// Check whether a given relative path would be excluded by a set of patterns.
+/// Returns `Err(pattern)` with the matching pattern if excluded, or `Ok(())` if not excluded.
+pub fn check_ignore(relative_path: &str, patterns: &[String]) -> Result<(), String> {
+    for pat in patterns {
+        let pat_trimmed = pat.trim_matches('/');
+        if pat_trimmed.is_empty() {
+            continue;
+        }
+        let escaped = escape_glob_literal(pat_trimmed);
+        let wrapped = if pat_trimmed.contains('/') || pat_trimmed.ends_with("**") {
+            let stripped = pat_trimmed.trim_start_matches('/');
+            format!("**/{}", stripped)
+        } else {
+            format!("**/{}/**", escaped)
+        };
+        if let Ok(glob) = Glob::new(&wrapped) {
+            if glob.compile_matcher().is_match(relative_path) {
+                return Err(pat.clone());
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Summary of an indexing run.
 #[derive(Debug, Default)]
 pub struct IndexReport {
@@ -79,6 +118,7 @@ pub struct IndexReport {
     pub skipped: usize,
     pub errors: usize,
     pub deleted: usize,
+    pub excluded: usize,
 }
 
 fn sha256_hex(content: &str) -> String {
@@ -118,7 +158,7 @@ pub fn index_file(
 ///
 /// # Returns
 ///
-/// `(Vec<(vault_name, relative_path, IndexResult)>, invalid_pattern_count)` on success.
+/// `(Vec<(vault_name, relative_path, IndexResult)>, invalid_pattern_count, excluded_file_count)` on success.
 /// The caller always destructures the pair; a struct would only add field-name noise.
 #[allow(clippy::type_complexity)]
 pub fn index_directory(
@@ -127,12 +167,21 @@ pub fn index_directory(
     config: &IndexConfig,
     embedder: Option<&Embedder>,
     progress: Option<IndexProgress>,
-) -> Result<(Vec<(String, String, IndexResult)>, usize), DbError> {
-    let (exclude_globset, invalid_patterns) = build_exclude_globset(&config.exclude_dirs);
+) -> Result<(Vec<(String, String, IndexResult)>, usize, usize), DbError> {
     let mut all_results = Vec::new();
     let mut global_count = 0usize;
+    let mut total_invalid = 0usize;
+    let mut total_excluded = 0usize;
 
     for (vault_name, notes_dir) in &config.vaults {
+        // Load .shiotsuchiignore patterns and merge with config.exclude_dirs
+        let ignore_patterns = load_shiotsuchiignore(notes_dir);
+        let mut merged_patterns = config.exclude_dirs.clone();
+        merged_patterns.extend(ignore_patterns);
+
+        let (exclude_globset, vault_invalid) = build_exclude_globset(&merged_patterns);
+        total_invalid += vault_invalid;
+        let mut vault_excluded = 0usize;
         let notes_canonical = if config.follow_links {
             Some(notes_dir.canonicalize().map_err(|e| {
                 DbError::Io(std::io::Error::new(
@@ -201,7 +250,15 @@ pub fn index_directory(
                     return false;
                 };
                 let rel_str = relative.to_string_lossy();
-                !exclude_globset.is_match(rel_str.as_ref())
+                let is_excluded = exclude_globset.is_match(rel_str.as_ref());
+                if is_excluded {
+                    vault_excluded += 1;
+                    log::debug!(
+                        "Excluded {} (matched exclude pattern)",
+                        rel_str
+                    );
+                }
+                !is_excluded
             })
         {
             global_count += 1;
@@ -216,9 +273,10 @@ pub fn index_directory(
             );
             all_results.push((vault_name.clone(), rel_str, result));
         }
+        total_excluded += vault_excluded;
     }
 
-    Ok((all_results, invalid_patterns))
+    Ok((all_results, total_invalid, total_excluded))
 }
 
 /// Remove indexed files from DB that no longer exist on disk.
@@ -430,7 +488,7 @@ mod tests {
             vaults: vec![("default".to_string(), vault.clone())],
             ..Default::default()
         };
-        let (results, _invalid) = index_directory(&db, &tokenizer, &config, None, None).unwrap();
+        let (results, _invalid, _excluded) = index_directory(&db, &tokenizer, &config, None, None).unwrap();
         assert_eq!(results.len(), 10);
         assert_eq!(db.stats().unwrap().total_files, 10);
     }
@@ -453,7 +511,7 @@ mod tests {
             exclude_dirs: vec!["templates".to_string()],
             ..Default::default()
         };
-        let (results, _invalid) = index_directory(&db, &tokenizer, &config, None, None).unwrap();
+        let (results, _invalid, _excluded) = index_directory(&db, &tokenizer, &config, None, None).unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].1, "main.md");
         assert_eq!(db.stats().unwrap().total_files, 1);
@@ -484,7 +542,7 @@ mod tests {
             ..Default::default()
         };
 
-        let (results, _invalid) = index_directory(&db, &tokenizer, &config, None, None).unwrap();
+        let (results, _invalid, _excluded) = index_directory(&db, &tokenizer, &config, None, None).unwrap();
         assert_eq!(results.len(), 2);
         assert_eq!(db.stats().unwrap().total_files, 2);
     }
@@ -537,7 +595,7 @@ mod tests {
         };
         assert!(config.auto_exclude_hidden);
 
-        let (results, _invalid) = index_directory(&db, &tokenizer, &config, None, None).unwrap();
+        let (results, _invalid, _excluded) = index_directory(&db, &tokenizer, &config, None, None).unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].1, "notes/visible.md");
     }
@@ -561,7 +619,7 @@ mod tests {
             ..Default::default()
         };
 
-        let (results, _invalid) = index_directory(&db, &tokenizer, &config, None, None).unwrap();
+        let (results, _invalid, _excluded) = index_directory(&db, &tokenizer, &config, None, None).unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].1, ".hidden_notes/secret.md");
     }
@@ -594,7 +652,7 @@ mod tests {
             ..Default::default()
         };
 
-        let (results, _invalid) = index_directory(&db, &tokenizer, &config, None, None).unwrap();
+        let (results, _invalid, _excluded) = index_directory(&db, &tokenizer, &config, None, None).unwrap();
         assert_eq!(
             results.len(),
             2,
@@ -679,7 +737,7 @@ mod tests {
             ..Default::default()
         };
 
-        let (results, _invalid) = index_directory(&db, &tokenizer, &config, None, None).unwrap();
+        let (results, _invalid, _excluded) = index_directory(&db, &tokenizer, &config, None, None).unwrap();
         assert!(results.is_empty());
     }
 
@@ -697,7 +755,7 @@ mod tests {
             vaults: vec![("default".to_string(), vault.clone())],
             ..Default::default()
         };
-        let (results, _invalid) = index_directory(&db, &tokenizer, &config, None, None).unwrap();
+        let (results, _invalid, _excluded) = index_directory(&db, &tokenizer, &config, None, None).unwrap();
         assert_eq!(results.len(), 300);
         let mut paths: Vec<&str> = results.iter().map(|(_, p, _)| p.as_str()).collect();
         paths.sort();
@@ -716,7 +774,7 @@ mod tests {
             vaults: vec![("default".to_string(), vault.clone())],
             ..Default::default()
         };
-        let (results, _invalid) = index_directory(&db, &tokenizer, &config, None, None).unwrap();
+        let (results, _invalid, _excluded) = index_directory(&db, &tokenizer, &config, None, None).unwrap();
         assert!(results.is_empty());
     }
 
@@ -735,7 +793,7 @@ mod tests {
             vaults: vec![("default".to_string(), vault.clone())],
             ..Default::default()
         };
-        let (results, _invalid) = index_directory(&db, &tokenizer, &config, None, None).unwrap();
+        let (results, _invalid, _excluded) = index_directory(&db, &tokenizer, &config, None, None).unwrap();
         assert_eq!(results.len(), 257, "all files should be indexed");
         assert_eq!(db.stats().unwrap().total_files, 257);
     }
@@ -754,7 +812,7 @@ mod tests {
             vaults: vec![("default".to_string(), vault.clone())],
             ..Default::default()
         };
-        let (results, _invalid) = index_directory(&db, &tokenizer, &config, None, None).unwrap();
+        let (results, _invalid, _excluded) = index_directory(&db, &tokenizer, &config, None, None).unwrap();
         assert_eq!(results.len(), 2, "both large files should be indexed");
     }
 
@@ -772,7 +830,7 @@ mod tests {
             vaults: vec![("default".to_string(), vault.clone())],
             ..Default::default()
         };
-        let (results, _invalid) = index_directory(&db, &tokenizer, &config, None, None).unwrap();
+        let (results, _invalid, _excluded) = index_directory(&db, &tokenizer, &config, None, None).unwrap();
         assert_eq!(results.len(), 100, "all 100 small files should be indexed");
     }
 
@@ -790,7 +848,7 @@ mod tests {
             vaults: vec![("default".to_string(), vault.clone())],
             ..Default::default()
         };
-        let (results, _invalid) = index_directory(&db, &tokenizer, &config, None, None).unwrap();
+        let (results, _invalid, _excluded) = index_directory(&db, &tokenizer, &config, None, None).unwrap();
         assert_eq!(results.len(), 256, "exactly 256 files should all be indexed");
     }
 
@@ -811,7 +869,7 @@ mod tests {
             follow_links: true,
             ..Default::default()
         };
-        let (results, _invalid) = index_directory(&db, &tokenizer, &config, None, None).unwrap();
+        let (results, _invalid, _excluded) = index_directory(&db, &tokenizer, &config, None, None).unwrap();
         assert!(results.is_empty(), "external symlink should be rejected");
     }
 
@@ -1111,7 +1169,7 @@ mod tests {
 
         let progress: IndexProgress = Box::new(|_current, _total: Option<usize>| {});
 
-        let (results, invalid) = index_directory(&db, &tokenizer, &config, None, Some(progress)).unwrap();
+        let (results, invalid, _excluded) = index_directory(&db, &tokenizer, &config, None, Some(progress)).unwrap();
         assert_eq!(results.len(), 1, "should index 1 file");
         assert!(!results[0].1.is_empty(), "should have a relative path");
         assert_eq!(invalid, 0, "no invalid patterns");

@@ -41,7 +41,7 @@ fn test_end_to_end_index_and_search() {
         vaults: vec![("default".to_string(), vault.clone())],
         ..Default::default()
     };
-    let (results, _invalid) = index_directory(&db, &tokenizer, &config, None, None).unwrap();
+    let (results, _invalid, _excluded) = index_directory(&db, &tokenizer, &config, None, None).unwrap();
     assert_eq!(results.len(), 3);
 
     // FTS search

@@ -79,6 +79,8 @@ struct Cli {
 enum Commands {
     #[command(about = crate::messages::CHART_ABOUT)]
     Chart(commands::chart::ChartArgs),
+    #[command(about = crate::messages::CHECK_IGNORE_ABOUT)]
+    CheckIgnore(commands::check_ignore::CheckIgnoreArgs),
     #[command(about = crate::messages::CLEAN_ABOUT)]
     Clean(commands::clean::CleanArgs),
     #[command(about = crate::messages::CONFIG_ABOUT)]
@@ -165,12 +167,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Commands::Chart(args) => {
             let vault_id = args.vault.as_deref().or(cfg.vault_default.as_deref());
             let vaults = resolve_vaults(&resolved_vaults, vault_id)?;
-            commands::chart::run_chart(
-                &args,
-                &vaults,
-                &db_path,
-                &cfg.indexing,
-            )?;
+            commands::chart::run_chart(&args, &vaults, &db_path, &cfg.indexing)?;
+        }
+        Commands::CheckIgnore(args) => {
+            commands::check_ignore::run_check_ignore(&args, &resolved_vaults)?;
         }
         Commands::Clean(_args) => {
             commands::clean::run_clean(&resolved_vaults, &db_path, &cfg.indexing)?;

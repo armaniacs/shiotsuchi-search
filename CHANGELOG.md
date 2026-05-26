@@ -34,6 +34,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `frontmatter_date`, and `title` fields from each chunk's frontmatter.
 - **CLI syntax highlighting**: Matched search terms in table-format snippets are
   highlighted in bold red ANSI color. Respects `NO_COLOR` environment variable.
+- **`.shiotsuchiignore` file support**: Place a `.shiotsuchiignore` file in any
+  vault root directory to define exclude patterns alongside `exclude_dirs` in
+  config.toml. Patterns use the same glob syntax as `exclude_dirs`.
+- **`shiotsuchi check-ignore <path>` command**: Diagnostic tool that checks
+  whether a given relative path would be excluded, and shows which pattern
+  (from `exclude_dirs` or `.shiotsuchiignore`) matched.
+- **Excluded file count in chart**: `shiotsuchi chart` now reports the number
+  of files excluded by matching patterns in its summary output.
 - **Multilingual whitespace fallback**: Vaporetto tokens containing ASCII text
   are post-processed with camelCase/underscore/digit-boundary splitting, improving
   English technical term search accuracy.
