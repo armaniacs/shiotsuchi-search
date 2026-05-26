@@ -127,7 +127,7 @@ impl JapaneseTokenizer {
             .join(" OR ")
     }
 
-    fn collect_tokens(&self, text: &str) -> Vec<String> {
+    pub(crate) fn collect_tokens(&self, text: &str) -> Vec<String> {
         let mut tokens = Vec::new();
         for line in text.lines() {
             let line = line.trim();
@@ -171,6 +171,91 @@ impl JapaneseTokenizer {
             }
         }
     }
+}
+
+/// Apply user dictionary to a space-separated token string.
+/// Convenience wrapper around [`apply_user_dictionary`].
+pub fn apply_user_dictionary_str(tokens: &str, dict: &[String]) -> String {
+    if dict.is_empty() || tokens.is_empty() {
+        return tokens.to_string();
+    }
+    let token_list: Vec<String> = tokens.split(' ').map(|s| s.to_string()).collect();
+    apply_user_dictionary(&token_list, dict).join(" ")
+}
+
+/// Apply user dictionary post-processing: merge consecutive tokens that form
+/// a dictionary entry into a single token. The dictionary entries are matched
+/// exactly (case-sensitive) against the space-joined sequence of tokens.
+///
+/// When multiple entries match at the same position, the longest match wins.
+/// This allows shorter entries ("New York") to coexist with longer ones
+/// ("New York City").
+///
+/// This is a workaround for Vaporetto's lack of user dictionary support:
+/// since Vaporetto is a trained model, we cannot add custom vocabulary
+/// directly. Instead, we merge Vaporetto's output tokens post-hoc.
+pub fn apply_user_dictionary(tokens: &[String], dict: &[String]) -> Vec<String> {
+    if dict.is_empty() {
+        return tokens.to_vec();
+    }
+
+    let mut result: Vec<String> = Vec::with_capacity(tokens.len());
+    let mut i = 0;
+
+    // Pre-compute the maximum number of tokens any dictionary entry spans,
+    // so we can limit the inner search loop to O(n * m) worst-case instead
+    // of O(n²) where n = token count and m = max entry length in tokens.
+    let max_entry_tokens = dict
+        .iter()
+        .map(|e| {
+            // For space-joined entries (e.g., "Amazon Web Services"), the
+            // token count equals the word count. For concatenated-only entries
+            // (e.g., "ChatGPT"), the entry could span multiple Vaporetto
+            // tokens — use the byte length as a safe upper bound since no
+            // single entry can span more tokens than its total byte count.
+            e.split(' ').count().max(e.len())
+        })
+        .max()
+        .unwrap_or(1);
+
+    while i < tokens.len() {
+        // Try to find the longest dictionary match starting at position i.
+        let mut best_len = 0usize;
+        let mut best_entry: Option<&str> = None;
+
+        // Build candidate strings. We try two forms:
+        //   1. Space-joined (for multi-word entries like "Amazon Web Services")
+        //   2. Concatenated  (for single-word entries like "ChatGPT")
+        let mut spaced = String::new();
+        let mut concat = String::new();
+        let search_end = tokens.len().min(i + max_entry_tokens);
+        for j in i..search_end {
+            if j > i {
+                spaced.push(' ');
+            }
+            spaced.push_str(&tokens[j]);
+            concat.push_str(&tokens[j]);
+
+            for entry in dict {
+                if spaced == *entry || concat == *entry {
+                    let span_len = j - i + 1;
+                    if span_len > best_len {
+                        best_len = span_len;
+                        best_entry = Some(entry.as_str());
+                    }
+                }
+            }
+        }
+
+        if let Some(entry) = best_entry {
+            result.push(entry.to_string());
+            i += best_len;
+        } else {
+            result.push(tokens[i].clone());
+            i += 1;
+        }
+    }
+    result
 }
 
 // Shared decompress logic — see _decompress.rs for implementation.
@@ -228,6 +313,102 @@ macro_rules! require_tokenizer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── user dictionary post-processing ─────────────────────────
+
+    #[test]
+    fn test_apply_dict_empty_dict_returns_tokens_unchanged() {
+        let tokens = vec!["Hello".to_string(), "world".to_string()];
+        let result = apply_user_dictionary(&tokens, &[]);
+        assert_eq!(result, tokens);
+    }
+
+    #[test]
+    fn test_apply_dict_no_match_returns_tokens_unchanged() {
+        let tokens = vec!["Hello".to_string(), "world".to_string()];
+        let dict = vec!["Claude".to_string()];
+        let result = apply_user_dictionary(&tokens, &dict);
+        assert_eq!(result, tokens);
+    }
+
+    #[test]
+    fn test_apply_dict_merges_multi_token_match() {
+        let tokens = vec![
+            "Amazon".to_string(),
+            "Web".to_string(),
+            "Services".to_string(),
+        ];
+        let dict = vec!["Amazon Web Services".to_string()];
+        let result = apply_user_dictionary(&tokens, &dict);
+        assert_eq!(result, vec!["Amazon Web Services"]);
+    }
+
+    #[test]
+    fn test_apply_dict_merges_in_middle_of_text() {
+        let tokens = vec![
+            "I".to_string(),
+            "use".to_string(),
+            "Amazon".to_string(),
+            "Web".to_string(),
+            "Services".to_string(),
+            "daily".to_string(),
+        ];
+        let dict = vec!["Amazon Web Services".to_string()];
+        let result = apply_user_dictionary(&tokens, &dict);
+        assert_eq!(
+            result,
+            vec![
+                "I".to_string(),
+                "use".to_string(),
+                "Amazon Web Services".to_string(),
+                "daily".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_apply_dict_prefers_longest_match() {
+        let tokens = vec![
+            "New".to_string(),
+            "York".to_string(),
+            "City".to_string(),
+        ];
+        let dict = vec![
+            "New York".to_string(),
+            "New York City".to_string(),
+        ];
+        let result = apply_user_dictionary(&tokens, &dict);
+        assert_eq!(result, vec!["New York City"]);
+    }
+
+    #[test]
+    fn test_apply_dict_multiple_matches() {
+        let tokens = vec![
+            "Chat".to_string(),
+            "GPT".to_string(),
+            "is".to_string(),
+            "great".to_string(),
+        ];
+        let dict = vec!["ChatGPT".to_string()];
+        let result = apply_user_dictionary(&tokens, &dict);
+        assert_eq!(result, vec!["ChatGPT".to_string(), "is".to_string(), "great".to_string()]);
+    }
+
+    #[test]
+    fn test_apply_dict_partial_match_does_not_merge() {
+        // "Amazon Web" matches but "Amazon Web Services Extra" also in dict — should match longest
+        // This tests that a partial prefix match doesn't trigger
+        let tokens = vec![
+            "Amazon".to_string(),
+            "Web".to_string(),
+            "Services".to_string(),
+        ];
+        let dict = vec!["Amazon Web".to_string(), "Something Else".to_string()];
+        let result = apply_user_dictionary(&tokens, &dict);
+        // "Amazon Web" is a shorter match, but "Amazon Web Services" doesn't match fully
+        // "Amazon Web" is 2 tokens — it should match
+        assert_eq!(result, vec!["Amazon Web".to_string(), "Services".to_string()]);
+    }
 
     #[test]
     fn test_simple_tokenize() {

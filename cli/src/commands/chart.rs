@@ -44,6 +44,7 @@ pub fn run_chart(
         auto_exclude_hidden: indexing_cfg.auto_exclude_hidden,
         follow_links: indexing_cfg.follow_links,
         dynamic_threshold: indexing_cfg.dynamic_threshold,
+        user_dictionary: indexing_cfg.user_dictionary.clone(),
     };
 
     let embedder = resolve_model_path(None).and_then(|p| match Embedder::load(&p) {

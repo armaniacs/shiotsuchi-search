@@ -90,6 +90,7 @@ pub fn run_dive(
     args: &DiveArgs,
     db_path: &Path,
     vaults: &[(String, PathBuf)],
+    user_dictionary: &[String],
 ) -> Result<Vec<ChunkSearchResult>, Box<dyn std::error::Error>> {
     if args.query.trim().is_empty() {
         return Ok(vec![]);
@@ -143,6 +144,7 @@ pub fn run_dive(
         args.vault.as_deref(),
         args.tag.as_deref(),
         args.since.as_deref(),
+        user_dictionary,
     )?;
     Ok(results)
 }
@@ -244,7 +246,7 @@ mod tests {
             tag: None,
             since: None,
         };
-        let output = run_dive(&args, &db_file, &[("default".to_string(), temp.path().to_path_buf())]).unwrap();
+        let output = run_dive(&args, &db_file, &[("default".to_string(), temp.path().to_path_buf())], &[]).unwrap();
         assert!(!output.is_empty());
         assert!(output[0].file_path.contains("note"));
     }
@@ -266,7 +268,7 @@ mod tests {
             tag: None,
             since: None,
         };
-        let output = run_dive(&args, &db_file, &vaults).unwrap();
+        let output = run_dive(&args, &db_file, &vaults, &[]).unwrap();
         assert!(output.is_empty());
     }
 
@@ -400,7 +402,7 @@ mod tests {
             tag: None,
             since: None,
         };
-        let result = run_dive(&args, &db_file, &vaults);
+        let result = run_dive(&args, &db_file, &vaults, &[]);
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(err.contains("hobby"));
@@ -441,7 +443,7 @@ mod tests {
             since: None,
         };
         let vaults: Vec<(String, PathBuf)> = vec![];
-        let result = run_dive(&args, &db_file, &vaults);
+        let result = run_dive(&args, &db_file, &vaults, &[]);
         assert!(result.is_err());
     }
 }

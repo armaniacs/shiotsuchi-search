@@ -263,7 +263,7 @@ pub fn index_file_with_embedder(
         Err(e) => return IndexResult::Error(e.to_string()),
     };
 
-    let chunks = split_into_chunks(&content, tokenizer, relative_path, vault_name);
+    let chunks = split_into_chunks(&content, tokenizer, relative_path, vault_name, &_config.user_dictionary);
 
     let embeddings: Vec<Option<Vec<f32>>> = if let Some(emb) = embedder {
         let texts: Vec<&str> = chunks.iter().map(|c| c.content.as_str()).collect();

@@ -132,6 +132,8 @@ pub struct IndexConfig {
     /// Minimum number of matching files for a directory to be dynamically detected
     /// as a noise candidate. Defaults to 5.
     pub dynamic_threshold: usize,
+    /// User-defined dictionary entries for custom tokenization post-processing.
+    pub user_dictionary: Vec<String>,
 }
 
 impl IndexConfig {
@@ -159,6 +161,7 @@ impl Default for IndexConfig {
             auto_exclude_hidden: true,
             follow_links: false,
             dynamic_threshold: 5,
+            user_dictionary: vec![],
         }
     }
 }

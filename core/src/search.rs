@@ -1,7 +1,7 @@
 use crate::{
     db::{DbError, NoteDatabase},
     models::{ChunkSearchResult, SearchMode},
-    tokenizer::{simple_and_query, JapaneseTokenizer},
+    tokenizer::{apply_user_dictionary, simple_and_query, JapaneseTokenizer},
 };
 use std::collections::HashMap;
 use log;
@@ -10,6 +10,7 @@ use log;
 ///
 /// `tag_filter` — comma-separated tag string to match (empty/none = no filter).
 /// `since_date` — ISO 8601 date string for minimum frontmatter date filter.
+#[allow(clippy::too_many_arguments)]
 #[allow(clippy::too_many_arguments)]
 pub fn search(
     db: &NoteDatabase,
@@ -22,6 +23,7 @@ pub fn search(
     vault_filter: Option<&str>,
     tag_filter: Option<&str>,
     since_date: Option<&str>,
+    user_dictionary: &[String],
 ) -> Result<Vec<ChunkSearchResult>, DbError> {
     if query.trim().is_empty() {
         return Ok(vec![]);
@@ -34,14 +36,14 @@ pub fn search(
     };
 
     match effective_mode {
-        SearchMode::Fts => search_fts(db, tokenizer, query, limit, min_score, vault_filter, tag_filter, since_date),
+        SearchMode::Fts => search_fts(db, tokenizer, query, limit, min_score, vault_filter, tag_filter, since_date, user_dictionary),
         SearchMode::Vec => {
             let emb = embedder.ok_or_else(|| DbError::Other("Vec mode requires embedder — model not loaded".into()))?;
             search_vec(db, emb, query, limit, min_score, vault_filter, tag_filter, since_date)
         }
         SearchMode::Hybrid => {
             let emb = embedder.ok_or_else(|| DbError::Other("Hybrid mode requires embedder — model not loaded".into()))?;
-            search_hybrid(db, tokenizer, emb, query, limit, min_score, vault_filter, tag_filter, since_date)
+            search_hybrid(db, tokenizer, emb, query, limit, min_score, vault_filter, tag_filter, since_date, user_dictionary)
         }
     }
 }
@@ -164,8 +166,14 @@ fn search_fts(
     vault_filter: Option<&str>,
     tag_filter: Option<&str>,
     since_date: Option<&str>,
+    user_dictionary: &[String],
 ) -> Result<Vec<ChunkSearchResult>, DbError> {
-    let fts5_query = tokenizer.and_query(query);
+    let tokens = tokenizer.collect_tokens(query);
+    let tokens = apply_user_dictionary(&tokens, user_dictionary);
+    let fts5_query = tokens.iter()
+        .map(|t| format!("\"{}\"", t.replace('"', "\"\"")))
+        .collect::<Vec<_>>()
+        .join(" AND ");
     let fts5_query = if fts5_query.is_empty() {
         simple_and_query(query)
     } else {
@@ -262,10 +270,11 @@ fn search_hybrid(
     vault_filter: Option<&str>,
     tag_filter: Option<&str>,
     since_date: Option<&str>,
+    user_dictionary: &[String],
 ) -> Result<Vec<ChunkSearchResult>, DbError> {
     const K: f64 = 60.0;
 
-    let fts_results = search_fts(db, tokenizer, query, limit * 2, None, vault_filter, None, None)?;
+    let fts_results = search_fts(db, tokenizer, query, limit * 2, None, vault_filter, None, None, user_dictionary)?;
     let vec_results = search_vec(db, embedder, query, limit * 2, None, vault_filter, None, None)?;
 
     let rrf_scores = compute_rrf(&fts_results, &vec_results, limit, K);
@@ -432,7 +441,7 @@ mod tests {
         }];
         db.insert_chunks(&chunks).unwrap();
 
-        let results = search(&db, &tokenizer, "search engine", 10, SearchMode::Fts, None, None, None, None, None).unwrap();
+        let results = search(&db, &tokenizer, "search engine", 10, SearchMode::Fts, None, None, None, None, None, &[]).unwrap();
         assert!(!results.is_empty());
         assert_eq!(results[0].file_path, "test.md");
         assert!(matches!(results[0].search_mode, SearchMode::Fts));
@@ -472,19 +481,19 @@ mod tests {
         db.insert_chunks(&chunks).unwrap();
 
         // Filter by "work" vault
-        let results = search(&db, &tokenizer, "alpha", 10, SearchMode::Fts, None, None, Some("work"), None, None).unwrap();
+        let results = search(&db, &tokenizer, "alpha", 10, SearchMode::Fts, None, None, Some("work"), None, None, &[]).unwrap();
         assert_eq!(results.len(), 1, "expected 1 result in work vault");
         assert_eq!(results[0].vault_name, "work");
         assert_eq!(results[0].file_path, "vault_a.md");
 
         // Filter by "personal" vault
-        let results = search(&db, &tokenizer, "alpha", 10, SearchMode::Fts, None, None, Some("personal"), None, None).unwrap();
+        let results = search(&db, &tokenizer, "alpha", 10, SearchMode::Fts, None, None, Some("personal"), None, None, &[]).unwrap();
         assert_eq!(results.len(), 1, "expected 1 result in personal vault");
         assert_eq!(results[0].vault_name, "personal");
         assert_eq!(results[0].file_path, "vault_b.md");
 
         // No filter → both
-        let results = search(&db, &tokenizer, "alpha", 10, SearchMode::Fts, None, None, None, None, None).unwrap();
+        let results = search(&db, &tokenizer, "alpha", 10, SearchMode::Fts, None, None, None, None, None, &[]).unwrap();
         assert_eq!(results.len(), 2, "expected 2 results across all vaults");
     }
 
@@ -492,7 +501,7 @@ mod tests {
     fn test_search_empty_query_returns_empty() {
         let db = NoteDatabase::open_in_memory().unwrap();
         let tokenizer = crate::require_tokenizer!(crate::tokenizer::TokenizerConfig::default());
-        let results = search(&db, &tokenizer, "  ", 10, SearchMode::Fts, None, None, None, None, None).unwrap();
+        let results = search(&db, &tokenizer, "  ", 10, SearchMode::Fts, None, None, None, None, None, &[]).unwrap();
         assert!(results.is_empty());
     }
 
@@ -515,7 +524,7 @@ mod tests {
         db.insert_chunks(&chunks).unwrap();
 
         // Hybrid with no embedder → falls back to FTS
-        let results = search(&db, &tokenizer, "hybrid fallback", 10, SearchMode::Hybrid, None, None, None, None, None).unwrap();
+        let results = search(&db, &tokenizer, "hybrid fallback", 10, SearchMode::Hybrid, None, None, None, None, None, &[]).unwrap();
         assert!(!results.is_empty());
         assert!(matches!(results[0].search_mode, SearchMode::Fts));
     }
@@ -640,7 +649,7 @@ mod tests {
             Ok(tok) => tok,
             Err(_) => return,
         };
-        let result = search(&db, &tokenizer, "test", 10, SearchMode::Vec, None, None, None, None, None);
+        let result = search(&db, &tokenizer, "test", 10, SearchMode::Vec, None, None, None, None, None, &[]);
         match result {
             Err(crate::db::DbError::Other(msg)) => {
                 assert!(msg.contains("embedder"), "error should mention embedder");
@@ -656,7 +665,7 @@ mod tests {
             Ok(tok) => tok,
             Err(_) => return,
         };
-        let result = search(&db, &tokenizer, "test", 10, SearchMode::Hybrid, None, None, None, None, None);
+        let result = search(&db, &tokenizer, "test", 10, SearchMode::Hybrid, None, None, None, None, None, &[]);
         assert!(result.is_ok(), "Hybrid without embedder should fall back to FTS, got error");
     }
 
@@ -667,7 +676,7 @@ mod tests {
             Ok(tok) => tok,
             Err(_) => return,
         };
-        let result = search(&db, &tokenizer, "test", 10, SearchMode::Fts, None, None, None, None, None);
+        let result = search(&db, &tokenizer, "test", 10, SearchMode::Fts, None, None, None, None, None, &[]);
         assert!(result.is_ok());
     }
 

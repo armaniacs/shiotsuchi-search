@@ -39,6 +39,12 @@ pub struct IndexingConfig {
     pub auto_exclude_hidden: bool,
     pub follow_links: bool,
     pub dynamic_threshold: usize,
+    /// User-defined dictionary entries for custom tokenization.
+    /// Entries are matched case-sensitively against the token stream.
+    /// Multi-word entries (e.g., "Amazon Web Services") and single-word
+    /// entries that Vaporetto would split (e.g., "ChatGPT") are supported.
+    #[serde(default)]
+    pub user_dictionary: Vec<String>,
 }
 
 impl Default for IndexingConfig {
@@ -49,6 +55,7 @@ impl Default for IndexingConfig {
             auto_exclude_hidden: true,
             follow_links: false,
             dynamic_threshold: 5,
+            user_dictionary: vec![],
         }
     }
 }

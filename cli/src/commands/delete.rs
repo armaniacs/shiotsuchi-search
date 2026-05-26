@@ -185,7 +185,7 @@ mod tests {
             Ok(t) => t,
             Err(_) => return, // skip when no model
         };
-        let chunks = split_into_chunks("# Deleted note\n\nContent.", &tok, "note.md", "default");
+        let chunks = split_into_chunks("# Deleted note\n\nContent.", &tok, "note.md", "default", &[]);
         db.insert_chunks(&chunks).unwrap();
         drop(db);
 

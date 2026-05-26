@@ -55,6 +55,7 @@ pub fn run_scan(
         auto_exclude_hidden: indexing_cfg.auto_exclude_hidden,
         follow_links: indexing_cfg.follow_links,
         dynamic_threshold: indexing_cfg.dynamic_threshold,
+        user_dictionary: indexing_cfg.user_dictionary.clone(),
     };
     let watcher = VaultWatcher::new(db, tokenizer, config, embedder);
     watcher.watch()

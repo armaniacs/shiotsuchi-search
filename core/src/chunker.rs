@@ -1,6 +1,6 @@
 use crate::frontmatter::extract_frontmatter;
 use crate::models::Chunk;
-use crate::tokenizer::JapaneseTokenizer;
+use crate::tokenizer::{apply_user_dictionary_str, JapaneseTokenizer};
 
 /// Maximum content length before attempting a paragraph-level split.
 /// Sections longer than this are split on blank-line boundaries.
@@ -19,6 +19,7 @@ pub fn split_into_chunks(
     tokenizer: &JapaneseTokenizer,
     file_path: &str,
     vault_name: &str,
+    user_dictionary: &[String],
 ) -> Vec<Chunk> {
     // 1. Extract and strip YAML frontmatter
     let (frontmatter, body) = extract_frontmatter(markdown);
@@ -63,7 +64,7 @@ pub fn split_into_chunks(
                     continue;
                 }
                 let idx = chunks.len() as i64;
-                let tokenized = tokenizer.split(para);
+                let tokenized = apply_user_dictionary_str(&tokenizer.split(para), user_dictionary);
                 chunks.push(Chunk {
                     id: None,
                     file_path: file_path.to_string(),
@@ -79,7 +80,7 @@ pub fn split_into_chunks(
             }
         } else {
             let idx = chunks.len() as i64;
-            let tokenized = tokenizer.split(trimmed);
+            let tokenized = apply_user_dictionary_str(&tokenizer.split(trimmed), user_dictionary);
             chunks.push(Chunk {
                 id: None,
                 file_path: file_path.to_string(),
@@ -97,7 +98,7 @@ pub fn split_into_chunks(
 
     // If the content had no splitting headers and no paragraphs, use whole doc
     if chunks.is_empty() {
-        let tokenized = tokenizer.split(markdown.trim());
+        let tokenized = apply_user_dictionary_str(&tokenizer.split(markdown.trim()), user_dictionary);
         chunks.push(Chunk {
             id: None,
             file_path: file_path.to_string(),
@@ -237,7 +238,7 @@ mod tests {
     fn test_split_on_h1() {
         let md = "# Section 1\n\nContent A.\n\n# Section 2\n\nContent B.";
         let tok = crate::require_tokenizer!(Default::default());
-        let chunks = split_into_chunks(md, &tok, "test.md", "default");
+        let chunks = split_into_chunks(md, &tok, "test.md", "default", &[]);
         assert_eq!(chunks.len(), 2);
         assert_eq!(chunks[0].parent_header.as_deref(), Some("Section 1"));
         assert_eq!(chunks[1].parent_header.as_deref(), Some("Section 2"));
@@ -247,7 +248,7 @@ mod tests {
     fn test_split_on_headers_h1_h2_h3() {
         let md = "# H1\n\nA\n\n## H2\n\nB\n\n### H3\n\nC";
         let tok = crate::require_tokenizer!(Default::default());
-        let chunks = split_into_chunks(md, &tok, "test.md", "default");
+        let chunks = split_into_chunks(md, &tok, "test.md", "default", &[]);
         assert_eq!(chunks.len(), 3);
         assert_eq!(chunks[0].parent_header.as_deref(), Some("H1"));
         assert_eq!(chunks[1].parent_header.as_deref(), Some("H1 > H2"));
@@ -258,7 +259,7 @@ mod tests {
     fn test_header_popping() {
         let md = "## B\n\nX\n\n# A\n\nY";
         let tok = crate::require_tokenizer!(Default::default());
-        let chunks = split_into_chunks(md, &tok, "test.md", "default");
+        let chunks = split_into_chunks(md, &tok, "test.md", "default", &[]);
         // First section under B (h2)
         assert_eq!(chunks[0].parent_header.as_deref(), Some("B"));
         // Then A (h1) should pop B
@@ -271,7 +272,7 @@ mod tests {
         // content is batched under the deepest non-empty header.
         let md = "# L1\n\n## L2\n\n### L3\n\nDeep content.\n\n## L2b\n\nShallow.";
         let tok = crate::require_tokenizer!(Default::default());
-        let chunks = split_into_chunks(md, &tok, "test.md", "default");
+        let chunks = split_into_chunks(md, &tok, "test.md", "default", &[]);
         // L1 and L2→L3 transitions produce empty sections → skipped
         // We get 2 chunks: one for L1 > L2 > L3, one for L1 > L2b
         assert_eq!(chunks.len(), 2, "expected 2, got {}", chunks.len());
@@ -286,7 +287,7 @@ mod tests {
         // Content that appears before any header is top-level (no parent)
         let md = "Preamble.\n\n# H1\n\nBody.\n\n## H2\n\nDetail.\n\n# H3\n\nFinal.";
         let tok = crate::require_tokenizer!(Default::default());
-        let chunks = split_into_chunks(md, &tok, "test.md", "default");
+        let chunks = split_into_chunks(md, &tok, "test.md", "default", &[]);
         // 3 chunks: preamble (no parent), H1→H2, and H3
         // Actually: preamble is before H1, but H1 immediately follows it as a header.
         // Header H1 creates a section. Then H2 creates another. Then H3 creates another.
@@ -307,7 +308,7 @@ mod tests {
         // ~1200 chars with blank-line gaps → should cross the 1000-char threshold
         let md = "# Big Section\n\n".to_owned() + &"A\n\n".repeat(400) + "\n\nEnd.";
         let tok = crate::require_tokenizer!(Default::default());
-        let chunks = split_into_chunks(&md, &tok, "test.md", "default");
+        let chunks = split_into_chunks(&md, &tok, "test.md", "default", &[]);
         assert!(chunks.len() > 1, "expected multiple chunks, got {}", chunks.len());
         for chunk in &chunks {
             assert_eq!(chunk.parent_header.as_deref(), Some("Big Section"));
@@ -318,7 +319,7 @@ mod tests {
     fn test_short_paragraphs_not_split() {
         let md = "# Small\n\nHello world.";
         let tok = crate::require_tokenizer!(Default::default());
-        let chunks = split_into_chunks(md, &tok, "test.md", "default");
+        let chunks = split_into_chunks(md, &tok, "test.md", "default", &[]);
         assert_eq!(chunks.len(), 1);
     }
 
@@ -328,7 +329,7 @@ mod tests {
     fn test_code_block_not_split() {
         let md = "# Code Demo\n\n```\n# This looks like a heading\n```\n\nTrailing text.";
         let tok = crate::require_tokenizer!(Default::default());
-        let chunks = split_into_chunks(md, &tok, "test.md", "default");
+        let chunks = split_into_chunks(md, &tok, "test.md", "default", &[]);
         assert_eq!(chunks.len(), 1);
         assert!(chunks[0].content.contains("# This looks like a heading"));
         assert!(chunks[0].content.contains("Trailing text"));
@@ -340,7 +341,7 @@ mod tests {
     fn test_no_headers_single_chunk() {
         let md = "Just text.\n\nNo headers.";
         let tok = crate::require_tokenizer!(Default::default());
-        let chunks = split_into_chunks(md, &tok, "test.md", "default");
+        let chunks = split_into_chunks(md, &tok, "test.md", "default", &[]);
         assert_eq!(chunks.len(), 1);
         assert!(chunks[0].parent_header.is_none());
     }
@@ -349,7 +350,7 @@ mod tests {
     fn test_h4_ignored_as_header() {
         let md = "# H1\n\nX\n\n#### H4\n\nY";
         let tok = crate::require_tokenizer!(Default::default());
-        let chunks = split_into_chunks(md, &tok, "test.md", "default");
+        let chunks = split_into_chunks(md, &tok, "test.md", "default", &[]);
         // H4 not a heading → everything under H1
         assert_eq!(chunks.len(), 1);
         assert_eq!(chunks[0].parent_header.as_deref(), Some("H1"));
@@ -359,7 +360,7 @@ mod tests {
     #[test]
     fn test_empty_content_returns_single_chunk() {
         let tok = crate::require_tokenizer!(Default::default());
-        let chunks = split_into_chunks("", &tok, "empty.md", "default");
+        let chunks = split_into_chunks("", &tok, "empty.md", "default", &[]);
         assert_eq!(chunks.len(), 1);
         assert!(chunks[0].content.is_empty());
     }
@@ -367,7 +368,7 @@ mod tests {
     #[test]
     fn test_whitespace_only_returns_single_chunk() {
         let tok = crate::require_tokenizer!(Default::default());
-        let chunks = split_into_chunks("   \n\n  ", &tok, "ws.md", "default");
+        let chunks = split_into_chunks("   \n\n  ", &tok, "ws.md", "default", &[]);
         assert_eq!(chunks.len(), 1);
         assert!(chunks[0].content.is_empty());
     }
@@ -376,7 +377,7 @@ mod tests {
     fn test_heading_without_space_not_treated_as_header() {
         let md = "#Not a heading\n\nContent.";
         let tok = crate::require_tokenizer!(Default::default());
-        let chunks = split_into_chunks(md, &tok, "test.md", "default");
+        let chunks = split_into_chunks(md, &tok, "test.md", "default", &[]);
         assert_eq!(chunks.len(), 1);
         assert!(chunks[0].content.contains("#Not"));
         assert!(chunks[0].parent_header.is_none());
@@ -386,7 +387,7 @@ mod tests {
     fn test_chunks_have_correct_indices() {
         let md = "# A\n\nX\n\n# B\n\nY\n\n# C\n\nZ";
         let tok = crate::require_tokenizer!(Default::default());
-        let chunks = split_into_chunks(md, &tok, "test.md", "default");
+        let chunks = split_into_chunks(md, &tok, "test.md", "default", &[]);
         for (i, chunk) in chunks.iter().enumerate() {
             assert_eq!(chunk.chunk_index, i as i64);
         }
@@ -412,7 +413,7 @@ mod tests {
             Err(_) => return,
         };
         let content = "---\ntitle: Test\n---";
-        let chunks = split_into_chunks(content, &tokenizer, "test.md", "default");
+        let chunks = split_into_chunks(content, &tokenizer, "test.md", "default", &[]);
         assert_eq!(chunks.len(), 1, "should still create 1 chunk");
         assert!(chunks[0].content.contains("title:"), "chunk should contain frontmatter key");
     }
@@ -424,7 +425,7 @@ mod tests {
             Err(_) => return,
         };
         let content = "---\ntitle: Test\n---\n\n# Actual content\n\nBody text here.";
-        let chunks = split_into_chunks(content, &tokenizer, "test.md", "default");
+        let chunks = split_into_chunks(content, &tokenizer, "test.md", "default", &[]);
         // The frontmatter block before the first heading creates a separate preamble chunk.
         // This is correct: the chunker treats --- separators as regular content.
         assert_eq!(chunks.len(), 2, "frontmatter + heading should create 2 chunks");
@@ -440,7 +441,7 @@ mod tests {
             Err(_) => return,
         };
         let content = "# Section 1\n\nContent.\n\n#### Subsection\n\nMore content.\n\n# Section 2\n\nFinal.";
-        let chunks = split_into_chunks(content, &tokenizer, "test.md", "default");
+        let chunks = split_into_chunks(content, &tokenizer, "test.md", "default", &[]);
         assert_eq!(chunks.len(), 2, "only h1 should split: h4 is not a split point");
     }
 
@@ -451,7 +452,7 @@ mod tests {
             Err(_) => return,
         };
         let content = "# Top\n\nIntro.\n\n### Sub A\n\nContent A.\n\n### Sub B\n\nContent B.";
-        let chunks = split_into_chunks(content, &tokenizer, "test.md", "default");
+        let chunks = split_into_chunks(content, &tokenizer, "test.md", "default", &[]);
         assert!(chunks.len() >= 2, "h3 headers should create multiple chunks");
     }
 
@@ -467,7 +468,7 @@ mod tests {
         let para = "This paragraph exceeds the byte threshold with repeated text that keeps going and going. ".repeat(15);
         let body = format!("{}{}{}", para, "\n\n", para);
         let content = format!("# Header\n\n{}", body);
-        let chunks = split_into_chunks(&content, &tokenizer, "test.md", "default");
+        let chunks = split_into_chunks(&content, &tokenizer, "test.md", "default", &[]);
         // With two paragraphs each > 1000 chars (under the same heading),
         // should get at least 2 chunks from Level 2 splitting.
         assert!(chunks.len() >= 2, "long content should split into multiple chunks, got {}", chunks.len());
@@ -622,7 +623,7 @@ mod tests {
         // or leave the chunker in an inconsistent state.
         let md = "# Header\n\nContent.\n\n```\nunclosed code block";
         let tok = crate::require_tokenizer!(Default::default());
-        let chunks = split_into_chunks(md, &tok, "test.md", "default");
+        let chunks = split_into_chunks(md, &tok, "test.md", "default", &[]);
         assert_eq!(chunks.len(), 1, "should produce one chunk for the whole doc");
         assert!(chunks[0].content.contains("unclosed code block"));
     }
@@ -631,7 +632,7 @@ mod tests {
     fn test_tilde_fence_unclosed_at_eof() {
         let md = "# Tilde Fence\n\nContent.\n\n~~~\ncode block never closed";
         let tok = crate::require_tokenizer!(Default::default());
-        let chunks = split_into_chunks(md, &tok, "test.md", "default");
+        let chunks = split_into_chunks(md, &tok, "test.md", "default", &[]);
         assert_eq!(chunks.len(), 1);
         assert!(chunks[0].content.contains("code block never closed"));
     }
@@ -641,7 +642,7 @@ mod tests {
         // Closing fence type different from opening fence should not close it
         let md = "# Nesting\n\n```\nopened with backticks\n~~~\nnot a real close\n```\n\nNow closed.";
         let tok = crate::require_tokenizer!(Default::default());
-        let chunks = split_into_chunks(md, &tok, "test.md", "default");
+        let chunks = split_into_chunks(md, &tok, "test.md", "default", &[]);
         // With correct fence tracking, the section after the fence should
         // be in the same chunk as the code block (since headers inside fences are not split).
         assert_eq!(chunks.len(), 1, "code block should not be split by inner ~~~");
