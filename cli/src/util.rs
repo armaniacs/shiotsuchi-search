@@ -5,6 +5,10 @@ use std::path::Path;
 /// Creates the parent if it doesn't exist. Safe to call on any platform:
 /// the operation is a no-op on non-Unix targets. Errors are logged via
 /// `log::warn!` but do not abort execution (best-effort security).
+///
+/// Currently only called from tests; kept for future use in new commands
+/// that create database directories.
+#[allow(dead_code)]
 pub fn secure_parent_dir(path: &Path) {
     if let Some(parent) = path.parent() {
         #[cfg(unix)]
