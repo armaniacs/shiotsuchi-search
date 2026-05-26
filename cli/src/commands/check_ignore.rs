@@ -1,5 +1,4 @@
 use clap::Args;
-use std::collections::HashSet;
 use std::path::PathBuf;
 
 /// Check whether a path would be excluded by exclude rules.

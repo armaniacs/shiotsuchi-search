@@ -77,7 +77,9 @@ pub const FORMAT_JSON_PRETTY_HELP: &str = "見やすい形式の JSON 配列";
 pub const CHART_ABOUT: &str = "ノートボールトをインデックスしてデータベースを構築する";
 
 pub const CHECK_IGNORE_ABOUT: &str = "パスが除外ルールにマッチするか確認する";
+#[allow(dead_code)]
 pub const CHECK_IGNORE_HELP: &str = "確認する相対パス（例: 'private/notes.md'）";
+#[allow(dead_code)]
 pub const CHECK_IGNORE_VAULT_HELP: &str = "確認対象のボールト（省略時は最初のボールト）";
 
 pub const CLEAN_ABOUT: &str = "データベースを削除して最初からインデックスを再構築する";

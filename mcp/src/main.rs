@@ -237,7 +237,7 @@ fn spawn_rebuild(
 
         // Run the indexer (no embedder = FTS-only)
         match shiotsuchi_core::indexer::index_directory(&db, &tokenizer, &config, None, progress) {
-            Ok((results, _invalid)) => {
+            Ok((results, _invalid, _excluded)) => {
                 let inserted = results
                     .iter()
                     .filter(|(_, _, r)| matches!(r, shiotsuchi_core::IndexResult::Inserted))

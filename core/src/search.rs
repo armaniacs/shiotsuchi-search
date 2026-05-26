@@ -1319,7 +1319,7 @@ mod tests {
 
     #[test]
     fn test_apply_filters_and_boost_fts_direction() {
-        let mut results = vec![ChunkSearchResult {
+        let results = vec![ChunkSearchResult {
             chunk_id: 1,
             file_path: "test.md".into(),
             parent_header: Some("Title".into()),
