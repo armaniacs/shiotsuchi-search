@@ -12,6 +12,7 @@ use shiotsuchi_core::{
 use std::path::{Path, PathBuf};
 
 #[derive(Args, Debug)]
+#[command(about = crate::messages::CHART_ABOUT)]
 pub struct ChartArgs {
     #[arg(long, hide = true, help = messages::CHART_FORCE_HELP)]
     pub force: bool,

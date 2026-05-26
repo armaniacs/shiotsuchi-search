@@ -47,8 +47,9 @@ impl From<CliSearchMode> for SearchMode {
 }
 
 #[derive(Args, Debug)]
+#[command(about = crate::messages::DIVE_ABOUT)]
 pub struct DiveArgs {
-    /// Search query string.
+    #[arg(help = "検索クエリ文字列")]
     pub query: String,
 
     #[arg(long, help = messages::DIVE_JSON_HELP)]

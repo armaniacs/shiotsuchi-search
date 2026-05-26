@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Args, Debug)]
+#[command(about = crate::messages::CLEAN_ABOUT)]
 pub struct CleanArgs {}
 
 /// Copy a single file to `<path>.bak.<timestamp>`.

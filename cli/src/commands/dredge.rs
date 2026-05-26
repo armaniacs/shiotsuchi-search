@@ -5,13 +5,12 @@ use shiotsuchi_core::{db::NoteDatabase, indexer::cleanup_deleted, models::IndexC
 use std::path::{Path, PathBuf};
 
 #[derive(Args, Debug)]
+#[command(about = crate::messages::DREDGE_ABOUT)]
 pub struct DredgeArgs {
-    /// Print what would be removed without making changes.
-    #[arg(long)]
+    #[arg(long, help = "実際には削除せず、削除対象を表示する")]
     pub dry_run: bool,
 
-    /// Run VACUUM after cleanup to reclaim disk space.
-    #[arg(long)]
+    #[arg(long, help = "クリーンアップ後に VACUUM を実行してディスク容量を解放する")]
     pub vacuum: bool,
 }
 

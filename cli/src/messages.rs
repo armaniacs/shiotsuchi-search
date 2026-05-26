@@ -66,6 +66,25 @@ pub const FORMAT_JSON_HELP: &str = "コンパクトな JSON 配列（1行）";
 pub const FORMAT_JSON_PRETTY_HELP: &str = "見やすい形式の JSON 配列";
 
 // ──────────────────────────────────────────────
+// サブコマンド about 文
+// ──────────────────────────────────────────────
+
+pub const CHART_ABOUT: &str = "ノートボールトをインデックスしてデータベースを構築する";
+pub const CLEAN_ABOUT: &str = "データベースを削除して最初からインデックスを再構築する";
+pub const CONFIG_ABOUT: &str = "インデックス設定を管理する";
+pub const CONFIG_MIGRATE_ABOUT: &str = "設定ファイルを古い形式から新しい形式に移行する";
+pub const DELETE_ABOUT: &str = "指定したノートファイルをインデックスから削除する";
+pub const DIVE_ABOUT: &str = "ノートボールトをキーワード・セマンティック・ハイブリッド検索で探索する";
+pub const DOCTOR_ABOUT: &str = "設定・データベース・ボールトの状態を診断する";
+pub const DREDGE_ABOUT: &str = "削除済みファイルの期限切れインデックスエントリを除去する";
+pub const INIT_ABOUT: &str = "設定ファイルを対話形式で初期化する";
+pub const LOG_ABOUT: &str = "インデックス済みのノートファイル一覧を表示する";
+pub const SCAN_ABOUT: &str = "ボールトを監視してファイル変更を自動的にインデックスする";
+pub const SETUP_ABOUT: &str = "セマンティック検索用の埋め込みモデルをセットアップする";
+pub const SUPPORT_ABOUT: &str = "ビルド情報・ランタイム情報を表示する";
+pub const TIDE_ABOUT: &str = "インデックスの統計情報（ファイル数・チャンク数・DB サイズ等）を表示する";
+
+// ──────────────────────────────────────────────
 // chart.rs — インデックス作成
 // ──────────────────────────────────────────────
 

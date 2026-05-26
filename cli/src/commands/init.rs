@@ -7,6 +7,7 @@ use dialoguer::{theme::ColorfulTheme, Confirm, MultiSelect};
 use std::path::{Path, PathBuf};
 
 #[derive(Args, Debug)]
+#[command(about = crate::messages::INIT_ABOUT)]
 pub struct InitArgs {
     #[arg(long, help = messages::INIT_FORCE_HELP)]
     pub force: bool,

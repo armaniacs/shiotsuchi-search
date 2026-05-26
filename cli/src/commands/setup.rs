@@ -8,6 +8,7 @@ use shiotsuchi_core::{
 use std::path::PathBuf;
 
 #[derive(Args, Debug)]
+#[command(about = crate::messages::SETUP_ABOUT)]
 pub struct SetupArgs {
     #[arg(long, help = messages::SETUP_CHECK_HELP)]
     pub check: bool,

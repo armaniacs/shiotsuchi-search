@@ -5,6 +5,7 @@ use clap::{Args, Subcommand};
 use std::path::PathBuf;
 
 #[derive(Args, Debug)]
+#[command(about = crate::messages::CONFIG_ABOUT)]
 pub struct ConfigArgs {
     #[command(subcommand)]
     pub command: ConfigCommands,
@@ -12,7 +13,7 @@ pub struct ConfigArgs {
 
 #[derive(Subcommand, Debug)]
 pub enum ConfigCommands {
-    /// Re-detect exclusion candidates in the vault.
+    /// ボールト内の除外候補を再検出する
     DetectNoise(DetectNoiseArgs),
 }
 

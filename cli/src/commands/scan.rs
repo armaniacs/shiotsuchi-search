@@ -14,6 +14,7 @@ use std::{
 };
 
 #[derive(Args, Debug)]
+#[command(about = crate::messages::SCAN_ABOUT)]
 pub struct ScanArgs {
     #[arg(long, hide = true, help = messages::SCAN_DEBOUNCE_HELP)]
     pub debounce: Option<u64>,

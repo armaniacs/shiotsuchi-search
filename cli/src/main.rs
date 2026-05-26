@@ -58,7 +58,7 @@ enum Commands {
     Clean(commands::clean::CleanArgs),
     Config(commands::config::ConfigArgs),
     ConfigMigrate(commands::config_migrate::ConfigMigrateArgs),
-    /// Generate shell completion scripts
+    /// シェル補完スクリプトを生成する
     #[command(hide = true)]
     Completion {
         shell: clap_complete::Shell,
@@ -69,13 +69,14 @@ enum Commands {
     Doctor(commands::doctor::DoctorArgs),
     Dredge(commands::dredge::DredgeArgs),
     Init(commands::init::InitArgs),
+    #[command(about = messages::LOG_ABOUT)]
     Log,
     Scan(commands::scan::ScanArgs),
     Setup(commands::setup::SetupArgs),
     #[command(subcommand, about = messages::SYNONYM_ABOUT)]
     Synonym(commands::synonym::SynonymCommand),
     Support(commands::support::SupportArgs),
-    /// Build and runtime information
+    #[command(about = messages::TIDE_ABOUT)]
     Tide,
 }
 

@@ -8,6 +8,7 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Args, Debug)]
+#[command(about = crate::messages::CONFIG_MIGRATE_ABOUT)]
 pub struct ConfigMigrateArgs {
     #[arg(long, help = messages::CONFIG_MIGRATE_HELP)]
     pub config: Option<PathBuf>,

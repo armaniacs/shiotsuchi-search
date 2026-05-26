@@ -6,6 +6,7 @@ use shiotsuchi_core::build_info::HAS_MODEL_EMBEDDED;
 use std::path::PathBuf;
 
 #[derive(Args, Debug)]
+#[command(about = crate::messages::SUPPORT_ABOUT)]
 pub struct SupportArgs {
     #[arg(long)]
     pub json: bool,

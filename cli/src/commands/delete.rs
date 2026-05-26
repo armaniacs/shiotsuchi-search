@@ -5,6 +5,7 @@ use shiotsuchi_core::db::NoteDatabase;
 use std::path::{Path, PathBuf};
 
 #[derive(Args, Debug)]
+#[command(about = crate::messages::DELETE_ABOUT)]
 pub struct DeleteArgs {
     #[arg(help = messages::DELETE_PATH_HELP)]
     pub path: String,

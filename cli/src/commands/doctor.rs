@@ -15,6 +15,7 @@ use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 
 #[derive(Args, Debug)]
+#[command(about = crate::messages::DOCTOR_ABOUT)]
 pub struct DoctorArgs {}
 
 // ---------------------------------------------------------------------------
