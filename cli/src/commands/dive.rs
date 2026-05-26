@@ -80,6 +80,12 @@ pub struct DiveArgs {
 
     #[arg(long, help = messages::DIVE_ALPHA_HELP)]
     pub alpha: Option<f64>,
+
+    #[arg(long, help = messages::DIVE_MMR_HELP)]
+    pub mmr: bool,
+
+    #[arg(long, default_value = "0.5", help = messages::DIVE_LAMBDA_HELP)]
+    pub lambda: f64,
 }
 
 impl DiveArgs {
@@ -101,6 +107,8 @@ pub fn run_dive(
     synonyms: &HashMap<String, Vec<String>>,
     fuzzy: bool,
     alpha: Option<f64>,
+    mmr: bool,
+    lambda: f64,
 ) -> Result<Vec<ChunkSearchResult>, Box<dyn std::error::Error>> {
     if args.query.trim().is_empty() {
         return Ok(vec![]);
@@ -158,6 +166,8 @@ pub fn run_dive(
         synonyms,
         fuzzy,
         alpha,
+        mmr,
+        lambda,
     )?;
     Ok(results)
 }
@@ -260,8 +270,10 @@ mod tests {
             since: None,
             fuzzy: false,
             alpha: None,
+            mmr: false,
+            lambda: 0.5,
         };
-        let output = run_dive(&args, &db_file, &[("default".to_string(), temp.path().to_path_buf())], &[], &HashMap::new(), false, None).unwrap();
+        let output = run_dive(&args, &db_file, &[("default".to_string(), temp.path().to_path_buf())], &[], &HashMap::new(), false, None, false, 0.5).unwrap();
         assert!(!output.is_empty());
         assert!(output[0].file_path.contains("note"));
     }
@@ -284,8 +296,10 @@ mod tests {
             since: None,
             fuzzy: false,
             alpha: None,
+            mmr: false,
+            lambda: 0.5,
         };
-        let output = run_dive(&args, &db_file, &vaults, &[], &HashMap::new(), false, None).unwrap();
+        let output = run_dive(&args, &db_file, &vaults, &[], &HashMap::new(), false, None, false, 0.5).unwrap();
         assert!(output.is_empty());
     }
 
@@ -303,6 +317,8 @@ mod tests {
             since: None,
             fuzzy: false,
             alpha: None,
+            mmr: false,
+            lambda: 0.5,
         };
         assert!(matches!(args.effective_format(), OutputFormat::Json));
     }
@@ -321,6 +337,8 @@ mod tests {
             since: None,
             fuzzy: false,
             alpha: None,
+            mmr: false,
+            lambda: 0.5,
         };
         assert!(matches!(args.effective_format(), OutputFormat::Table));
     }
@@ -339,6 +357,8 @@ mod tests {
             since: None,
             fuzzy: false,
             alpha: None,
+            mmr: false,
+            lambda: 0.5,
         };
         assert!(matches!(args.effective_format(), OutputFormat::JsonPretty));
     }
@@ -389,6 +409,8 @@ mod tests {
             since: None,
             fuzzy: false,
             alpha: None,
+            mmr: false,
+            lambda: 0.5,
         };
         assert!(matches!(args.effective_format(), OutputFormat::Json));
     }
@@ -428,8 +450,10 @@ mod tests {
             since: None,
             fuzzy: false,
             alpha: None,
+            mmr: false,
+            lambda: 0.5,
         };
-        let result = run_dive(&args, &db_file, &vaults, &[], &HashMap::new(), false, None);
+        let result = run_dive(&args, &db_file, &vaults, &[], &HashMap::new(), false, None, false, 0.5);
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(err.contains("hobby"));
@@ -470,9 +494,11 @@ mod tests {
             since: None,
             fuzzy: false,
             alpha: None,
+            mmr: false,
+            lambda: 0.5,
         };
         let vaults: Vec<(String, PathBuf)> = vec![];
-        let result = run_dive(&args, &db_file, &vaults, &[], &HashMap::new(), false, None);
+        let result = run_dive(&args, &db_file, &vaults, &[], &HashMap::new(), false, None, false, 0.5);
         assert!(result.is_err());
     }
 }

@@ -141,7 +141,7 @@ pub fn call_tool(
                     "content": [{"type": "text", "text": "Full-text search requires a tokenizer model. Run 'shiotsuchi setup' to configure one, or set SHIOTSUCHI_MODEL_PATH."}]
                 })),
             };
-            let results = search(&db, &tokenizer, &query, limit, mode, None, min_score, vault_filter, None, None, &[], &HashMap::new(), false, None)?;
+            let results = search(&db, &tokenizer, &query, limit, mode, None, min_score, vault_filter, None, None, &[], &HashMap::new(), false, None, false, 0.5)?;
 
             let markdown = format_results_markdown(&results, &query);
             Ok(json!({

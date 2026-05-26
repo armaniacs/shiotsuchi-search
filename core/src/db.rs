@@ -544,7 +544,10 @@ impl NoteDatabase {
         rows.collect::<SqliteResult<Vec<_>>>().map_err(DbError::Sqlite)
     }
 
-    /// Vector KNN search on vec_chunks. Returns (chunk_id, distance) pairs.
+    /// Vector KNN search on vec_chunks.
+    /// Returns (chunk_id, distance, embedding) triples.
+    /// The embedding is retrieved from the vec0 virtual table in the same query,
+    /// eliminating the need for a separate get_chunk_vectors() call for MMR.
     /// When `vault_filter` is Some(_), the search is restricted to that vault
     /// via a JOIN on the chunks table.
     pub fn vec_search(
@@ -552,12 +555,12 @@ impl NoteDatabase {
         embedding: &[f32],
         limit: usize,
         vault_filter: Option<&str>,
-    ) -> Result<Vec<(i64, f64)>, DbError> {
+    ) -> Result<Vec<(i64, f64, Vec<f32>)>, DbError> {
         let conn = self.write_conn.borrow();
         let blob: Vec<u8> = embedding.iter().flat_map(|f| f.to_le_bytes()).collect();
         let (sql, params): (String, Vec<Box<dyn rusqlite::ToSql>>) = if let Some(vault) = vault_filter {
             (
-                "SELECT v.chunk_id, v.distance
+                "SELECT v.chunk_id, v.distance, v.embedding
                  FROM vec_chunks v
                  JOIN chunks c ON c.id = v.chunk_id
                  WHERE v.embedding MATCH ?1 AND c.vault_name = ?2 AND k = ?3
@@ -570,7 +573,7 @@ impl NoteDatabase {
             )
         } else {
             (
-                "SELECT chunk_id, distance FROM vec_chunks
+                "SELECT chunk_id, distance, embedding FROM vec_chunks
                  WHERE embedding MATCH ?1 AND k = ?2
                  ORDER BY distance".to_string(),
                 vec![
@@ -582,7 +585,13 @@ impl NoteDatabase {
         let params_refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|p| p.as_ref()).collect();
         let mut stmt = conn.prepare(&sql)?;
         let rows = stmt.query_map(params_refs.as_slice(), |r| {
-            Ok((r.get::<_, i64>(0)?, r.get::<_, f64>(1)?))
+            let chunk_id: i64 = r.get(0)?;
+            let distance: f64 = r.get(1)?;
+            let emb_blob: Vec<u8> = r.get(2)?;
+            let emb_vec: Vec<f32> = emb_blob.chunks_exact(4)
+                .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+                .collect();
+            Ok((chunk_id, distance, emb_vec))
         })?;
         rows.collect::<SqliteResult<Vec<_>>>().map_err(DbError::Sqlite)
     }

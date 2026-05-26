@@ -10,8 +10,121 @@ use log;
 ///
 /// `tag_filter` — comma-separated tag string to match (empty/none = no filter).
 /// `since_date` — ISO 8601 date string for minimum frontmatter date filter.
-#[allow(clippy::too_many_arguments)]
-#[allow(clippy::too_many_arguments)]
+
+/// Cosine similarity between two f32 vectors.
+fn cosine_similarity(a: &[f32], b: &[f32]) -> f64 {
+    let dot: f32 = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum();
+    let norm_a: f32 = a.iter().map(|x| x * x).sum::<f32>().sqrt();
+    let norm_b: f32 = b.iter().map(|x| x * x).sum::<f32>().sqrt();
+    if norm_a == 0.0 || norm_b == 0.0 {
+        return 0.0;
+    }
+    (dot / (norm_a * norm_b)) as f64
+}
+
+/// MMR (Maximal Marginal Relevance) re-ranking.
+///
+/// Selects results iteratively: at each step, picks the candidate with the
+/// highest marginal relevance score:
+///
+///   MMR(d) = λ · Sim(d, query) − (1−λ) · max_{s∈S} Sim(d, s)
+///
+/// where S is the set of already-selected results.
+///
+/// λ = 1.0 → pure relevance (same as original order).
+/// λ = 0.0 → pure diversity (only dissimilar results).
+fn mmr_rerank(
+    candidates: Vec<ChunkSearchResult>,
+    query_vector: &[f32],
+    candidate_vectors: &HashMap<i64, Vec<f32>>,
+    lambda: f64,
+    limit: usize,
+) -> Vec<ChunkSearchResult> {
+    if candidates.len() <= 1 || query_vector.is_empty() {
+        return candidates;
+    }
+
+    let n = candidates.len();
+
+    // Guard against OOM from huge n×n similarity matrix allocation.
+    const MAX_MMR_CANDIDATES: usize = 10_000;
+    if n > MAX_MMR_CANDIDATES {
+        return candidates;
+    }
+
+    // Assign a stable index to each candidate (None = no vector available).
+    // Candidates without vectors get query_sim=0 and are never preferred.
+    let vecs: Vec<Option<&Vec<f32>>> = candidates
+        .iter()
+        .map(|r| candidate_vectors.get(&r.chunk_id))
+        .collect();
+
+    // Pre-compute query similarity for all candidates (O(n)).
+    let query_sims: Vec<f64> = vecs
+        .iter()
+        .map(|v| v.map(|vec| cosine_similarity(query_vector, vec)).unwrap_or(0.0))
+        .collect();
+
+    // Pre-compute the full n×n pairwise similarity matrix as a flat Vec<f32>.
+    // Only the upper triangle is computed; sim_matrix[i*n + j] mirrors [j*n + i].
+    // This eliminates redundant cosine_similarity calls during the selection loop.
+    let mut sim_matrix: Vec<f32> = vec![0.0f32; n * n];
+    for i in 0..n {
+        sim_matrix[i * n + i] = 1.0;
+        if let Some(vi) = vecs[i] {
+            for j in (i + 1)..n {
+                if let Some(vj) = vecs[j] {
+                    let s = cosine_similarity(vi, vj) as f32;
+                    sim_matrix[i * n + j] = s;
+                    sim_matrix[j * n + i] = s;
+                }
+            }
+        }
+    }
+
+    // Tracks which original indices have been selected, in selection order.
+    let mut selected_indices: Vec<usize> = Vec::with_capacity(limit.min(n));
+    // Remaining original indices not yet selected (shrinks each iteration).
+    let mut remaining: Vec<usize> = (0..n).collect();
+
+    while selected_indices.len() < limit && !remaining.is_empty() {
+        let mut best_pos = 0;
+        let mut best_score = f64::NEG_INFINITY;
+
+        for (pos, &orig_i) in remaining.iter().enumerate() {
+            let query_sim = query_sims[orig_i];
+            let diversity_penalty = if selected_indices.is_empty() {
+                0.0
+            } else {
+                selected_indices
+                    .iter()
+                    .map(|&sel_j| sim_matrix[orig_i * n + sel_j] as f64)
+                    .fold(0.0_f64, f64::max)
+            };
+
+            let mmr_score = lambda * query_sim - (1.0 - lambda) * diversity_penalty;
+            if mmr_score > best_score {
+                best_score = mmr_score;
+                best_pos = pos;
+            }
+        }
+
+        let chosen_orig = remaining.remove(best_pos);
+        selected_indices.push(chosen_orig);
+    }
+
+    // Reconstruct results in selection order from the original candidates vec.
+    let mut candidate_map: HashMap<usize, ChunkSearchResult> = candidates
+        .into_iter()
+        .enumerate()
+        .collect();
+
+    selected_indices
+        .into_iter()
+        .filter_map(|i| candidate_map.remove(&i))
+        .collect()
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn search(
     db: &NoteDatabase,
@@ -28,6 +141,8 @@ pub fn search(
     synonyms: &HashMap<String, Vec<String>>,
     fuzzy: bool,
     alpha: Option<f64>,
+    mmr: bool,
+    lambda: f64,
 ) -> Result<Vec<ChunkSearchResult>, DbError> {
     if query.trim().is_empty() {
         return Ok(vec![]);
@@ -39,17 +154,57 @@ pub fn search(
         mode
     };
 
-    match effective_mode {
-        SearchMode::Fts => search_fts(db, tokenizer, query, limit, min_score, vault_filter, tag_filter, since_date, user_dictionary, synonyms, fuzzy),
+    // When MMR is active, expand the candidate pool so the algorithm has
+    // diverse material to select from. FTS pool stays at limit*2 to avoid
+    // slow query expansion; only the vec side is widened.
+    const MMR_POOL_MULTIPLIER: usize = 3;
+    let vec_fetch_limit = if mmr && effective_mode != SearchMode::Fts {
+        limit * MMR_POOL_MULTIPLIER
+    } else {
+        limit
+    };
+
+    // Embed the query once and share it across vec search and MMR.
+    // This avoids running the ONNX model twice for Vec/Hybrid + MMR combinations.
+    // Propagate embedding errors so the user sees the real cause (e.g. model
+    // runtime failure) instead of a generic "model not loaded" message.
+    let precomputed_embedding = if effective_mode != SearchMode::Fts {
+        match embedder {
+            Some(e) => e.embed(query).map(Some).map_err(|err| DbError::Other(err.to_string())),
+            None => Ok(None),
+        }
+    } else {
+        Ok(None)
+    };
+    let precomputed_embedding: Option<Vec<f32>> = precomputed_embedding?;
+
+    // vec_emb_map carries the embeddings returned by vec_search for free,
+    // so MMR does not need a separate get_chunk_vectors() DB query.
+    let (mut results, vec_emb_map) = match effective_mode {
+        SearchMode::Fts => (search_fts(db, tokenizer, query, limit, min_score, vault_filter, tag_filter, since_date, user_dictionary, synonyms, fuzzy)?, HashMap::new()),
         SearchMode::Vec => {
-            let emb = embedder.ok_or_else(|| DbError::Other("Vec mode requires embedder — model not loaded".into()))?;
-            search_vec(db, emb, query, limit, min_score, vault_filter, tag_filter, since_date)
+            let emb_vec = precomputed_embedding.as_deref()
+                .ok_or_else(|| DbError::Other("Vec mode requires embedder — model not loaded".into()))?;
+            search_vec(db, emb_vec, query, vec_fetch_limit, min_score, vault_filter, tag_filter, since_date)?
         }
         SearchMode::Hybrid => {
-            let emb = embedder.ok_or_else(|| DbError::Other("Hybrid mode requires embedder — model not loaded".into()))?;
-            search_hybrid(db, tokenizer, emb, query, limit, min_score, vault_filter, tag_filter, since_date, user_dictionary, synonyms, fuzzy, alpha)
+            let emb_vec = precomputed_embedding.as_deref()
+                .ok_or_else(|| DbError::Other("Hybrid mode requires embedder — model not loaded".into()))?;
+            search_hybrid(db, tokenizer, emb_vec, query, limit, vec_fetch_limit, min_score, vault_filter, tag_filter, since_date, user_dictionary, synonyms, fuzzy, alpha)?
+        }
+    };
+
+    // MMR post-processing for Vec and Hybrid modes.
+    // Uses embeddings from vec_search (no extra DB round-trip needed).
+    if mmr && effective_mode != SearchMode::Fts {
+        if let Some(query_vec) = &precomputed_embedding {
+            if !vec_emb_map.is_empty() {
+                results = mmr_rerank(results, query_vec, &vec_emb_map, lambda.clamp(0.0, 1.0), limit);
+            }
         }
     }
+
+    Ok(results)
 }
 
 /// Check if a chunk's tags match the tag filter.
@@ -234,27 +389,31 @@ fn search_fts(
     Ok(apply_filters_and_boost(results, tag_filter, since_date, query))
 }
 
+/// Vec KNN search. Returns (results, embedding_map).
+/// The embedding_map can be reused by MMR re-ranking, avoiding a second DB query.
 fn search_vec(
     db: &NoteDatabase,
-    embedder: &crate::embedder::Embedder,
+    embedding: &[f32],
     query: &str,
     limit: usize,
     min_score: Option<f64>,
     vault_filter: Option<&str>,
     tag_filter: Option<&str>,
     since_date: Option<&str>,
-) -> Result<Vec<ChunkSearchResult>, DbError> {
-    let embedding = embedder
-        .embed(query)
-        .map_err(|e| DbError::Other(e.to_string()))?;
-
-    let hits = db.vec_search(&embedding, limit, vault_filter)?;
-    if hits.is_empty() {
-        return Ok(vec![]);
+) -> Result<(Vec<ChunkSearchResult>, HashMap<i64, Vec<f32>>), DbError> {
+    let raw_hits = db.vec_search(embedding, limit, vault_filter)?;
+    if raw_hits.is_empty() {
+        return Ok((vec![], HashMap::new()));
     }
 
+    let emb_map: HashMap<i64, Vec<f32>> = raw_hits
+        .iter()
+        .map(|(id, _, emb)| (*id, emb.clone()))
+        .collect();
+    let hits: Vec<(i64, f64)> = raw_hits.into_iter().map(|(id, dist, _)| (id, dist)).collect();
+
     let results = build_results(db, hits, SearchMode::Vec, min_score)?;
-    Ok(apply_filters_and_boost(results, tag_filter, since_date, query))
+    Ok((apply_filters_and_boost(results, tag_filter, since_date, query), emb_map))
 }
 
 /// Compute Reciprocal Rank Fusion scores from FTS and vec search results.
@@ -345,12 +504,14 @@ fn compute_rrf_weighted(
 
 /// Hybrid search using Reciprocal Rank Fusion (RRF) to merge FTS + vec results.
 /// RRF score = 1/(k + rank_fts) + 1/(k + rank_vec), higher = more relevant.
+/// Returns (results, embedding_map) where the embedding_map can be used by MMR.
 fn search_hybrid(
     db: &NoteDatabase,
     tokenizer: &JapaneseTokenizer,
-    embedder: &crate::embedder::Embedder,
+    embedding: &[f32],
     query: &str,
     limit: usize,
+    vec_fetch_limit: usize,
     min_score: Option<f64>,
     vault_filter: Option<&str>,
     tag_filter: Option<&str>,
@@ -359,11 +520,11 @@ fn search_hybrid(
     synonyms: &HashMap<String, Vec<String>>,
     fuzzy: bool,
     alpha: Option<f64>,
-) -> Result<Vec<ChunkSearchResult>, DbError> {
+) -> Result<(Vec<ChunkSearchResult>, HashMap<i64, Vec<f32>>), DbError> {
     const K: f64 = 60.0;
 
     let fts_results = search_fts(db, tokenizer, query, limit * 2, None, vault_filter, None, None, user_dictionary, synonyms, fuzzy)?;
-    let vec_results = search_vec(db, embedder, query, limit * 2, None, vault_filter, None, None)?;
+    let (vec_results, emb_map) = search_vec(db, embedding, query, vec_fetch_limit, None, vault_filter, None, None)?;
 
     let blended_scores = match alpha {
         Some(a) => compute_rrf_weighted(&fts_results, &vec_results, limit, K, a.clamp(0.0, 1.0)),
@@ -371,7 +532,7 @@ fn search_hybrid(
     };
 
     if blended_scores.is_empty() {
-        return Ok(vec![]);
+        return Ok((vec![], emb_map));
     }
 
     let ids: Vec<i64> = blended_scores.iter().map(|(id, _)| *id).collect();
@@ -419,7 +580,7 @@ fn search_hybrid(
         results.retain(|r| r.score >= ms);
     }
 
-    Ok(apply_filters_and_boost(results, tag_filter, since_date, query))
+    Ok((apply_filters_and_boost(results, tag_filter, since_date, query), emb_map))
 }
 
 /// Extract a snippet around the first query token match.
@@ -532,7 +693,7 @@ mod tests {
         }];
         db.insert_chunks(&chunks).unwrap();
 
-        let results = search(&db, &tokenizer, "search engine", 10, SearchMode::Fts, None, None, None, None, None, &[], &HashMap::new(), false, None).unwrap();
+        let results = search(&db, &tokenizer, "search engine", 10, SearchMode::Fts, None, None, None, None, None, &[], &HashMap::new(), false, None, false, 0.5).unwrap();
         assert!(!results.is_empty());
         assert_eq!(results[0].file_path, "test.md");
         assert!(matches!(results[0].search_mode, SearchMode::Fts));
@@ -572,19 +733,19 @@ mod tests {
         db.insert_chunks(&chunks).unwrap();
 
         // Filter by "work" vault
-        let results = search(&db, &tokenizer, "alpha", 10, SearchMode::Fts, None, None, Some("work"), None, None, &[], &HashMap::new(), false, None).unwrap();
+        let results = search(&db, &tokenizer, "alpha", 10, SearchMode::Fts, None, None, Some("work"), None, None, &[], &HashMap::new(), false, None, false, 0.5).unwrap();
         assert_eq!(results.len(), 1, "expected 1 result in work vault");
         assert_eq!(results[0].vault_name, "work");
         assert_eq!(results[0].file_path, "vault_a.md");
 
         // Filter by "personal" vault
-        let results = search(&db, &tokenizer, "alpha", 10, SearchMode::Fts, None, None, Some("personal"), None, None, &[], &HashMap::new(), false, None).unwrap();
+        let results = search(&db, &tokenizer, "alpha", 10, SearchMode::Fts, None, None, Some("personal"), None, None, &[], &HashMap::new(), false, None, false, 0.5).unwrap();
         assert_eq!(results.len(), 1, "expected 1 result in personal vault");
         assert_eq!(results[0].vault_name, "personal");
         assert_eq!(results[0].file_path, "vault_b.md");
 
         // No filter → both
-        let results = search(&db, &tokenizer, "alpha", 10, SearchMode::Fts, None, None, None, None, None, &[], &HashMap::new(), false, None).unwrap();
+        let results = search(&db, &tokenizer, "alpha", 10, SearchMode::Fts, None, None, None, None, None, &[], &HashMap::new(), false, None, false, 0.5).unwrap();
         assert_eq!(results.len(), 2, "expected 2 results across all vaults");
     }
 
@@ -592,7 +753,7 @@ mod tests {
     fn test_search_empty_query_returns_empty() {
         let db = NoteDatabase::open_in_memory().unwrap();
         let tokenizer = crate::require_tokenizer!(crate::tokenizer::TokenizerConfig::default());
-        let results = search(&db, &tokenizer, "  ", 10, SearchMode::Fts, None, None, None, None, None, &[], &HashMap::new(), false, None).unwrap();
+        let results = search(&db, &tokenizer, "  ", 10, SearchMode::Fts, None, None, None, None, None, &[], &HashMap::new(), false, None, false, 0.5).unwrap();
         assert!(results.is_empty());
     }
 
@@ -615,7 +776,7 @@ mod tests {
         db.insert_chunks(&chunks).unwrap();
 
         // Hybrid with no embedder → falls back to FTS
-        let results = search(&db, &tokenizer, "hybrid fallback", 10, SearchMode::Hybrid, None, None, None, None, None, &[], &HashMap::new(), false, None).unwrap();
+        let results = search(&db, &tokenizer, "hybrid fallback", 10, SearchMode::Hybrid, None, None, None, None, None, &[], &HashMap::new(), false, None, false, 0.5).unwrap();
         assert!(!results.is_empty());
         assert!(matches!(results[0].search_mode, SearchMode::Fts));
     }
@@ -809,6 +970,144 @@ mod tests {
         assert_eq!(result.len(), 2, "should return FTS results even without vec results");
     }
 
+    // ── MMR diversity re-ranking ────────────────────────────────
+
+    #[test]
+    fn test_cosine_similarity_identical_returns_1() {
+        let v = vec![1.0, 0.0, 0.0];
+        assert!((cosine_similarity(&v, &v) - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_cosine_similarity_orthogonal_returns_0() {
+        let a = vec![1.0, 0.0];
+        let b = vec![0.0, 1.0];
+        assert!((cosine_similarity(&a, &b) - 0.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_cosine_similarity_zero_vector_returns_0() {
+        let a = vec![0.0, 0.0];
+        let b = vec![1.0, 0.0];
+        assert!((cosine_similarity(&a, &b) - 0.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_mmr_rerank_lambda_1_is_pure_relevance() {
+        let make = |id: i64| -> ChunkSearchResult {
+            ChunkSearchResult {
+                chunk_id: id,
+                file_path: format!("{}.md", id),
+                parent_header: None,
+                content: String::new(),
+                score: 0.0,
+                search_mode: SearchMode::Vec,
+                vault_name: String::new(),
+                tags: String::new(),
+                frontmatter_date: String::new(),
+                title: String::new(),
+            }
+        };
+        let candidates = vec![make(1), make(2), make(3)];
+        let query_vec = vec![1.0, 0.0];
+        let mut vectors = HashMap::new();
+        vectors.insert(1, vec![1.0, 0.0]); // most relevant (cos=1)
+        vectors.insert(2, vec![0.5, 0.5]); // medium
+        vectors.insert(3, vec![0.0, 1.0]); // least relevant (cos=0)
+
+        let result = mmr_rerank(candidates, &query_vec, &vectors, 1.0, 3);
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[0].chunk_id, 1, "lambda=1.0: most relevant should be first");
+        assert_eq!(result[2].chunk_id, 3, "lambda=1.0: least relevant should be last");
+    }
+
+    #[test]
+    fn test_mmr_rerank_lambda_0_promotes_diversity() {
+        let make = |id: i64| -> ChunkSearchResult {
+            ChunkSearchResult {
+                chunk_id: id,
+                file_path: format!("{}.md", id),
+                parent_header: None,
+                content: String::new(),
+                score: 0.0,
+                search_mode: SearchMode::Vec,
+                vault_name: String::new(),
+                tags: String::new(),
+                frontmatter_date: String::new(),
+                title: String::new(),
+            }
+        };
+        // Chunks 1 and 2 are very similar to each other, chunk 3 is very different
+        let candidates = vec![make(1), make(2), make(3)];
+        let query_vec = vec![1.0, 0.0];
+        let mut vectors = HashMap::new();
+        vectors.insert(1, vec![1.0, 0.0]); // very relevant, but redundant with 2
+        vectors.insert(2, vec![0.99, 0.01]); // very similar to 1
+        vectors.insert(3, vec![0.0, 1.0]); // less relevant but very diverse
+
+        let result = mmr_rerank(candidates, &query_vec, &vectors, 0.0, 3);
+        assert_eq!(result.len(), 3);
+        // With lambda=0, diversity dominates: the first picks chunk 1 (highest query sim
+        // is used as tiebreaker when no selected set yet), then chunk 3 (diverse from 1),
+        // then chunk 2 (diverse from 1 and 3).
+        assert_eq!(result[1].chunk_id, 3, "lambda=0.0: diverse chunk 3 should appear before similar chunk 2");
+    }
+
+    #[test]
+    fn test_mmr_rerank_respects_limit() {
+        let make = |id: i64| -> ChunkSearchResult {
+            ChunkSearchResult {
+                chunk_id: id,
+                file_path: format!("{}.md", id),
+                parent_header: None,
+                content: String::new(),
+                score: 0.0,
+                search_mode: SearchMode::Vec,
+                vault_name: String::new(),
+                tags: String::new(),
+                frontmatter_date: String::new(),
+                title: String::new(),
+            }
+        };
+        let candidates = vec![make(1), make(2), make(3)];
+        let query_vec = vec![1.0, 0.0];
+        let mut vectors = HashMap::new();
+        vectors.insert(1, vec![1.0, 0.0]);
+        vectors.insert(2, vec![0.5, 0.5]);
+        vectors.insert(3, vec![0.0, 1.0]);
+
+        let result = mmr_rerank(candidates, &query_vec, &vectors, 0.5, 1);
+        assert_eq!(result.len(), 1);
+    }
+
+    #[test]
+    fn test_mmr_rerank_insufficient_vectors_falls_back_to_order() {
+        let make = |id: i64| -> ChunkSearchResult {
+            ChunkSearchResult {
+                chunk_id: id,
+                file_path: format!("{}.md", id),
+                parent_header: None,
+                content: String::new(),
+                score: 0.0,
+                search_mode: SearchMode::Vec,
+                vault_name: String::new(),
+                tags: String::new(),
+                frontmatter_date: String::new(),
+                title: String::new(),
+            }
+        };
+        let candidates = vec![make(1), make(2), make(3)];
+        let query_vec = vec![1.0, 0.0];
+        let vectors = HashMap::new(); // no vectors available
+
+        let result = mmr_rerank(candidates, &query_vec, &vectors, 0.5, 3);
+        assert_eq!(result.len(), 3);
+        // Without vectors, should return original order
+        assert_eq!(result[0].chunk_id, 1);
+        assert_eq!(result[1].chunk_id, 2);
+        assert_eq!(result[2].chunk_id, 3);
+    }
+
     #[test]
     fn test_search_vec_mode_without_embedder_returns_error() {
         let db = crate::db::NoteDatabase::open_in_memory().unwrap();
@@ -816,7 +1115,7 @@ mod tests {
             Ok(tok) => tok,
             Err(_) => return,
         };
-        let result = search(&db, &tokenizer, "test", 10, SearchMode::Vec, None, None, None, None, None, &[], &HashMap::new(), false, None);
+        let result = search(&db, &tokenizer, "test", 10, SearchMode::Vec, None, None, None, None, None, &[], &HashMap::new(), false, None, false, 0.5);
         match result {
             Err(crate::db::DbError::Other(msg)) => {
                 assert!(msg.contains("embedder"), "error should mention embedder");
@@ -832,7 +1131,7 @@ mod tests {
             Ok(tok) => tok,
             Err(_) => return,
         };
-        let result = search(&db, &tokenizer, "test", 10, SearchMode::Hybrid, None, None, None, None, None, &[], &HashMap::new(), false, None);
+        let result = search(&db, &tokenizer, "test", 10, SearchMode::Hybrid, None, None, None, None, None, &[], &HashMap::new(), false, None, false, 0.5);
         assert!(result.is_ok(), "Hybrid without embedder should fall back to FTS, got error");
     }
 
@@ -843,7 +1142,7 @@ mod tests {
             Ok(tok) => tok,
             Err(_) => return,
         };
-        let result = search(&db, &tokenizer, "test", 10, SearchMode::Fts, None, None, None, None, None, &[], &HashMap::new(), false, None);
+        let result = search(&db, &tokenizer, "test", 10, SearchMode::Fts, None, None, None, None, None, &[], &HashMap::new(), false, None, false, 0.5);
         assert!(result.is_ok());
     }
 
@@ -875,11 +1174,11 @@ mod tests {
         db.insert_chunks(&chunks).unwrap();
 
         // fuzzy=false with uppercase query → no match (case-sensitive FTS5)
-        let results = search(&db, &tokenizer, "HELLO", 10, SearchMode::Fts, None, None, None, None, None, &[], &HashMap::new(), false, None).unwrap();
+        let results = search(&db, &tokenizer, "HELLO", 10, SearchMode::Fts, None, None, None, None, None, &[], &HashMap::new(), false, None, false, 0.5).unwrap();
         assert!(results.is_empty(), "non-fuzzy search should not match uppercase 'HELLO' against 'hello'");
 
         // fuzzy=true → query is normalized to lowercase → matches
-        let results = search(&db, &tokenizer, "HELLO", 10, SearchMode::Fts, None, None, None, None, None, &[], &HashMap::new(), true, None).unwrap();
+        let results = search(&db, &tokenizer, "HELLO", 10, SearchMode::Fts, None, None, None, None, None, &[], &HashMap::new(), true, None, false, 0.5).unwrap();
         assert!(!results.is_empty(), "fuzzy search should match 'HELLO' against 'hello'");
         assert_eq!(results[0].file_path, "test.md");
     }
@@ -910,7 +1209,7 @@ mod tests {
         db.insert_chunks(&chunks).unwrap();
 
         // fuzzy=true with fullwidth query → normalized to "apple" → matches
-        let results = search(&db, &tokenizer, "ａｐｐｌｅ", 10, SearchMode::Fts, None, None, None, None, None, &[], &HashMap::new(), true, None).unwrap();
+        let results = search(&db, &tokenizer, "ａｐｐｌｅ", 10, SearchMode::Fts, None, None, None, None, None, &[], &HashMap::new(), true, None, false, 0.5).unwrap();
         assert!(!results.is_empty(), "fuzzy search should match fullwidth 'ａｐｐｌｅ' against 'apple'");
     }
 
@@ -940,11 +1239,11 @@ mod tests {
         db.insert_chunks(&chunks).unwrap();
 
         // fuzzy=false with exact case → matches
-        let results = search(&db, &tokenizer, "Hello", 10, SearchMode::Fts, None, None, None, None, None, &[], &HashMap::new(), false, None).unwrap();
+        let results = search(&db, &tokenizer, "Hello", 10, SearchMode::Fts, None, None, None, None, None, &[], &HashMap::new(), false, None, false, 0.5).unwrap();
         assert!(!results.is_empty(), "non-fuzzy should match exact case 'Hello'");
 
         // fuzzy=false with different case → no match
-        let results = search(&db, &tokenizer, "hello", 10, SearchMode::Fts, None, None, None, None, None, &[], &HashMap::new(), false, None).unwrap();
+        let results = search(&db, &tokenizer, "hello", 10, SearchMode::Fts, None, None, None, None, None, &[], &HashMap::new(), false, None, false, 0.5).unwrap();
         assert!(results.is_empty(), "non-fuzzy should not match different case 'hello' against 'Hello'");
     }
 
