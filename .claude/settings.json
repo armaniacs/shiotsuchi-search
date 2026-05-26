@@ -17,7 +17,11 @@
       "Bash(cargo search *)",
       "Skill(writing-plans)",
       "Skill(writing-plans:*)",
-      "Bash(cargo tree *)"
+      "Bash(cargo tree *)",
+      "Bash(find ~/.cargo/registry/src -path \"*/sqlite-vec*\" -name \"*.rs\" 2>/dev/null | head -5; find ~/.cargo/registry/src -path \"*/sqlite-vec*\" -name \"*.c\" 2>/dev/null | head -5)",
+      "Read(//Users/yaar/.cargo/registry/src/**)",
+      "Bash(grep -v \"^.*//.*$\")",
+      "Bash(./target/debug/shiotsuchi --help)"
     ],
     "additionalDirectories": [
       "/Users/yaar/.agents/skills/checking-team",
