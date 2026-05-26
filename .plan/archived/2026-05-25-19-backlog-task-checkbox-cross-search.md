@@ -11,7 +11,7 @@
 
 ```gherkin
 Scenario: 全ノートの未完了タスクを一覧表示する
-  Given Vault 内に未完了チェックボックス `- [ ]` が散在している
+  Given Vault 内に未完了チェックボックス `- [x]` が散在している
   When ユーザーが `shiotsuchi tasks` を実行する
   Then 全ノートの未完了タスクの一覧（ノート名・タスク内容）が表示される
 
@@ -25,9 +25,9 @@ Scenario: 完了済みタスクも含めて表示する
 ```
 
 ## 受け入れ基準
-- [ ] `shiotsuchi tasks` サブコマンドを追加する
-- [ ] `- [ ]` と `- [x]` を解析してインデックス化する
-- [ ] キーワード絞り込みと `--all` フラグに対応する
+- [x] `shiotsuchi tasks` サブコマンドを追加する
+- [x] `- [x]` と `- [x]` を解析してインデックス化する
+- [x] キーワード絞り込みと `--all` フラグに対応する
 
 ## 見積もり
 5 ポイント
@@ -53,13 +53,13 @@ Scenario: 完了済みタスクも含めて表示する
        pub file_path: String,
        pub line_number: usize,
        pub completed: bool,
-       pub content: String,  // "- [ ] タスクの内容"
+       pub content: String,  // "- [x] タスクの内容"
    }
    
    fn extract_tasks(content: &str, file_path: &str) -> Vec<TaskItem> {
        content.lines().enumerate()
            .filter_map(|(i, line)| {
-               if line.trim_start().starts_with("- [ ] ") {
+               if line.trim_start().starts_with("- [x] ") {
                    Some(TaskItem { completed: false, ... })
                } else if line.trim_start().starts_with("- [x] ") {
                    Some(TaskItem { completed: true, ... })
@@ -86,9 +86,9 @@ Scenario: 完了済みタスクも含めて表示する
 ### 落とし穴
 
 - `- [X]`（大文字 X）も完了扱いにする（Obsidian は両方を完了として扱う）。
-- タスクの `content` は `- [ ] ` プレフィックスを除いた本文のみ格納する（表示時に再付与する）。
+- タスクの `content` は `- [x] ` プレフィックスを除いた本文のみ格納する（表示時に再付与する）。
 - `chart` コマンド実行時に tasks テーブルも更新する必要がある。既存の indexer フローに組み込むこと。
 
 ## Definition of Done
-- [ ] タスク検索のテストがパスする
-- [ ] コードレビュー完了
+- [x] タスク検索のテストがパスする
+- [x] コードレビュー完了

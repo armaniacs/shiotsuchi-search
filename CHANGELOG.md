@@ -21,6 +21,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   them as literal characters. Patterns like `draft_*` match directories starting
   with `draft_`, and path patterns containing `/` are matched against the full
   relative path. Backward-compatible for existing literal directory name patterns.
+- **`shiotsuchi tasks` command**: New subcommand for cross-vault task checkbox
+  search. Scans all indexed notes for `- [ ]` (incomplete) and `- [x]` (completed)
+  tasks with optional keyword filtering and `--all` flag for completed tasks.
+- **Code/math block whitespace tokenization**: Code blocks (```` ``` ````) and
+  math blocks (`$$...$$`) are now tokenized with whitespace splitting instead of
+  Vaporetto, improving search accuracy for function names and identifiers.
+- **Emphasized text score boost**: `==highlight==` and `**bold**` text is now
+  detected during indexing and stored separately. Search results whose emphasized
+  text matches the query receive a 0.5x score boost (higher relevance).
+- **MCP metadata enrichment**: `search_notes` response now includes `tags`,
+  `frontmatter_date`, and `title` fields from each chunk's frontmatter.
+- **CLI syntax highlighting**: Matched search terms in table-format snippets are
+  highlighted in bold red ANSI color. Respects `NO_COLOR` environment variable.
+- **Multilingual whitespace fallback**: Vaporetto tokens containing ASCII text
+  are post-processed with camelCase/underscore/digit-boundary splitting, improving
+  English technical term search accuracy.
+- **Extended `tide` stats**: Now displays top 10 tags by frequency, total
+  character count across all indexed notes, and supports `--json` output format.
 
 ## [0.4.9] - 2026-05-26
 

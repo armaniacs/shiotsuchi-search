@@ -233,7 +233,8 @@ fn date_matches(date: &str, since: &str) -> bool {
     date.is_empty() || date >= since
 }
 
-/// Apply tag and date filters to a list of results, then apply title score boost.
+/// Apply tag and date filters to a list of results, then apply title and
+/// emphasized_text score boosts.
 fn apply_filters_and_boost(
     mut results: Vec<ChunkSearchResult>,
     tag_filter: Option<&str>,
@@ -247,16 +248,30 @@ fn apply_filters_and_boost(
         tag_matches(&r.tags, tag_f) && date_matches(&r.frontmatter_date, since_d)
     });
 
-    // Title score boost: if a chunk's title matches the query, reduce its
-    // score (lower = more relevant in FTS5 BM25).
     if !query.is_empty() {
         let query_lower = query.to_lowercase();
         let query_tokens: Vec<&str> = query_lower.split_whitespace().collect();
+
+        // Title score boost: if a chunk's title contains a query token,
+        // reduce its score (lower = more relevant in FTS5 BM25).
         for r in &mut results {
             if !r.title.is_empty() {
                 let title_lower = r.title.to_lowercase();
                 if query_tokens.iter().any(|t| title_lower.contains(t)) {
-                    r.score *= 0.3; // significant boost
+                    r.score *= 0.3;
+                }
+            }
+        }
+
+        // Emphasized text score boost: if a chunk's emphasized_text contains
+        // a query token, reduce its score (lower = better in FTS/Vec; for Hybrid
+        // where higher RRF = better, this multiplication is consistent with the
+        // existing title boost behavior).
+        for r in &mut results {
+            if !r.emphasized_text.is_empty() {
+                let emph_lower = r.emphasized_text.to_lowercase();
+                if query_tokens.iter().any(|t| emph_lower.contains(t)) {
+                    r.score *= 0.5;
                 }
             }
         }
@@ -302,6 +317,7 @@ fn build_results(
                 tags: c.tags,
                 frontmatter_date: c.frontmatter_date,
                 title: c.title,
+                emphasized_text: c.emphasized_text,
             })
         })
         .collect();
@@ -569,6 +585,7 @@ fn search_hybrid(
                     tags: c.tags,
                     frontmatter_date: c.frontmatter_date,
                     title: c.title,
+                    emphasized_text: c.emphasized_text,
                 }
             })
         })
@@ -690,6 +707,7 @@ mod tests {
             tags: String::new(),
             frontmatter_date: String::new(),
             title: String::new(),
+            emphasized_text: String::new(),
         }];
         db.insert_chunks(&chunks).unwrap();
 
@@ -716,6 +734,7 @@ mod tests {
                 tags: String::new(),
                 frontmatter_date: String::new(),
                 title: String::new(),
+                emphasized_text: String::new(),
             },
             Chunk {
                 id: None,
@@ -728,6 +747,7 @@ mod tests {
                 tags: String::new(),
                 frontmatter_date: String::new(),
                 title: String::new(),
+                emphasized_text: String::new(),
             },
         ];
         db.insert_chunks(&chunks).unwrap();
@@ -772,6 +792,7 @@ mod tests {
             tags: String::new(),
             frontmatter_date: String::new(),
             title: String::new(),
+            emphasized_text: String::new(),
         }];
         db.insert_chunks(&chunks).unwrap();
 
@@ -795,6 +816,7 @@ mod tests {
                 tags: String::new(),
                 frontmatter_date: String::new(),
                 title: String::new(),
+                emphasized_text: String::new(),
             }
         };
 
@@ -825,6 +847,7 @@ mod tests {
                 tags: String::new(),
                 frontmatter_date: String::new(),
                 title: String::new(),
+                emphasized_text: String::new(),
             }
         };
 
@@ -856,6 +879,7 @@ mod tests {
                 tags: String::new(),
                 frontmatter_date: String::new(),
                 title: String::new(),
+                emphasized_text: String::new(),
             }
         };
 
@@ -886,6 +910,7 @@ mod tests {
             tags: String::new(),
             frontmatter_date: String::new(),
             title: String::new(),
+            emphasized_text: String::new(),
         }
     }
 
@@ -962,6 +987,7 @@ mod tests {
                 tags: String::new(),
                 frontmatter_date: String::new(),
                 title: String::new(),
+                emphasized_text: String::new(),
             }
         };
 
@@ -1006,6 +1032,7 @@ mod tests {
                 tags: String::new(),
                 frontmatter_date: String::new(),
                 title: String::new(),
+                emphasized_text: String::new(),
             }
         };
         let candidates = vec![make(1), make(2), make(3)];
@@ -1035,6 +1062,7 @@ mod tests {
                 tags: String::new(),
                 frontmatter_date: String::new(),
                 title: String::new(),
+                emphasized_text: String::new(),
             }
         };
         // Chunks 1 and 2 are very similar to each other, chunk 3 is very different
@@ -1067,6 +1095,7 @@ mod tests {
                 tags: String::new(),
                 frontmatter_date: String::new(),
                 title: String::new(),
+                emphasized_text: String::new(),
             }
         };
         let candidates = vec![make(1), make(2), make(3)];
@@ -1094,6 +1123,7 @@ mod tests {
                 tags: String::new(),
                 frontmatter_date: String::new(),
                 title: String::new(),
+                emphasized_text: String::new(),
             }
         };
         let candidates = vec![make(1), make(2), make(3)];
@@ -1195,6 +1225,7 @@ mod tests {
                 tags: String::new(),
                 frontmatter_date: String::new(),
                 title: String::new(),
+                emphasized_text: String::new(),
             },
         ];
         db.insert_chunks(&chunks).unwrap();
@@ -1230,6 +1261,7 @@ mod tests {
                 tags: String::new(),
                 frontmatter_date: String::new(),
                 title: String::new(),
+                emphasized_text: String::new(),
             },
         ];
         db.insert_chunks(&chunks).unwrap();
@@ -1260,6 +1292,7 @@ mod tests {
                 tags: String::new(),
                 frontmatter_date: String::new(),
                 title: String::new(),
+                emphasized_text: String::new(),
             },
         ];
         db.insert_chunks(&chunks).unwrap();

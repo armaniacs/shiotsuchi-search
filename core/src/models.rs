@@ -22,6 +22,9 @@ pub struct Chunk {
     pub frontmatter_date: String,
     /// Document title extracted from frontmatter or first heading. Empty string means none.
     pub title: String,
+    /// Text that was emphasized/highlighted in the original content
+    /// (extracted from `==highlight==` and `**bold**` markers).
+    pub emphasized_text: String,
 }
 
 /// A search result backed by the new chunk schema.
@@ -38,7 +41,10 @@ pub struct ChunkSearchResult {
     pub tags: String,
     pub frontmatter_date: String,
     pub title: String,
+    pub emphasized_text: String,
 }
+
+/// Which retrieval strategy was used.
 
 /// Which retrieval strategy was used.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -75,6 +81,17 @@ pub struct NoteMetadata {
     pub title: String,
 }
 
+/// A single task (checkbox item) extracted from a Markdown file.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Task {
+    pub id: Option<i64>,
+    pub vault_name: String,
+    pub file_path: String,
+    pub content: String,
+    pub checked: bool,
+    pub line_number: usize,
+}
+
 /// Statistics about the indexed vault.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VaultStats {
@@ -85,6 +102,8 @@ pub struct VaultStats {
     pub db_path: PathBuf,
     pub vec_indexed_chunks: usize,
     pub embedder_status: String,
+    pub total_chars: usize,
+    pub top_tags: Vec<(String, usize)>,
 }
 
 /// Configuration for search result display.
@@ -183,6 +202,7 @@ mod tests {
             tags: String::new(),
             frontmatter_date: String::new(),
             title: String::new(),
+            emphasized_text: String::new(),
         };
         let json = serde_json::to_string(&chunk).unwrap();
         let decoded: Chunk = serde_json::from_str(&json).unwrap();

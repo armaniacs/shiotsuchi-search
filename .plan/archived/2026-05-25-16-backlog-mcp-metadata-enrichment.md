@@ -22,8 +22,8 @@ Scenario: AI がメタデータを使って最新情報を優先できる
 ```
 
 ## 受け入れ基準
-- [ ] `search_notes` レスポンスの各アイテムに `created_at`・`updated_at`・`tags`・`backlink_count` が含まれる
-- [ ] メタデータは `notes_meta` テーブルから取得する
+- [x] `search_notes` レスポンスの各アイテムに `created_at`・`updated_at`・`tags`・`backlink_count` が含まれる
+- [x] メタデータは `notes_meta` テーブルから取得する
 
 ## 見積もり
 2 ポイント
@@ -67,5 +67,5 @@ grep -n "SearchResult\|json!\|to_json\|mtime\|created_at" mcp/src/handler.rs | h
 - tags は PBI-04（Frontmatter フィルタリング）が完了していない場合は空配列を返すフォールバックを実装する。
 
 ## Definition of Done
-- [ ] メタデータ付与のテストがパスする
-- [ ] コードレビュー完了
+- [x] メタデータ付与のテストがパスする
+- [x] コードレビュー完了

@@ -2,7 +2,7 @@ use crate::{
     chunker::split_into_chunks,
     db::{DbError, NoteDatabase},
     embedder::Embedder,
-    models::IndexConfig,
+    models::{IndexConfig, Task},
     tokenizer::JapaneseTokenizer,
 };
 use globset::{Glob, GlobSet, GlobSetBuilder};
@@ -278,7 +278,11 @@ pub fn index_file_with_embedder(
         Err(e) => return IndexResult::Error(e.to_string()),
     };
 
-    let chunks = split_into_chunks(&content, tokenizer, relative_path, vault_name, &_config.user_dictionary);
+    let mut chunks = split_into_chunks(&content, tokenizer, relative_path, vault_name, &_config.user_dictionary);
+
+    for chunk in &mut chunks {
+        chunk.emphasized_text = extract_emphasized(&chunk.content);
+    }
 
     let embeddings: Vec<Option<Vec<f32>>> = if let Some(emb) = embedder {
         let texts: Vec<&str> = chunks.iter().map(|c| c.content.as_str()).collect();
@@ -311,11 +315,88 @@ pub fn index_file_with_embedder(
         return IndexResult::Error(e.to_string());
     }
 
+    let tasks = extract_tasks(&content);
+    let task_records: Vec<Task> = tasks.iter().map(|(content, checked, line)| Task {
+        id: None,
+        vault_name: vault_name.to_string(),
+        file_path: relative_path.to_string(),
+        content: content.clone(),
+        checked: *checked,
+        line_number: *line,
+    }).collect();
+    if !task_records.is_empty() {
+        if let Err(e) = db.insert_tasks(vault_name, relative_path, &task_records) {
+            log::warn!("Failed to index tasks for {}: {}", relative_path, e);
+        }
+    } else {
+        if let Err(e) = db.delete_tasks_for_file(vault_name, relative_path) {
+            log::warn!("Failed to clean up tasks for {}: {}", relative_path, e);
+        }
+    }
+
     if is_update {
         IndexResult::Updated
     } else {
         IndexResult::Inserted
     }
+}
+
+/// Extract emphasized text from Markdown content.
+/// Finds `==highlight==` and `**bold**` patterns and returns the
+/// inner text joined by spaces. Empty string if no matches found.
+pub fn extract_emphasized(content: &str) -> String {
+    let mut results: Vec<String> = Vec::new();
+    let bytes = content.as_bytes();
+    let mut i = 0;
+
+    while i < bytes.len() {
+        // Check for ==...==
+        if i + 1 < bytes.len() && bytes[i] == b'=' && bytes[i + 1] == b'=' {
+            if let Some(end) = content[i + 2..].find("==") {
+                let inner = content[i + 2..i + 2 + end].trim();
+                if !inner.is_empty() {
+                    results.push(inner.to_string());
+                }
+                i += 2 + end + 2;
+                continue;
+            }
+            i += 2;
+            continue;
+        }
+
+        // Check for **...** (excluding ***)
+        if i + 2 < bytes.len() && bytes[i] == b'*' && bytes[i + 1] == b'*' && bytes[i + 2] != b'*' {
+            if let Some(end) = content[i + 2..].find("**") {
+                let inner = content[i + 2..i + 2 + end].trim();
+                if !inner.is_empty() {
+                    results.push(inner.to_string());
+                }
+                i += 2 + end + 2;
+                continue;
+            }
+            i += 2;
+            continue;
+        }
+
+        i += 1;
+    }
+
+    results.join(" ")
+}
+
+/// Extract task checkbox lines from Markdown content.
+/// Returns (content_text, is_checked, line_number) for each task.
+pub fn extract_tasks(content: &str) -> Vec<(String, bool, usize)> {
+    let mut tasks = Vec::new();
+    for (line_number, line) in content.lines().enumerate() {
+        let trimmed = line.trim_start();
+        if let Some(rest) = trimmed.strip_prefix("- [ ] ") {
+            tasks.push((rest.to_string(), false, line_number + 1));
+        } else if let Some(rest) = trimmed.strip_prefix("- [x] ") {
+            tasks.push((rest.to_string(), true, line_number + 1));
+        }
+    }
+    tasks
 }
 
 /// Result returned after indexing a file.

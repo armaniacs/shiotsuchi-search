@@ -21,9 +21,9 @@ Scenario: 日本語部分は従来通り Vaporetto でトークナイズされ�
 ```
 
 ## 受け入れ基準
-- [ ] ASCII 英数字トークンを Whitespace で分割するフォールバックを追加する
-- [ ] 日本語部分は Vaporetto トークナイズを維持する
-- [ ] 重複トークンを排除して FTS5 インデックスに格納する
+- [x] ASCII 英数字トークンを Whitespace で分割するフォールバックを追加する
+- [x] 日本語部分は Vaporetto トークナイズを維持する
+- [x] 重複トークンを排除して FTS5 インデックスに格納する
 
 ## 見積もり
 3 ポイント
@@ -76,5 +76,5 @@ pub fn tokenize_mixed(text: &str, vaporetto: &JapaneseTokenizer) -> Vec<String> 
 - 英語の大文字・小文字統一（lowercase）はインデックス時と検索時の両方に適用すること。
 
 ## Definition of Done
-- [ ] 英日混在テキストのトークナイズテストがパスする
-- [ ] コードレビュー完了
+- [x] 英日混在テキストのトークナイズテストがパスする
+- [x] コードレビュー完了

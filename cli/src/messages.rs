@@ -86,6 +86,8 @@ pub const LOG_ABOUT: &str = "インデックス済みのノートファイル一
 pub const SCAN_ABOUT: &str = "ボールトを監視してファイル変更を自動的にインデックスする";
 pub const SETUP_ABOUT: &str = "セマンティック検索用の埋め込みモデルをセットアップする";
 pub const SUPPORT_ABOUT: &str = "ビルド情報・ランタイム情報を表示する";
+pub const TASKS_ABOUT: &str = "全ノートのタスク（チェックボックス）を横断検索する";
+pub const TASKS_ALL_HELP: &str = "完了済みタスクも含めて表示";
 pub const TIDE_ABOUT: &str = "インデックスの統計情報（ファイル数・チャンク数・DB サイズ等）を表示する";
 
 // ──────────────────────────────────────────────
@@ -135,10 +137,14 @@ pub const DREDGE_VACUUM_DONE: &str = "VACUUM 完了。";
 
 pub const TIDE_TOTAL_FILES: &str = "総ファイル数: {}";
 pub const TIDE_TOTAL_CHUNKS: &str = "総チャンク数: {}";
+pub const TIDE_TOTAL_CHARS: &str = "総文字数: {}";
 pub const TIDE_DB_SIZE: &str = "DB サイズ: {} バイト";
 pub const TIDE_EMBEDDER: &str = "埋め込みモデル: {}";
 pub const TIDE_LAST_INDEXED: &str = "最終インデックス日時: {}";
 pub const TIDE_NEVER_INDEXED: &str = "最終インデックス日時: なし";
+pub const TIDE_TOP_TAGS: &str = "トップタグ:";
+pub const TIDE_TAG_ITEM: &str = "  {}: {}回";
+pub const TIDE_JSON_HELP: &str = "JSON 形式で出力";
 
 // ──────────────────────────────────────────────
 // delete.rs — ノート削除

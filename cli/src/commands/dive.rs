@@ -198,6 +198,27 @@ pub fn print_results(
     }
 }
 
+/// Wrap occurrences of `query` in ANSI bold red, unless `NO_COLOR` is set.
+fn highlight_matches(text: &str, query: &str) -> String {
+    if query.is_empty() || std::env::var("NO_COLOR").is_ok() {
+        return text.to_string();
+    }
+    let query_lower = query.to_lowercase();
+    let text_lower = text.to_lowercase();
+    let mut result = String::new();
+    let mut last_end = 0;
+    for (start, _) in text_lower.match_indices(&query_lower) {
+        let end = start + query.len();
+        result.push_str(&text[last_end..start]);
+        result.push_str("\x1b[1;31m");
+        result.push_str(&text[start..end]);
+        result.push_str("\x1b[0m");
+        last_end = end;
+    }
+    result.push_str(&text[last_end..]);
+    result
+}
+
 /// Print results as a human-readable table.
 fn print_table(results: &[ChunkSearchResult], query: &str, elapsed: Duration) {
     let separator = "━".repeat(78);
@@ -221,6 +242,7 @@ fn print_table(results: &[ChunkSearchResult], query: &str, elapsed: Duration) {
             score = result.score
         );
         let snippet = extract_snippet(&result.content, query, DEFAULT_SNIPPET_LINES, 300);
+        let snippet = highlight_matches(&snippet, query);
         for line in snippet.lines() {
             println!("     {line}");
         }
@@ -388,6 +410,7 @@ mod tests {
             tags: String::new(),
             frontmatter_date: String::new(),
             title: String::new(),
+            emphasized_text: String::new(),
         }];
         let json = serde_json::to_string(&results).unwrap();
         let decoded: Vec<ChunkSearchResult> = serde_json::from_str(&json).unwrap();

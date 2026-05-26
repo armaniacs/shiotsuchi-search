@@ -110,8 +110,10 @@ enum Commands {
     Synonym(commands::synonym::SynonymCommand),
     #[command(about = crate::messages::SUPPORT_ABOUT)]
     Support(commands::support::SupportArgs),
+    #[command(about = crate::messages::TASKS_ABOUT)]
+    Tasks(commands::tasks::TasksArgs),
     #[command(about = crate::messages::TIDE_ABOUT)]
-    Tide,
+    Tide(commands::tide::TideArgs),
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -200,9 +202,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
         }
-        Commands::Tide => {
+        Commands::Tide(args) => {
             let stats = commands::tide::run_tide(&db_path)?;
-            commands::tide::print_stats(&stats);
+            commands::tide::print_stats(&stats, &args);
         }
         Commands::Scan(args) => {
             let vault_id = args.vault.as_deref().or(cfg.vault_default.as_deref());
@@ -242,6 +244,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 cli.notes_dir.as_deref(),
                 cli.db_path.as_deref(),
             )?;
+        }
+        Commands::Tasks(args) => {
+            if !db_path.exists() {
+                eprintln!("{}", crate::messages::ERR_DB_NOT_FOUND);
+                std::process::exit(1);
+            }
+            commands::tasks::run_tasks(&args, &db_path)?;
         }
         Commands::Support(args) => {
             commands::support::run_support(&args, &cfg)?;
@@ -321,7 +330,7 @@ mod tests {
     fn test_global_verbose_on_tide_subcommand() {
         let cli = parse_cli(&["shiotsuchi", "tide", "--verbose"]);
         assert!(cli.verbose);
-        assert!(matches!(cli.command, Commands::Tide));
+        assert!(matches!(cli.command, Commands::Tide(_)));
     }
 
     #[test]

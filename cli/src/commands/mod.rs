@@ -13,4 +13,5 @@ pub mod scan;
 pub mod setup;
 pub mod support;
 pub mod synonym;
+pub mod tasks;
 pub mod tide;

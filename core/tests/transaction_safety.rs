@@ -22,6 +22,7 @@ fn test_insert_chunks_and_lookup() {
             tags: String::new(),
             frontmatter_date: String::new(),
             title: String::new(),
+            emphasized_text: String::new(),
         },
     ];
     let ids = db.insert_chunks(&chunks).unwrap();
@@ -62,6 +63,7 @@ fn test_delete_chunks_atomic() {
         tags: String::new(),
         frontmatter_date: String::new(),
         title: String::new(),
+        emphasized_text: String::new(),
     }];
     let chunks_b = vec![Chunk {
         id: None,
@@ -74,6 +76,7 @@ fn test_delete_chunks_atomic() {
         tags: String::new(),
         frontmatter_date: String::new(),
         title: String::new(),
+        emphasized_text: String::new(),
     }];
 
     db.insert_chunks(&chunks_a).unwrap();

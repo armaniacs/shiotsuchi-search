@@ -82,6 +82,6 @@ pub mod embedder {
 pub use db::NoteDatabase;
 pub use indexer::IndexResult;
 pub use models::{
-    Chunk, ChunkSearchResult, EmbedderStatus, NoteMetadata, SearchConfig, SearchMode, VaultStats,
+    Chunk, ChunkSearchResult, EmbedderStatus, NoteMetadata, SearchConfig, SearchMode, Task, VaultStats,
 };
 pub use tokenizer::{JapaneseTokenizer, TokenizerConfig};

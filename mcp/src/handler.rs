@@ -65,7 +65,7 @@ fn format_results_markdown(results: &[shiotsuchi_core::models::ChunkSearchResult
         // extract_snippet(text, query, max_lines, max_chars)
         let snippet = extract_snippet(&r.content, query, 3, 800);
         out.push_str(&snippet);
-        out.push_str(&format!("\n\n_Chunk ID: {} | Score: {:.4}_\n\n---\n\n", r.chunk_id, r.score));
+        out.push_str(&format!("\n\n_Chunk ID: {} | Score: {:.4} | Tags: {} | Date: {} | Title: {}_\n\n---\n\n", r.chunk_id, r.score, r.tags, r.frontmatter_date, r.title));
     }
     out.push_str("### END RETRIEVED CONTEXT ###\n");
     out

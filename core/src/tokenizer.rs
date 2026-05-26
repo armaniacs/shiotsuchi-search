@@ -106,6 +106,17 @@ impl JapaneseTokenizer {
         self.collect_tokens(text).join(" ")
     }
 
+    /// Tokenize content, using Vaporetto for regular text and whitespace-splitting for
+    /// code/math content.  Code blocks should not be tokenized with Japanese rules since
+    /// identifiers and punctuation follow programming-language conventions.
+    pub fn tokenize_content(&self, content: &str, is_code: bool) -> String {
+        if is_code {
+            simple_tokenize(content)
+        } else {
+            self.split(content)
+        }
+    }
+
     /// `vaporetto_and_query(text)` と等価。
     /// 出力例: `"東京" AND "検索" AND "エンジン"`
     /// 各トークンを "" で囲むことで特殊文字をエスケープし AND 結合する。
@@ -142,7 +153,11 @@ impl JapaneseTokenizer {
                         continue;
                     }
                     if self.should_include(&token) {
-                        tokens.push(surface.to_string());
+                        for st in split_ascii_words(surface) {
+                            if tokens.last().map_or(true, |last| last != &st) {
+                                tokens.push(st);
+                            }
+                        }
                     }
                 }
             }
@@ -279,6 +294,56 @@ pub fn apply_user_dictionary(tokens: &[String], dict: &[String]) -> Vec<String> 
 
 // Shared decompress logic — see _decompress.rs for implementation.
 include!("_decompress.rs");
+
+fn split_ascii_words(token: &str) -> Vec<String> {
+    let chars: Vec<char> = token.chars().collect();
+    if !chars.iter().any(|c| c.is_ascii_alphanumeric()) {
+        return vec![token.to_string()];
+    }
+
+    let mut result = Vec::new();
+
+    for part in token.split('_') {
+        if part.is_empty() {
+            continue;
+        }
+        let pc: Vec<char> = part.chars().collect();
+        let n = pc.len();
+        let mut start = 0;
+
+        for i in 1..n {
+            let boundary = (pc[i - 1].is_ascii_lowercase() && pc[i].is_ascii_uppercase())
+                || (pc[i - 1].is_ascii_alphabetic() && pc[i].is_ascii_digit())
+                || (pc[i - 1].is_ascii_digit() && pc[i].is_ascii_alphabetic());
+
+            let special = !boundary
+                && i >= 2
+                && pc[i - 2].is_ascii_uppercase()
+                && pc[i - 1].is_ascii_uppercase()
+                && pc[i].is_ascii_lowercase();
+
+            if special {
+                if i - 1 > start {
+                    result.push(pc[start..i - 1].iter().collect());
+                }
+                start = i - 1;
+            } else if boundary {
+                result.push(pc[start..i].iter().collect());
+                start = i;
+            }
+        }
+
+        if start < n {
+            result.push(pc[start..].iter().collect());
+        }
+    }
+
+    if result.is_empty() {
+        vec![token.to_string()]
+    } else {
+        result
+    }
+}
 
 /// フォールバック: モデルなし環境でのテスト用（空白分割）。
 pub fn simple_tokenize(text: &str) -> String {
@@ -793,6 +858,58 @@ mod tests {
         assert_eq!(simple_and_query(""), "");
         assert_eq!(simple_and_query("   "), "");
     }
+
+    // ── split_ascii_words ─────────────────────────────────────
+
+    #[test]
+    fn test_split_ascii_words_pure_japanese_unchanged() {
+        let result = split_ascii_words("東京");
+        assert_eq!(result, vec!["東京"]);
+    }
+
+    #[test]
+    fn test_split_ascii_words_single_ascii_word_unchanged() {
+        let result = split_ascii_words("React");
+        assert_eq!(result, vec!["React"]);
+    }
+
+    #[test]
+    fn test_split_ascii_words_camel_case() {
+        let result = split_ascii_words("ReactComponent");
+        assert_eq!(result, vec!["React", "Component"]);
+    }
+
+    #[test]
+    fn test_split_ascii_words_uppercase_run_then_lowercase() {
+        let result = split_ascii_words("HTMLParser");
+        assert_eq!(result, vec!["HTML", "Parser"]);
+    }
+
+    #[test]
+    fn test_split_ascii_words_underscore() {
+        let result = split_ascii_words("test_runner");
+        assert_eq!(result, vec!["test", "runner"]);
+    }
+
+    #[test]
+    fn test_split_ascii_words_digit_boundary() {
+        let result = split_ascii_words("data2model");
+        assert_eq!(result, vec!["data", "2", "model"]);
+    }
+
+    #[test]
+    fn test_split_ascii_words_mixed_content() {
+        let result = split_ascii_words("getElementById");
+        assert_eq!(result, vec!["get", "Element", "By", "Id"]);
+    }
+
+    #[test]
+    fn test_split_ascii_words_no_ascii_returns_original() {
+        let result = split_ascii_words("日本語");
+        assert_eq!(result, vec!["日本語"]);
+    }
+
+    // ── collect_tokens with ASCII splitting ───────────────────
 
     #[test]
     fn test_collect_tokens_keep_untagged() {

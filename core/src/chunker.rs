@@ -37,6 +37,7 @@ pub fn split_into_chunks(
             tags: frontmatter.tags.join(","),
             frontmatter_date: frontmatter.date.unwrap_or_default(),
             title: frontmatter.title.unwrap_or_default(),
+            emphasized_text: String::new(),
         }];
     }
 
@@ -64,7 +65,7 @@ pub fn split_into_chunks(
                     continue;
                 }
                 let idx = chunks.len() as i64;
-                let tokenized = normalize(&apply_user_dictionary_str(&tokenizer.split(para), user_dictionary));
+                let tokenized = tokenize_with_code_blocks(para, tokenizer, user_dictionary);
                 chunks.push(Chunk {
                     id: None,
                     file_path: file_path.to_string(),
@@ -76,11 +77,12 @@ pub fn split_into_chunks(
                     tags: frontmatter.tags.join(","),
                     frontmatter_date: frontmatter.date.clone().unwrap_or_default(),
                     title: frontmatter.title.clone().unwrap_or_default(),
+                    emphasized_text: String::new(),
                 });
             }
         } else {
             let idx = chunks.len() as i64;
-            let tokenized = normalize(&apply_user_dictionary_str(&tokenizer.split(trimmed), user_dictionary));
+            let tokenized = tokenize_with_code_blocks(trimmed, tokenizer, user_dictionary);
             chunks.push(Chunk {
                 id: None,
                 file_path: file_path.to_string(),
@@ -92,13 +94,14 @@ pub fn split_into_chunks(
                 tags: frontmatter.tags.join(","),
                 frontmatter_date: frontmatter.date.clone().unwrap_or_default(),
                 title: frontmatter.title.clone().unwrap_or_default(),
+                emphasized_text: String::new(),
             });
         }
     }
 
     // If the content had no splitting headers and no paragraphs, use whole doc
     if chunks.is_empty() {
-        let tokenized = normalize(&apply_user_dictionary_str(&tokenizer.split(markdown.trim()), user_dictionary));
+        let tokenized = tokenize_with_code_blocks(markdown.trim(), tokenizer, user_dictionary);
         chunks.push(Chunk {
             id: None,
             file_path: file_path.to_string(),
@@ -110,6 +113,7 @@ pub fn split_into_chunks(
             tags: frontmatter.tags.join(","),
             frontmatter_date: frontmatter.date.unwrap_or_default(),
             title: frontmatter.title.unwrap_or_default(),
+            emphasized_text: String::new(),
         });
     }
 
@@ -228,6 +232,174 @@ fn split_on_blank_lines(text: &str) -> Vec<String> {
     }
 
     result
+}
+
+/// Segment content into alternating regular and code/math sections.
+///
+/// Returns `(text, is_code)` pairs where `is_code=true` for content inside:
+/// - Fenced code blocks (`````` ``, `~~~`)
+/// - Display math blocks (`$$...$$`)
+/// - Inline code (`` ` ``)
+/// - Inline math (`$...$`)
+///
+/// Regular text tokens are passed through Vaporetto; code/math tokens use simple
+/// whitespace splitting.
+fn split_code_math_segments(content: &str) -> Vec<(String, bool)> {
+    let mut segments: Vec<(String, bool)> = Vec::new();
+    let mut regular = String::new();
+    let chars: Vec<char> = content.chars().collect();
+    let mut i = 0;
+
+    while i < chars.len() {
+        let remaining: String = chars[i..].iter().collect();
+
+        // Fenced code block (``` or ~~~) — must be at start of line
+        let is_fence = (remaining.starts_with("```") || remaining.starts_with("~~~"))
+            && (i == 0 || chars[i - 1] == '\n');
+        if is_fence {
+            if !regular.is_empty() {
+                split_inline_segments(&mut segments, regular.clone());
+                regular.clear();
+            }
+            let fence_char = chars[i];
+            let mut j = i + 3;
+            // skip rest of opening line
+            while j < chars.len() && chars[j] != '\n' {
+                j += 1;
+            }
+            if j < chars.len() {
+                j += 1; // skip newline
+            }
+            // look for closing fence (same char, 3+ times, at start of line)
+            let mut found = false;
+            while j + 2 < chars.len() {
+                if chars[j] == fence_char
+                    && chars[j + 1] == fence_char
+                    && chars[j + 2] == fence_char
+                    && (j == i + 3 || chars[j - 1] == '\n')
+                {
+                    let mut k = j + 3;
+                    while k < chars.len() && chars[k] != '\n' {
+                        k += 1;
+                    }
+                    segments.push((content[i..k].to_string(), true));
+                    i = k;
+                    if i < chars.len() && chars[i] == '\n' {
+                        i += 1;
+                    }
+                    found = true;
+                    break;
+                }
+                j += 1;
+            }
+            if !found {
+                segments.push((content[i..].to_string(), true));
+                break;
+            }
+            continue;
+        }
+
+        // Display math block ($$...$$)
+        if chars[i] == '$' && i + 1 < chars.len() && chars[i + 1] == '$' {
+            if !regular.is_empty() {
+                split_inline_segments(&mut segments, regular.clone());
+                regular.clear();
+            }
+            let mut j = i + 2;
+            while j + 1 < chars.len() {
+                if chars[j] == '$' && chars[j + 1] == '$' {
+                    segments.push((content[i..j + 2].to_string(), true));
+                    i = j + 2;
+                    break;
+                }
+                j += 1;
+            }
+            if j + 1 >= chars.len() {
+                segments.push((content[i..].to_string(), true));
+                break;
+            }
+            continue;
+        }
+
+        regular.push(chars[i]);
+        i += 1;
+    }
+
+    if !regular.is_empty() {
+        split_inline_segments(&mut segments, regular);
+    }
+
+    segments
+}
+
+/// Process regular text for inline code (`` ` ``) and inline math (`$...$`),
+/// splitting them into separate segments.
+fn split_inline_segments(segments: &mut Vec<(String, bool)>, text: String) {
+    let chars: Vec<char> = text.chars().collect();
+    let mut i = 0;
+    let mut start = 0;
+
+    while i < chars.len() {
+        // Inline code: backtick (not part of ```)
+        if chars[i] == '`' && !(i + 2 < chars.len() && chars[i + 1] == '`' && chars[i + 2] == '`')
+        {
+            let mut j = i + 1;
+            while j < chars.len() && chars[j] != '`' && chars[j] != '\n' {
+                j += 1;
+            }
+            if j < chars.len() && chars[j] == '`' {
+                if i > start {
+                    segments.push((text[start..i].to_string(), false));
+                }
+                segments.push((text[i..j + 1].to_string(), true));
+                start = j + 1;
+                i = j + 1;
+                continue;
+            }
+        }
+
+        // Inline math: $ (not part of $$)
+        if chars[i] == '$' && !(i + 1 < chars.len() && chars[i + 1] == '$') {
+            let mut j = i + 1;
+            while j < chars.len() && chars[j] != '$' && chars[j] != '\n' {
+                j += 1;
+            }
+            if j < chars.len() && chars[j] == '$' {
+                if i > start {
+                    segments.push((text[start..i].to_string(), false));
+                }
+                segments.push((text[i..j + 1].to_string(), true));
+                start = j + 1;
+                i = j + 1;
+                continue;
+            }
+        }
+
+        i += 1;
+    }
+
+    if start < chars.len() {
+        segments.push((text[start..].to_string(), false));
+    }
+}
+
+/// Tokenize content with code/math-aware segmentation.
+/// Code and math blocks use whitespace splitting; regular text uses Vaporetto.
+fn tokenize_with_code_blocks(
+    content: &str,
+    tokenizer: &JapaneseTokenizer,
+    user_dictionary: &[String],
+) -> String {
+    let segments = split_code_math_segments(content);
+    let mut tokenized: Vec<String> = Vec::new();
+    for (text, is_code) in &segments {
+        let tok = tokenizer.tokenize_content(text, *is_code);
+        if !tok.is_empty() {
+            tokenized.push(tok);
+        }
+    }
+    let combined = tokenized.join(" ");
+    normalize(&apply_user_dictionary_str(&combined, user_dictionary))
 }
 
 #[cfg(test)]

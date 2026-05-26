@@ -1,4 +1,4 @@
-use crate::models::{Chunk, VaultStats};
+use crate::models::{Chunk, Task, VaultStats};
 use rusqlite::{params, Connection, OpenFlags, Result as SqliteResult};
 use sqlite_vec;
 use std::cell::RefCell;
@@ -218,6 +218,21 @@ impl NoteDatabase {
             conn.execute_batch("PRAGMA user_version = 5")?;
         }
 
+        if version < 7 {
+            conn.execute_batch("
+                CREATE TABLE IF NOT EXISTS tasks (
+                    id INTEGER PRIMARY KEY,
+                    vault_name TEXT NOT NULL,
+                    file_path TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    checked INTEGER NOT NULL DEFAULT 0,
+                    line_number INTEGER NOT NULL DEFAULT 0,
+                    indexed_at TEXT NOT NULL DEFAULT (datetime('now'))
+                )
+            ")?;
+            conn.execute_batch("PRAGMA user_version = 7")?;
+        }
+
         if version < 6 {
             // v5→v6: add tags, frontmatter_date, title columns to chunks table
             let cols: Vec<String> = {
@@ -235,6 +250,19 @@ impl NoteDatabase {
                 conn.execute_batch("ALTER TABLE chunks ADD COLUMN title TEXT NOT NULL DEFAULT ''")?;
             }
             conn.execute_batch("PRAGMA user_version = 6")?;
+        }
+
+        if version < 8 {
+            // v6→v8 (v7 was tasks table, now before v6 revision): add emphasized_text column
+            let cols: Vec<String> = {
+                let mut stmt = conn.prepare("PRAGMA table_info(chunks)")?;
+                let rows = stmt.query_map([], |r| r.get::<_, String>(1))?;
+                rows.collect::<Result<Vec<_>, _>>()?
+            };
+            if !cols.iter().any(|c| c == "emphasized_text") {
+                conn.execute_batch("ALTER TABLE chunks ADD COLUMN emphasized_text TEXT NOT NULL DEFAULT ''")?;
+            }
+            conn.execute_batch("PRAGMA user_version = 8")?;
         }
 
         Ok(())
@@ -256,7 +284,8 @@ impl NoteDatabase {
                 chunk_index       INTEGER NOT NULL,
                 parent_header     TEXT,
                 content           TEXT NOT NULL,
-                tokenized_content TEXT NOT NULL
+                tokenized_content TEXT NOT NULL,
+                emphasized_text   TEXT NOT NULL DEFAULT ''
             );
             CREATE INDEX IF NOT EXISTS idx_chunks_file_path ON chunks(file_path);
 
@@ -282,9 +311,9 @@ impl NoteDatabase {
         let mut ids = Vec::with_capacity(chunks.len());
         for chunk in chunks {
             tx.execute(
-                "INSERT INTO chunks (file_path, chunk_index, parent_header, content, tokenized_content, vault_name, tags, frontmatter_date, title)
-                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
-                params![chunk.file_path, chunk.chunk_index, chunk.parent_header, chunk.content, chunk.tokenized_content, chunk.vault_name, chunk.tags, chunk.frontmatter_date, chunk.title],
+                "INSERT INTO chunks (file_path, chunk_index, parent_header, content, tokenized_content, vault_name, tags, frontmatter_date, title, emphasized_text)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
+                params![chunk.file_path, chunk.chunk_index, chunk.parent_header, chunk.content, chunk.tokenized_content, chunk.vault_name, chunk.tags, chunk.frontmatter_date, chunk.title, chunk.emphasized_text],
             )?;
             let id = tx.last_insert_rowid();
             // FTS insert (external content — fts_chunks maps to chunks.tokenized_content)
@@ -337,6 +366,7 @@ impl NoteDatabase {
 
         log::debug!("  deleting from chunks table");
         tx.execute("DELETE FROM chunks WHERE vault_name = ?1 AND file_path = ?2", params![vault_name, file_path])?;
+        tx.execute("DELETE FROM tasks WHERE vault_name = ?1 AND file_path = ?2", params![vault_name, file_path])?;
         tx.commit()?;
         log::debug!("  committed delete for {}", file_path);
         Ok(())
@@ -405,8 +435,8 @@ impl NoteDatabase {
         let mut new_ids = Vec::with_capacity(chunks.len());
         for chunk in chunks {
             tx.execute(
-                "INSERT INTO chunks (file_path, chunk_index, parent_header, content, tokenized_content, vault_name, tags, frontmatter_date, title)
-                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+                "INSERT INTO chunks (file_path, chunk_index, parent_header, content, tokenized_content, vault_name, tags, frontmatter_date, title, emphasized_text)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
                 params![
                     chunk.file_path,
                     chunk.chunk_index,
@@ -417,6 +447,7 @@ impl NoteDatabase {
                     chunk.tags,
                     chunk.frontmatter_date,
                     chunk.title,
+                    chunk.emphasized_text,
                 ],
             )?;
             let id = tx.last_insert_rowid();
@@ -605,7 +636,7 @@ impl NoteDatabase {
             .collect::<Vec<_>>()
             .join(",");
         let sql = format!(
-            "SELECT id, file_path, chunk_index, parent_header, content, tokenized_content, vault_name, tags, frontmatter_date, title FROM chunks WHERE id IN ({})",
+            "SELECT id, file_path, chunk_index, parent_header, content, tokenized_content, vault_name, tags, frontmatter_date, title, emphasized_text FROM chunks WHERE id IN ({})",
             placeholders
         );
         let mut stmt = conn.prepare(&sql)?;
@@ -624,6 +655,7 @@ impl NoteDatabase {
                 tags: r.get(7)?,
                 frontmatter_date: r.get(8)?,
                 title: r.get(9)?,
+                emphasized_text: r.get(10)?,
             })
         })?;
         rows.collect::<SqliteResult<Vec<_>>>().map_err(DbError::Sqlite)
@@ -645,7 +677,7 @@ impl NoteDatabase {
         )?;
         let w = window as i64;
         let mut stmt = conn.prepare(
-            "SELECT id, file_path, chunk_index, parent_header, content, tokenized_content, vault_name, tags, frontmatter_date, title FROM chunks
+            "SELECT id, file_path, chunk_index, parent_header, content, tokenized_content, vault_name, tags, frontmatter_date, title, emphasized_text FROM chunks
              WHERE vault_name = ?1 AND file_path = ?2 AND chunk_index BETWEEN ?3 AND ?4
              ORDER BY chunk_index"
         )?;
@@ -661,6 +693,7 @@ impl NoteDatabase {
                 tags: r.get(7)?,
                 frontmatter_date: r.get(8)?,
                 title: r.get(9)?,
+                emphasized_text: r.get(10)?,
             })
         })?;
         rows.collect::<SqliteResult<Vec<_>>>().map_err(DbError::Sqlite)
@@ -693,10 +726,15 @@ impl NoteDatabase {
             "SELECT page_count * page_size FROM pragma_page_count(), pragma_page_size()",
             [], |r| r.get(0),
         )?;
+        let total_chars: i64 = conn.query_row(
+            "SELECT COALESCE(SUM(LENGTH(content)), 0) FROM chunks", [], |r| r.get(0)
+        )?;
         let last_indexed: Option<i64> = conn.query_row(
             "SELECT MAX(mtime) FROM file_cache", [], |r| r.get(0)
         ).ok();
         let db_path = conn.path().map(PathBuf::from).unwrap_or_default();
+
+        let top_tags = self.tag_stats(10)?;
 
         Ok(VaultStats {
             total_chunks: total_chunks as usize,
@@ -706,7 +744,96 @@ impl NoteDatabase {
             db_path,
             vec_indexed_chunks: vec_indexed as usize,
             embedder_status: String::new(), // filled by caller
+            total_chars: total_chars as usize,
+            top_tags,
         })
+    }
+
+    /// Insert tasks for a file (deletes old tasks for the same file first).
+    pub fn insert_tasks(&self, vault_name: &str, file_path: &str, tasks: &[Task]) -> Result<(), DbError> {
+        let mut conn = self.write_conn.borrow_mut();
+        let tx = conn.transaction()?;
+        tx.execute(
+            "DELETE FROM tasks WHERE vault_name = ?1 AND file_path = ?2",
+            params![vault_name, file_path],
+        )?;
+        for task in tasks {
+            tx.execute(
+                "INSERT INTO tasks (vault_name, file_path, content, checked, line_number) VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![task.vault_name, task.file_path, task.content, task.checked as i32, task.line_number as i64],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Delete all tasks for a file path.
+    pub fn delete_tasks_for_file(&self, vault_name: &str, file_path: &str) -> Result<(), DbError> {
+        self.write_conn.borrow().execute(
+            "DELETE FROM tasks WHERE vault_name = ?1 AND file_path = ?2",
+            params![vault_name, file_path],
+        )?;
+        Ok(())
+    }
+
+    /// Query tasks with optional keyword filter and checked-state filter.
+    pub fn query_tasks(&self, keyword: Option<&str>, include_checked: bool) -> Result<Vec<Task>, DbError> {
+        let conn = self.write_conn.borrow();
+        let checked_filter = if include_checked {
+            String::new()
+        } else {
+            " AND checked = 0".to_string()
+        };
+        let has_keyword = keyword.map_or(false, |k| !k.is_empty());
+        let keyword_filter = if has_keyword {
+            " AND content LIKE ?1".to_string()
+        } else {
+            String::new()
+        };
+        let sql = format!(
+            "SELECT id, vault_name, file_path, content, checked, line_number FROM tasks WHERE 1=1{}{} ORDER BY vault_name, file_path, line_number",
+            checked_filter, keyword_filter
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let params: Vec<Box<dyn rusqlite::ToSql>> = if has_keyword {
+            vec![Box::new(format!("%{}%", keyword.unwrap()))]
+        } else {
+            vec![]
+        };
+        let params_refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+        let rows = stmt.query_map(params_refs.as_slice(), |r| {
+            Ok(Task {
+                id: Some(r.get(0)?),
+                vault_name: r.get(1)?,
+                file_path: r.get(2)?,
+                content: r.get(3)?,
+                checked: r.get::<_, i32>(4)? != 0,
+                line_number: r.get::<_, i64>(5)? as usize,
+            })
+        })?;
+        rows.collect::<SqliteResult<Vec<_>>>().map_err(DbError::Sqlite)
+    }
+
+    /// Returns the top N tags by occurrence count across all chunks.
+    /// Tags are stored as comma-separated values in the `tags` column.
+    pub fn tag_stats(&self, limit: usize) -> Result<Vec<(String, usize)>, DbError> {
+        let conn = self.write_conn.borrow();
+        let mut stmt = conn.prepare("SELECT tags FROM chunks WHERE tags != ''")?;
+        let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
+        let mut counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+        for row in rows {
+            let tags_str = row?;
+            for tag in tags_str.split(',') {
+                let trimmed = tag.trim().to_string();
+                if !trimmed.is_empty() {
+                    *counts.entry(trimmed).or_insert(0) += 1;
+                }
+            }
+        }
+        let mut result: Vec<(String, usize)> = counts.into_iter().collect();
+        result.sort_by(|a, b| b.1.cmp(&a.1));
+        result.truncate(limit);
+        Ok(result)
     }
 }
 
@@ -742,6 +869,7 @@ mod tests {
                 tags: String::new(),
                 frontmatter_date: String::new(),
                 title: String::new(),
+                emphasized_text: String::new(),
             },
         ];
         db.insert_chunks(&chunks).unwrap();
@@ -752,8 +880,8 @@ mod tests {
     fn test_insert_and_delete_chunks() {
         let db = NoteDatabase::open_in_memory().unwrap();
         let chunks = vec![
-            Chunk { id: None, file_path: "a.md".into(), chunk_index: 0, parent_header: None, content: "hello world".into(), tokenized_content: "hello world".into(), vault_name: "default".to_string(), tags: String::new(), frontmatter_date: String::new(), title: String::new() },
-            Chunk { id: None, file_path: "a.md".into(), chunk_index: 1, parent_header: Some("# H1".into()), content: "second chunk".into(), tokenized_content: "second chunk".into(), vault_name: "default".to_string(), tags: String::new(), frontmatter_date: String::new(), title: String::new() },
+            Chunk { id: None, file_path: "a.md".into(), chunk_index: 0, parent_header: None, content: "hello world".into(), tokenized_content: "hello world".into(), vault_name: "default".to_string(), tags: String::new(), frontmatter_date: String::new(), title: String::new(), emphasized_text: String::new() },
+            Chunk { id: None, file_path: "a.md".into(), chunk_index: 1, parent_header: Some("# H1".into()), content: "second chunk".into(), tokenized_content: "second chunk".into(), vault_name: "default".to_string(), tags: String::new(), frontmatter_date: String::new(), title: String::new(), emphasized_text: String::new() },
         ];
         let ids = db.insert_chunks(&chunks).unwrap();
         assert_eq!(ids.len(), 2);
@@ -827,7 +955,7 @@ mod tests {
     fn test_fts_search_finds_inserted_chunk() {
         let db = NoteDatabase::open_in_memory().unwrap();
         let chunks = vec![
-            Chunk { id: None, file_path: "b.md".into(), chunk_index: 0, parent_header: None, content: "search engine test".into(), tokenized_content: "search engine test".into(), vault_name: "default".to_string(), tags: String::new(), frontmatter_date: String::new(), title: String::new() },
+            Chunk { id: None, file_path: "b.md".into(), chunk_index: 0, parent_header: None, content: "search engine test".into(), tokenized_content: "search engine test".into(), vault_name: "default".to_string(), tags: String::new(), frontmatter_date: String::new(), title: String::new(), emphasized_text: String::new() },
         ];
         db.insert_chunks(&chunks).unwrap();
         let results = db.fts_search("search AND engine", 10, None).unwrap();
@@ -845,6 +973,7 @@ mod tests {
             tags: String::new(),
             frontmatter_date: String::new(),
             title: String::new(),
+            emphasized_text: String::new(),
         }).collect();
         let ids = db.insert_chunks(&chunks).unwrap();
         let middle_id = ids[2];
@@ -867,6 +996,7 @@ mod tests {
                 tags: String::new(),
                 frontmatter_date: String::new(),
                 title: String::new(),
+                emphasized_text: String::new(),
             },
             Chunk {
                 id: None,
@@ -879,6 +1009,7 @@ mod tests {
                 tags: String::new(),
                 frontmatter_date: String::new(),
                 title: String::new(),
+                emphasized_text: String::new(),
             },
         ];
         let ids = db.insert_chunks(&chunks).unwrap();
@@ -910,7 +1041,7 @@ mod tests {
     fn test_delete_chunks_removes_fts_entries() {
         let db = NoteDatabase::open_in_memory().unwrap();
         let chunks = vec![
-            Chunk { id: None, file_path: "d.md".into(), chunk_index: 0, parent_header: None, content: "unique token xyz987".into(), tokenized_content: "unique token xyz987".into(), vault_name: "default".to_string(), tags: String::new(), frontmatter_date: String::new(), title: String::new() },
+            Chunk { id: None, file_path: "d.md".into(), chunk_index: 0, parent_header: None, content: "unique token xyz987".into(), tokenized_content: "unique token xyz987".into(), vault_name: "default".to_string(), tags: String::new(), frontmatter_date: String::new(), title: String::new(), emphasized_text: String::new() },
         ];
         db.insert_chunks(&chunks).unwrap();
         // Verify findable before delete
@@ -983,6 +1114,7 @@ mod tests {
                 tags: String::new(),
                 frontmatter_date: String::new(),
                 title: String::new(),
+                emphasized_text: String::new(),
         };
         let ids = db.insert_chunks(&[chunk]).unwrap();
         assert_eq!(ids.len(), 1);
@@ -1027,6 +1159,7 @@ mod tests {
             tags: String::new(),
             frontmatter_date: String::new(),
             title: String::new(),
+            emphasized_text: String::new(),
         };
         let chunk2 = Chunk {
             id: None,
@@ -1039,6 +1172,7 @@ mod tests {
             tags: String::new(),
             frontmatter_date: String::new(),
             title: String::new(),
+            emphasized_text: String::new(),
         };
 
         let ids1 = db.insert_chunks(&[chunk1]).unwrap();
@@ -1062,6 +1196,7 @@ mod tests {
                 tags: String::new(),
                 frontmatter_date: String::new(),
                 title: String::new(),
+                emphasized_text: String::new(),
             });
         }
 
@@ -1084,6 +1219,7 @@ mod tests {
             tags: String::new(),
             frontmatter_date: String::new(),
             title: String::new(),
+            emphasized_text: String::new(),
         };
 
         db.insert_chunks(&[chunk]).unwrap();
@@ -1201,6 +1337,7 @@ mod tests {
             tags: String::new(),
             frontmatter_date: String::new(),
             title: String::new(),
+            emphasized_text: String::new(),
         };
 
         let ids = db.insert_chunks(&[chunk]).unwrap();
