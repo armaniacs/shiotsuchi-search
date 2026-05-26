@@ -79,3 +79,74 @@ MMR(d) = lambda * Sim(d, query) - (1 - lambda) * max(Sim(d, already_selected))
 ## Definition of Done
 - [ ] MMR リランキングのテストがパスする
 - [ ] コードレビュー完了
+
+---
+
+## 第2フェーズ: 性能改善（A + B + C）
+
+初回実装後、以下の3つの最適化を追加適用する。
+
+### A: 類似度行列の事前計算
+
+**現状の問題**: `mmr_rerank()` の選択ループ内で、各イテレーションごとに残り全候補 × 選択済み全要素の `cosine_similarity()` を計算している。計算量は **O(limit · n²)**（limit=20, n=60 で 72,000 回の類似度計算）。
+
+**改善**: 選択ループに入る前に全候補間の n×n 類似度行列を1回だけ計算する。選択ループ内は行列のルックアップのみ。
+計算量は **O(n² + limit · n)**（約 2,100 回 + 1,200 回のルックアップ、約 22 倍高速）。
+
+```rust
+// Before: 選択ループ内で毎回計算
+for candidate in remaining {
+    for selected in &selected {
+        cosine_similarity(cv, sv)  // O(limit · n²)
+    }
+}
+
+// After: 事前計算した行列をルックアップ
+let sim_matrix = precompute_pairwise(vectors);  // O(n²)
+for candidate in remaining {
+    sim_matrix[candidate_idx][selected_idx]  // O(1) lookup
+}
+```
+
+### B: 候補プールの拡大
+
+**現状の問題**: `search_vec(limit)` の結果だけを MMR に渡している。MMR は多様な結果を promote するために limit より多い候補が必要。
+
+**改善**: MMR 有効時、内部で `search_vec(limit * MMR_POOL_MULTIPLIER)`（デフォルト 3 倍）で候補を取得し、MMR で `limit` に絞り込む。
+
+```
+変更前: vec_search(limit=20) → mmr_rerank(20 candidates, limit=20)
+変更後: vec_search(limit=60) → mmr_rerank(60 candidates, limit=20)
+```
+
+### C: クエリベクトルの二重計算排除
+
+**現状の問題**: `emb.embed(query)` が以下の 2 箇所で呼ばれ、ONNX 推論が2回実行される：
+
+1. `search_vec()` 内部（行 344）— KNN 検索のため
+2. `search()` MMR ブロック（行 139）— クエリ類似度計算のため
+
+**改善**: `search()` で 1 回だけ `emb.embed(query)` を実行し、`Vec<f32>` を `search_vec()` と `mmr_rerank()` の両方に共有する。`search_vec()` に `precomputed_embedding: Option<Vec<f32>>` 引数を追加し、`Some` の場合は内部の `emb.embed()` をスキップする。
+
+### 追加最適化: vec_search がベクトルも返す（DB ラウンドトリップ削減）
+
+**現状の問題**: MMR のために `get_chunk_vectors()` で別途 SQL クエリを発行している。`vec_search()` はすでに sqlite-vec 経由でベクトルを計算しているが、距離だけ返してベクトルを捨てている。
+
+**改善**: `db::vec_search()` の戻り値を `Vec<(i64, f64, Vec<f32>)>` に変更し、chunk_id, distance, embedding の3つ組を返す。`search_vec()` は結果とベクトルマップの両方を上位に返す。MMR はそれを使うため、`get_chunk_vectors()` の呼び出しが完全に不要になる。
+
+### 影響ファイル
+
+| ファイル | 変更内容 |
+|---------|---------|
+| `core/src/db.rs` | `vec_search()` 戻り値に embedding 追加 |
+| `core/src/search.rs` | `search_vec()` 戻り値変更、`search()` で query を1回 embedding、`mmr_rerank()` に類似度行列＋候補プール拡大 |
+| `core/src/tests/` | 統合テスト更新 |
+
+### 性能見積もり
+
+| 指標 | 改善前 | 改善後 | 削減率 |
+|------|--------|--------|--------|
+| ONNX 推論呼び出し | 2 回 | 1 回 | **50%** |
+| SQL ラウンドトリップ | 2 回（vec_search + get_chunk_vectors） | 1 回（vec_search のみ） | **50%** |
+| 類似度計算量（limit=20, pool=60） | O(20·60²) ≈ 72,000 ops | O(60² + 20·60) ≈ 4,800 ops | **93%** |
+| メモリ使用量（ベクトル） | 60 × 1024 × 4B = 246KB | 60 × 1024 × 4B = 246KB（変わらず） | 0% |
