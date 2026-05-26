@@ -65,6 +65,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   dictionary, synonym map, fuzzy search, alpha tuning, MMR) and PBI-28
   (synonym CLI manager) moved from `pbi/` to `.plan/archived/`.
 
+### Documentation
+
+- `ref/cli.md`: Added synonym subcommand, chart/scan `--vault`, expanded
+  dive flags (`--mmr`, `--lambda`, `--fuzzy`, `--alpha`, `--tag`, `--since`),
+  vault_default/user_dictionary/synonyms config fields
+- `ref/core.md`: Updated `chunks` schema (tags/frontmatter_date/title),
+  `file_cache` schema (file_size), `search()` signature (15 parameters),
+  semantic feature flag, schema migrations v4/v5
+- `docs/CLI-USE.md` / `docs/CLI-USE.ja.md`: Expanded dive docs with all
+  search modes, MMR explanation, fuzzy/alpha/tag/since flags, synonym
+  subcommand section, chart/scan `--vault` flag
+
 ## [0.4.8] - 2026-05-25
 
 ### Added
