@@ -65,19 +65,23 @@ Re-running `chart` is safe — it compares file hashes and only updates changed 
 | `--db-path` | `~/.cache/shiotsuchi/db.sqlite3` | Path to the SQLite index |
 | `--verbose` | off | Print per-file progress |
 | `--quiet` | off | Suppress the summary output |
+| `--vault` | — | Restrict indexing to a specific vault (e.g., `--vault work`) |
 
 ---
 
 ### `dive` — Search notes
 
-Runs a full-text AND search against the index and returns matching notes with snippets.
+Searches the index using keyword (FTS5 BM25), vector (semantic), or hybrid mode. Returns matching chunks with file paths, parent headings, and snippets.
 
 ```sh
 shiotsuchi dive "weekly review"
 shiotsuchi dive "Q3 budget" --limit 5
-shiotsuchi dive "meeting" --json        # legacy alias for --format json
-shiotsuchi dive "meeting" --format json-pretty
-shiotsuchi search "project plan"        # alias for dive
+shiotsuchi dive "プロジェクト計画" --mode vec       # semantic vector search
+shiotsuchi dive "meeting" --mode hybrid --alpha 0.3  # vec-weighted hybrid
+shiotsuchi dive "app dev" --fuzzy                    # case/NFC-normalized search
+shiotsuchi dive "plan" --tag project --since 2026-01-01  # frontmatter filters
+shiotsuchi dive "AWS" --mmr --lambda 0.7             # diversity reranking
+shiotsuchi search "project plan"                     # alias for dive
 ```
 
 | Option | Default | Description |
@@ -85,11 +89,31 @@ shiotsuchi search "project plan"        # alias for dive
 | `--notes-dir` | from config / `.` | Used to resolve relative snippet paths |
 | `--db-path` | `~/.cache/shiotsuchi/db.sqlite3` | Index to search |
 | `--limit` | 20 | Maximum number of results |
-| `--json` | off | Output raw JSON instead of pretty-printed (legacy: use `--format json`) |
+| `--mode` | `hybrid` (or `fts` if no model) | Search mode: `fts`, `vec`, `hybrid` |
 | `--format` | `table` | Output format: `table` / `json` / `json-pretty` |
 | `--vault` | — | Filter results to a specific vault (e.g., `--vault work`) |
+| `--tag` | — | Filter by frontmatter tag (e.g., `--tag project`) |
+| `--since` | — | Filter by frontmatter date, ISO 8601 (e.g., `--since 2026-01-01`) |
+| `--fuzzy` | off | Enable Unicode NFKC normalization + case folding for typo-tolerant search |
+| `--alpha` | 0.5 | Hybrid blend ratio (0.0=vec only, 1.0=FTS only) |
+| `--mmr` | off | Enable MMR diversity re-ranking |
+| `--lambda` | 0.5 | MMR relevance/diversity balance (0.0=diversity, 1.0=relevance) |
+| `--model-path` | — | Path to ONNX embedding model file (overrides config/env) |
 
-Result fields: `path`, `title`, `snippet`, `score`.
+**Search modes:**
+
+| Mode | Description | Model required |
+|------|-------------|---------------|
+| `fts` | Keyword search via FTS5 BM25. Full-width/half-width normalization. | No |
+| `vec` | Semantic vector search via cosine similarity. Requires `--model-path` or config. | Yes |
+| `hybrid` | Default. Reciprocal Rank Fusion (RRF) of FTS + Vec. Falls back to FTS if no model. | Optional |
+
+**MMR (Maximal Marginal Relevance):**
+
+When `--mmr` is enabled, results are re-ranked to balance relevance and diversity. Lambda controls the trade-off:
+- `--lambda 1.0`: pure relevance (same as default ranking)
+- `--lambda 0.5`: equal balance (default)
+- `--lambda 0.0`: max diversity
 
 ---
 
@@ -128,6 +152,7 @@ Keep this running in a terminal or register it as a background service. Rapid ed
 |--------|---------|-------------|
 | `--notes-dir` | from config / `.` | Vault root to watch |
 | `--db-path` | `~/.cache/shiotsuchi/db.sqlite3` | Index to update |
+| `--vault` | — | Watch only a specific vault (e.g., `--vault work`) |
 
 ---
 
@@ -142,6 +167,27 @@ shiotsuchi tide
 | Option | Default | Description |
 |--------|---------|-------------|
 | `--db-path` | `~/.cache/shiotsuchi/db.sqlite3` | Database to read statistics from |
+
+---
+
+### `synonym` — Manage thesaurus entries
+
+Manages synonym/thesaurus entries for FTS5 query expansion. Entries are stored in `~/.config/shiotsuchi/thesaurus.toml`.
+
+```sh
+shiotsuchi synonym add AWS "Amazon Web Services"
+shiotsuchi synonym add AWS "アマゾンウェブサービス"
+shiotsuchi synonym list
+shiotsuchi synonym remove AWS
+```
+
+The thesaurus file is auto-created on first use. Entries are merged into `config.toml` synonyms at startup (thesaurus takes priority).
+
+| Subcommand | Description |
+|------------|-------------|
+| `add <word> <synonyms>...` | Add a synonym pair (word → one or more synonyms) |
+| `remove <word>` | Remove an entire word entry |
+| `list` | List all registered entries |
 
 ---
 

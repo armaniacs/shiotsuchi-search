@@ -66,4 +66,16 @@
 | `plan-h7-MCP.md` | MCP サーバー拡張設計仕様書 — 4 ツール/セキュリティ対策/出力フォーマット 全て実装済み (~90%) |
 | `2026-05-20-1726-review-feat-min-size.md` | feat-min-size Checking Team レビュー (83/100, 15指摘中12修正) — feat-min-size は main にマージ済み |
 | `2026-05-21-0528-dig-findings.md` | feat-min-size レビューの深掘りセッション (7決定事項、全て実行済み) |
+| `2026-05-25-01-fix-mtime-size-two-stage-scan.md` | PBI-01: mtime + size 二段階スキャン — 既存実装確認済み |
+| `2026-05-25-02-fix-semantic-optional-feature-flag.md` | PBI-02: Semantic 検索を Cargo feature flag でオプション化 |
+| `2026-05-25-03-fix-multi-vault-native-support.md` | PBI-03: マルチ Vault ネイティブ対応 — 既存実装確認＋vault_default 追加 |
+| `2026-05-25-04-feat-frontmatter-tag-date-filter.md` | PBI-04: Frontmatter タグ・日付フィルタリング — 既存実装確認済み |
+| `2026-05-25-05-backlog-i18n-japanese-cli-messages.md` | PBI-05: CLI メッセージ日本語 i18n — 全コマンド日本語化完了 |
+| `2026-05-25-06-backlog-db-secure-app-data-dir.md` | PBI-06: DB セキュアアプリデータ領域 — 既存実装確認済み |
+| `2026-05-25-07-backlog-custom-user-dictionary.md` | PBI-07: カスタムユーザー辞書 — 既存実装確認済み |
+| `2026-05-25-08-backlog-synonym-thesaurus-mapping.md` | PBI-08: 同義語シソーラスマッピング — 既存実装確認済み |
+| `2026-05-25-09-backlog-fuzzy-search.md` | PBI-09: あいまい検索 — 既存実装確認済み |
+| `2026-05-25-10-backlog-hybrid-search-alpha-tuning.md` | PBI-10: ハイブリッド検索 Alpha 値 — 既存実装確認済み |
+| `2026-05-25-11-backlog-mmr-diversity-reranking.md` | PBI-11: MMR 多様化リランキング — 実装＋レビュー修正完了 |
+| `2026-05-25-28-backlog-synonym-cli-manager.md` | PBI-28: 同義語管理 CLI と専用ファイル対応 — 実装完了 |
 

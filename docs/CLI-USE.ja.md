@@ -65,31 +65,53 @@ shiotsuchi chart --notes-dir ~/Notes
 | `--db-path` | `~/.cache/shiotsuchi/db.sqlite3` | SQLite インデックスのパス |
 | `--verbose` | オフ | ファイルごとの処理状況を表示 |
 | `--quiet` | オフ | サマリー出力を抑制 |
+| `--vault` | — | 特定のボールトのみインデックスする（例: `--vault work`） |
 
 ---
 
 ### `dive` — ノートを検索する
 
-インデックスに対して全文 AND 検索を実行し、スニペット付きの結果を返します。
+全文キーワード検索（FTS5 BM25）、ベクトル検索（セマンティック）、またはハイブリッドモードでインデックスを検索します。検索結果はファイルパス・見出し・スニペットとともに表示されます。
 
 ```sh
 shiotsuchi dive "週次レビュー"
 shiotsuchi dive "Q3 予算" --limit 5
-shiotsuchi dive "ミーティング" --json        # レガシー: --format json と同等
-shiotsuchi dive "ミーティング" --format json-pretty
-shiotsuchi search "プロジェクト計画"          # dive のエイリアス
+shiotsuchi dive "プロジェクト計画" --mode vec       # ベクトル検索
+shiotsuchi dive "会議" --mode hybrid --alpha 0.3     # vec 重視ハイブリッド
+shiotsuchi dive "アプリ開発" --fuzzy                  # あいまい検索
+shiotsuchi dive "計画" --tag project --since 2026-01-01  # フロントマターフィルタ
+shiotsuchi dive "AWS" --mmr --lambda 0.7             # 多様化リランキング
+shiotsuchi search "プロジェクト計画"                   # dive のエイリアス
 ```
 
 | オプション | デフォルト | 説明 |
 |-----------|-----------|------|
-| `--notes-dir` | config / `.` | スニペットのパス解決に使用 |
-| `--db-path` | `~/.cache/shiotsuchi/db.sqlite3` | 検索対象のインデックス |
 | `--limit` | 20 | 最大結果件数 |
-| `--json` | オフ | コンパクトな JSON 配列を出力（`--format json` のレガシー別名） |
-| `--format` | `table` | 出力形式: `table` / `json` / `json-pretty` |
-| `--vault` | — | 特定の vault に絞り込んで検索（例: `--vault work`） |
+| `--mode` | `hybrid`（モデルなしの場合は `fts`） | 検索モード: `fts` / `vec` / `hybrid` |
+| `--format` | `table` | 出力フォーマット: `table` / `json` / `json-pretty` |
+| `--vault` | — | 特定のボールトに絞り込む（例: `--vault work`） |
+| `--tag` | — | フロントマターのタグで絞り込む（例: `--tag project`） |
+| `--since` | — | フロントマターの日付で絞り込む、ISO 8601 形式（例: `--since 2026-01-01`） |
+| `--fuzzy` | off | Unicode NFKC 正規化 + 大文字小文字の正規化を行い表記揺れを吸収 |
+| `--alpha` | 0.5 | ハイブリッドのブレンド比率（0.0=ベクトルのみ、1.0=FTS のみ） |
+| `--mmr` | off | MMR 多様化リランキングを有効化 |
+| `--lambda` | 0.5 | MMR の関連性と多様性のバランス（0.0=多様性重視、1.0=関連性重視） |
+| `--model-path` | — | ONNX 埋め込みモデルファイルのパス（設定・環境変数を上書き） |
 
-結果フィールド: `path`、`title`、`snippet`、`score`。
+**検索モード:**
+
+| モード | 説明 | モデル |
+|--------|------|--------|
+| `fts` | FTS5 BM25 によるキーワード検索。全角/半角正規化対応。 | 不要 |
+| `vec` | ベクトル類似度によるセマンティック検索。`--model-path` または設定が必要。 | 必須 |
+| `hybrid` | デフォルト。FTS + Vec の Reciprocal Rank Fusion（RRF）。モデルがない場合は FTS にフォールバック。 | 任意 |
+
+**MMR（Maximal Marginal Relevance）:**
+
+`--mmr` を有効にすると、関連性と多様性を両立するよう結果がリランキングされます。Lambda でバランスを調整:
+- `--lambda 1.0`: 関連性のみ（通常の順位と同じ）
+- `--lambda 0.5`: 均等バランス（デフォルト）
+- `--lambda 0.0`: 多様性最大化
 
 ---
 
@@ -128,6 +150,7 @@ shiotsuchi scan --notes-dir ~/Notes
 |-----------|-----------|------|
 | `--notes-dir` | config / `.` | 監視する vault のルート |
 | `--db-path` | `~/.cache/shiotsuchi/db.sqlite3` | 更新対象のインデックス |
+| `--vault` | — | 特定のボールトのみ監視する（例: `--vault work`） |
 
 ---
 
@@ -142,6 +165,27 @@ shiotsuchi tide
 | オプション | デフォルト | 説明 |
 |-----------|-----------|------|
 | `--db-path` | `~/.cache/shiotsuchi/db.sqlite3` | 統計を読み込むデータベース |
+
+---
+
+### `synonym` — 同義語辞書を管理する
+
+FTS5 クエリ展開のための同義語（シソーラス）エントリを管理します。エントリは `~/.config/shiotsuchi/thesaurus.toml` に保存されます。
+
+```sh
+shiotsuchi synonym add AWS "Amazon Web Services"
+shiotsuchi synonym add AWS "アマゾンウェブサービス"
+shiotsuchi synonym list
+shiotsuchi synonym remove AWS
+```
+
+辞書ファイルは初回使用時に自動生成されます。エントリは起動時に `config.toml` の synonyms とマージされます（専用ファイルが優先）。
+
+| サブコマンド | 説明 |
+|-------------|------|
+| `add <単語> <同義語>...` | 同義語ペアを追加（単語 → 1つ以上の同義語） |
+| `remove <単語>` | 単語のエントリを削除 |
+| `list` | 登録済みの全エントリを一覧表示 |
 
 ---
 

@@ -12,19 +12,20 @@ Published name: `shiotsuchi-core`
 **Schema** (v3, created by `create_schema()` + migrations):
 
 ```sql
--- File cache for incremental indexing (hash + mtime tracking)
--- v3: added vault_name for multi-vault support
+-- File cache for incremental indexing (hash + mtime + size tracking)
+-- v5: added file_size for two-stage skip
 CREATE TABLE IF NOT EXISTS file_cache (
     vault_name TEXT NOT NULL,
     path       TEXT NOT NULL,
     hash       TEXT NOT NULL,
     mtime      INTEGER NOT NULL,
     model_id   TEXT NOT NULL,
+    file_size  INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (vault_name, path)
 );
 
 -- Chunk storage
--- v3: added vault_name column
+-- v5: added tags, frontmatter_date, title columns
 CREATE TABLE IF NOT EXISTS chunks (
     id                INTEGER PRIMARY KEY,
     vault_name        TEXT NOT NULL DEFAULT 'default',
@@ -32,7 +33,10 @@ CREATE TABLE IF NOT EXISTS chunks (
     chunk_index       INTEGER NOT NULL,
     parent_header     TEXT,
     content           TEXT NOT NULL,
-    tokenized_content TEXT NOT NULL
+    tokenized_content TEXT NOT NULL,
+    tags              TEXT NOT NULL DEFAULT '',
+    frontmatter_date  TEXT NOT NULL DEFAULT '',
+    title             TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_chunks_file_path ON chunks(vault_name, file_path);
 
@@ -153,12 +157,12 @@ Progress is cumulative: `(processed_so_far, total_across_all_vaults)`.
 ### `search.rs` — Search Engine
 
 **Key Function**:
-- `search(db, tokenizer, query, limit, mode, embedder, min_score, vault_filter)` → `Result<Vec<ChunkSearchResult>>`
+- `search(db, tokenizer, query, limit, mode, embedder, min_score, vault_filter, tag_filter, since_date, user_dictionary, synonyms, fuzzy, alpha, mmr, lambda)` → `Result<Vec<ChunkSearchResult>>`
 
 **Modes** (`SearchMode` enum):
 - `Fts` — Keyword search via FTS5 BM25 (works without model). Lower score = more relevant.
 - `Vec` — Semantic search via embedding + vec0 KNN (requires model). Lower distance = more relevant.
-- `Hybrid` — Reciprocal Rank Fusion (RRF) merge of FTS + Vec results. Higher RRF score = more relevant.
+- `Hybrid` — Reciprocal Rank Fusion (RRF) merge of FTS + Vec results. Supports alpha-weighted blending via `--alpha`.
 
 **Parameters**:
 - `query`: Raw search query text (tokenized internally for FTS)
@@ -167,6 +171,14 @@ Progress is cumulative: `(processed_so_far, total_across_all_vaults)`.
 - `embedder`: Optional ONNX embedder (required for Vec/Hybrid modes)
 - `min_score`: Optional threshold — FTS/Vec excludes `score > min_score`, Hybrid excludes `score < min_score`
 - `vault_filter`: Optional vault name to restrict results to a single vault (`None` = all vaults)
+- `tag_filter`: Optional comma-separated tag string to filter results (empty/none = no filter)
+- `since_date`: Optional ISO 8601 date string for minimum frontmatter date filter
+- `user_dictionary`: Custom dictionary entries for Vaporetto tokenization during query analysis
+- `synonyms`: Synonym/thesaurus map for FTS5 query OR-expansion
+- `fuzzy`: When true, applies Unicode NFKC normalization + ASCII lowercasing to the query
+- `alpha`: Optional hybrid blend ratio (0.0 = vec only, 1.0 = FTS only, None = RRF)
+- `mmr`: When true, applies Maximal Marginal Relevance diversity re-ranking
+- `lambda`: MMR trade-off (0.0 = max diversity, 1.0 = pure relevance)
 
 **Snippet Extraction** (`extract_snippet`):
 - Finds first matching token position
@@ -180,8 +192,8 @@ Progress is cumulative: `(processed_so_far, total_across_all_vaults)`.
 
 | Type | Fields |
 |------|--------|
-| `Chunk` | id, vault_name, file_path, chunk_index, parent_header, content, tokenized_content |
-| `ChunkSearchResult` | vault_name, chunk_id, file_path, parent_header, content, score, search_mode |
+| `Chunk` | id, vault_name, file_path, chunk_index, parent_header, content, tokenized_content, tags, frontmatter_date, title |
+| `ChunkSearchResult` | vault_name, chunk_id, file_path, parent_header, content, score, search_mode, tags, frontmatter_date, title |
 | `SearchMode` | `Fts` / `Vec` / `Hybrid` (default) |
 | `EmbedderStatus` | `Ready` / `Unavailable(String)` |
 | `NoteMetadata` | path, hash, mtime, indexed_at, title |
@@ -189,6 +201,7 @@ Progress is cumulative: `(processed_so_far, total_across_all_vaults)`.
 | `SearchConfig` | max_snippet_chars (128–65535, default 1000) |
 | `IndexConfig` | vaults, include_extensions, exclude_dirs, auto_exclude_hidden, follow_links, dynamic_threshold |
 | `IndexResult` | `Inserted` / `Updated` / `Skipped` / `Error(String)` |
+| `Config` | synonyms: HashMap\<String, Vec\<String\>\>, vault_default: Option\<String\>, hybrid_alpha: Option\<f64\> |
 
 ### `watcher.rs` — File System Watcher
 
@@ -224,6 +237,7 @@ Progress is cumulative: `(processed_so_far, total_across_all_vaults)`.
 |---------|---------|-------------|
 | `watcher` | yes | Enables file system watcher via `notify` crate |
 | `async-index` | yes | Enables parallel indexing via `rayon` |
+| `semantic` | yes | Enables ONNX embedding/vector search via `ort` and `tokenizers` crates |
 
 ## Schema Migrations
 
@@ -232,6 +246,8 @@ Progress is cumulative: `(processed_so_far, total_across_all_vaults)`.
 | v1 | Original schema with `notes_meta` + `notes_fts` tables (dropped) |
 | v2 | Current chunk-based schema: `chunks`, `file_cache`, `fts_chunks`, `vec_chunks` |
 | v3 | Added `vault_name` column to `chunks` and `file_cache`; composite PK on `file_cache(vault_name, path)` |
+| v4 | Added `file_size` column to `file_cache` for two-stage mtime+size skip |
+| v5 | Added `tags`, `frontmatter_date`, `title` columns to `chunks` for frontmatter metadata |
 
 The v2→v3 migration is crash-safe: it checks for the column before adding it, and wraps the full migration in a transaction.
 
