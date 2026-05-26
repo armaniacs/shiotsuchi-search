@@ -138,6 +138,7 @@ fn fix_config_old_vault_format(config_path: &Path) -> Result<(), Box<dyn std::er
         watcher: old_cfg.watcher,
         synonyms: HashMap::new(),
         hybrid_alpha: old_cfg.hybrid_alpha,
+        vault_default: old_cfg.vault_default,
     };
 
     let backup_path = backup_config_file(config_path)?;

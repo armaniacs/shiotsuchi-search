@@ -46,6 +46,9 @@ pub const DIVE_ALPHA_HELP: &str = "ハイブリッド検索のブレンド比率
 pub const DIVE_MMR_HELP: &str = "MMR（多様化リランキング）を有効化";
 pub const DIVE_LAMBDA_HELP: &str = "MMR の多様性と関連性のバランス (0.0=多様性重視, 1.0=関連性重視)";
 
+/// Shared vault filter flag help used by dive, chart, and scan.
+pub const VAULT_HELP: &str = "特定のボールトに絞り込む";
+
 pub const ERR_VAULT_NOT_FOUND: &str = "ボールト '{}' は設定に定義されていません。利用可能なボールト: {}";
 pub const WARN_EMBEDDER_LOAD_FAILED: &str = "[警告] 埋め込みモデルの読み込みに失敗しました: {}。FTS（キーワード検索）のみ使用します";
 pub const WARN_EMBEDDER_NOT_FOUND: &str = "[警告] モデルファイルが見つかりません。ベクトル検索は無効です。\n キーワード検索（FTS5）のみで動作します。";

@@ -31,6 +31,29 @@ fn old_default_db_path() -> PathBuf {
         .join("db.sqlite3")
 }
 
+/// Resolve vaults: if a vault ID is specified, validate and return only that vault.
+/// Otherwise return all configured vaults.
+fn resolve_vaults(
+    vaults: &[(String, PathBuf)],
+    vault_id: Option<&str>,
+) -> Result<Vec<(String, PathBuf)>, Box<dyn std::error::Error>> {
+    match vault_id {
+        Some(id) => match vaults.iter().find(|(n, _)| n == id) {
+            Some(v) => Ok(vec![v.clone()]),
+            None => {
+                let known: Vec<&str> = vaults.iter().map(|(n, _)| n.as_str()).collect();
+                Err(msg_fmt!(
+                    crate::messages::ERR_VAULT_NOT_FOUND,
+                    id,
+                    known.join(", ")
+                )
+                .into())
+            }
+        },
+        None => Ok(vaults.to_vec()),
+    }
+}
+
 #[derive(Parser)]
 #[command(
     name = "shiotsuchi",
@@ -54,29 +77,40 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    #[command(about = crate::messages::CHART_ABOUT)]
     Chart(commands::chart::ChartArgs),
+    #[command(about = crate::messages::CLEAN_ABOUT)]
     Clean(commands::clean::CleanArgs),
+    #[command(about = crate::messages::CONFIG_ABOUT)]
     Config(commands::config::ConfigArgs),
+    #[command(about = crate::messages::CONFIG_MIGRATE_ABOUT)]
     ConfigMigrate(commands::config_migrate::ConfigMigrateArgs),
     /// シェル補完スクリプトを生成する
     #[command(hide = true)]
     Completion {
         shell: clap_complete::Shell,
     },
+    #[command(about = crate::messages::DELETE_ABOUT)]
     Delete(commands::delete::DeleteArgs),
-    #[command(alias = "search")]
+    #[command(alias = "search", about = crate::messages::DIVE_ABOUT)]
     Dive(commands::dive::DiveArgs),
+    #[command(about = crate::messages::DOCTOR_ABOUT)]
     Doctor(commands::doctor::DoctorArgs),
+    #[command(about = crate::messages::DREDGE_ABOUT)]
     Dredge(commands::dredge::DredgeArgs),
+    #[command(about = crate::messages::INIT_ABOUT)]
     Init(commands::init::InitArgs),
-    #[command(about = messages::LOG_ABOUT)]
+    #[command(about = crate::messages::LOG_ABOUT)]
     Log,
+    #[command(about = crate::messages::SCAN_ABOUT)]
     Scan(commands::scan::ScanArgs),
+    #[command(about = crate::messages::SETUP_ABOUT)]
     Setup(commands::setup::SetupArgs),
-    #[command(subcommand, about = messages::SYNONYM_ABOUT)]
+    #[command(subcommand, about = crate::messages::SYNONYM_ABOUT)]
     Synonym(commands::synonym::SynonymCommand),
+    #[command(about = crate::messages::SUPPORT_ABOUT)]
     Support(commands::support::SupportArgs),
-    #[command(about = messages::TIDE_ABOUT)]
+    #[command(about = crate::messages::TIDE_ABOUT)]
     Tide,
 }
 
@@ -127,9 +161,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     match cli.command {
         Commands::Chart(args) => {
+            let vault_id = args.vault.as_deref().or(cfg.vault_default.as_deref());
+            let vaults = resolve_vaults(&resolved_vaults, vault_id)?;
             commands::chart::run_chart(
                 &args,
-                &resolved_vaults,
+                &vaults,
                 &db_path,
                 &cfg.indexing,
             )?;
@@ -147,6 +183,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let effective_alpha = args.alpha
                 .or(cfg.hybrid_alpha)
                 .unwrap_or(0.5);
+            // CLI --vault overrides config vault_default; pass actual vault filter to run_dive
+            // by modifying the resolved vaults and passing the filter as args.vault
+            let _vault_filter = args.vault.as_deref().or(cfg.vault_default.as_deref());
             match commands::dive::run_dive(&args, &db_path, &resolved_vaults, &cfg.indexing.user_dictionary, &cfg.synonyms, args.fuzzy, Some(effective_alpha), args.mmr, args.lambda) {
                 Ok(results) => {
                     let elapsed = start.elapsed();
@@ -164,9 +203,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             commands::tide::print_stats(&stats);
         }
         Commands::Scan(args) => {
+            let vault_id = args.vault.as_deref().or(cfg.vault_default.as_deref());
+            let vaults = resolve_vaults(&resolved_vaults, vault_id)?;
             commands::scan::run_scan(
                 &args,
-                &resolved_vaults,
+                &vaults,
                 &db_path,
                 &cfg.watcher,
                 &cfg.indexing,

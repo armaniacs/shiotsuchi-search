@@ -18,6 +18,8 @@ use std::{
 pub struct ScanArgs {
     #[arg(long, hide = true, help = messages::SCAN_DEBOUNCE_HELP)]
     pub debounce: Option<u64>,
+    #[arg(long, help = messages::VAULT_HELP)]
+    pub vault: Option<String>,
 }
 
 use crate::config::WatcherConfig;

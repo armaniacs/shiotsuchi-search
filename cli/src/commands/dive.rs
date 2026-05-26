@@ -252,6 +252,7 @@ mod tests {
         let chart_args = crate::commands::chart::ChartArgs {
             force: false,
             quiet: true,
+            vault: None,
         };
         let chart_result =
             crate::commands::chart::run_chart(&chart_args, &[("default".to_string(), temp.path().to_path_buf())], &db_file, &idx_cfg);

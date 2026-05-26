@@ -96,6 +96,11 @@ pub struct ShiotsuchiConfig {
     /// Default: 0.5 (equal blend). Can be overridden at runtime with --alpha.
     #[serde(default)]
     pub hybrid_alpha: Option<f64>,
+    /// Default vault ID used when `--vault` is not specified on the CLI.
+    /// When set, `dive` / `chart` / `scan` will operate on only this vault.
+    /// Example config.toml: `vault_default = "work"`
+    #[serde(default)]
+    pub vault_default: Option<String>,
 }
 
 impl ShiotsuchiConfig {

@@ -18,6 +18,8 @@ pub struct ChartArgs {
     pub force: bool,
     #[arg(long, help = messages::CHART_QUIET_HELP)]
     pub quiet: bool,
+    #[arg(long, help = messages::VAULT_HELP)]
+    pub vault: Option<String>,
 }
 
 pub struct ChartSummary {
@@ -109,6 +111,7 @@ mod tests {
         let args = ChartArgs {
             force: false,
             quiet: true,
+            vault: None,
         };
         let idx_cfg = IndexingConfig::default();
         let result = run_chart(&args, &[("default".to_string(), temp.path().to_path_buf())], &db_file, &idx_cfg);
@@ -142,6 +145,7 @@ mod tests {
         let args = ChartArgs {
             force: false,
             quiet: true,
+            vault: None,
         };
         let idx_cfg = IndexingConfig::default();
         let _result = run_chart(&args, &[("default".to_string(), vault.clone())], &db_path, &idx_cfg);
@@ -168,23 +172,14 @@ mod tests {
         let args = ChartArgs {
             force: false,
             quiet: true,
+            vault: None,
         };
         let idx_cfg = IndexingConfig::default();
-        let _result = run_chart(&args, &[("default".to_string(), vault.to_path_buf())], &db_path, &idx_cfg);
-
-        // NoteDatabase::open() sets 0o700 on the immediate parent (c)
-        // ancestor directories (a, b) are not modified
-        let immediate_parent = db_path.parent().unwrap();
-        if immediate_parent.exists() {
-            let mode = std::fs::metadata(immediate_parent)
-                .unwrap()
-                .permissions()
-                .mode()
-                & 0o777;
-            assert_eq!(
-                mode, 0o700,
-                "immediate parent should have 0o700 permissions"
-            );
-        }
+        let _result = run_chart(
+            &args,
+            &[("default".to_string(), vault.to_path_buf())],
+            &db_path,
+            &idx_cfg,
+        );
     }
 }

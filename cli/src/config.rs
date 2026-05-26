@@ -187,6 +187,7 @@ mod tests {
             watcher: WatcherConfig::default(),
             synonyms: HashMap::new(),
             hybrid_alpha: None,
+            vault_default: None,
         };
         let vaults = config.resolved_vaults();
         assert_eq!(vaults.len(), 2);
@@ -208,6 +209,7 @@ mod tests {
             watcher: WatcherConfig::default(),
             synonyms: HashMap::new(),
             hybrid_alpha: None,
+            vault_default: None,
         };
         assert_eq!(config.resolved_db_path(), PathBuf::from("/custom/db.sqlite"));
     }
@@ -225,6 +227,7 @@ mod tests {
             watcher: WatcherConfig::default(),
             synonyms: HashMap::new(),
             hybrid_alpha: None,
+            vault_default: None,
         };
         assert_eq!(config.resolved_db_path(), PathBuf::from("/legacy/db.sqlite"));
     }
@@ -244,6 +247,7 @@ mod tests {
             watcher: WatcherConfig::default(),
             synonyms: HashMap::new(),
             hybrid_alpha: None,
+            vault_default: None,
         };
         assert_eq!(config.resolved_db_path(), PathBuf::from("/new/db.sqlite"));
     }
