@@ -143,6 +143,8 @@ CREATE VIRTUAL TABLE IF NOT EXISTS vec_chunks USING vec0(
 - `extract_frontmatter(content)` → Parse YAML frontmatter, extract title
 - `extract_tasks(content)` → Scan for `- [ ]` / `- [x]` task markers and extract task text
 - `extract_emphasized(content)` → Extract text from `==highlight==` and `**bold**` markers
+- `load_shiotsuchiignore(vault_dir)` → Read `.shiotsuchiignore` from vault root, return pattern list
+- `check_ignore(relative_path, patterns)` → Verify if a path matches any exclude pattern, returns `Err(pattern)` if excluded
 - `markdown_to_text(markdown)` → Strip markup to plain text
 - `title_from_path(path)` → Derive title from filename
 - `sha256_hex(content)` → SHA-256 of raw file content

@@ -67,6 +67,43 @@ shiotsuchi chart --notes-dir ~/Notes
 | `--quiet` | オフ | サマリー出力を抑制 |
 | `--vault` | — | 特定のボールトのみインデックスする（例: `--vault work`） |
 
+### 除外パターン
+
+インデックス対象からファイルを除外するには、以下の 2 つの方法があります（どちらも同じ glob 構文を使用）：
+
+1. **`config.toml`:** `[indexing]` セクションの `exclude_dirs` に設定します。
+2. **`.shiotsuchiignore`:** Vault ルートディレクトリに `.shiotsuchiignore` ファイルを配置します。
+
+パターンは `*`（任意の文字列）、`**`（再帰的）、`?`（任意の1文字）、`[abc]`（文字クラス）をサポートします。
+
+```sh
+# .shiotsuchiignore の例
+node_modules
+*.tmp
+private/
+draft_*
+```
+
+両方のソースのパターンはインデックス時にマージされます。
+
+### `check-ignore` — 除外パターンの診断
+
+指定された相対パスが `exclude_dirs` または `.shiotsuchiignore` によって除外されるかを確認します。
+
+```sh
+shiotsuchi check-ignore "node_modules/foo.md"
+# ✗ 除外: node_modules/foo.md
+#   理由: config.toml の exclude_dirs (pattern: node_modules)
+
+shiotsuchi check-ignore "doc/manual.md"
+# ✓ 除外なし: doc/manual.md
+```
+
+| オプション | デフォルト | 説明 |
+|-----------|-----------|------|
+| `<パス>` | — | 確認する相対パス（例: `private/notes.md`） |
+| `--vault` | 最初のボールト | 除外ルールを確認するボールト |
+
 ---
 
 ### `dive` — ノートを検索する

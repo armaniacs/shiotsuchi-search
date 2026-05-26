@@ -7,7 +7,8 @@ Crate path: `cli/`
 
 | Command | Args | Description |
 |---------|------|-------------|
-| `chart` | `[--notes-dir]` `[--db-path]` `[--vault]` | Index/re-index all Markdown files in all configured vaults (chunk-based) |
+| `chart` | `[--notes-dir]` `[--db-path]` `[--vault]` | Index/re-index all Markdown files in all configured vaults. Reports indexed/skipped/error/excluded counts. |
+| `check-ignore <path>` | `[--vault]` | Check whether a relative path would be excluded by `exclude_dirs` or `.shiotsuchiignore` patterns |
 | `clean` | `[--db-path]` | Backup the database, delete it, then re-index all vaults from scratch |
 | `config detect-noise` | `[--notes-dir]` | Scan vault for exclusion candidates (read-only) |
 | `config-migrate` | `[--config]` | Migrate config from old `[vault]` format to new `[database]` + `[vaults.xxx]` format |
@@ -131,6 +132,18 @@ Note: `exclude_dirs` patterns support glob wildcards (`*`, `**`, `?`, `[abc]`, `
 Patterns containing `/` are matched against the full relative path (e.g. `private/**`).
 Bare names match directories at any depth (e.g. `node_modules` matches `a/node_modules/foo.md`).
 
+Additionally, you can place a `.shiotsuchiignore` file in the vault root directory.
+It uses the same glob syntax as `exclude_dirs`. Patterns from both sources are merged
+at index time. Use `shiotsuchi check-ignore <path>` to diagnose why a file is excluded.
+
+```sh
+# Example .shiotsuchiignore
+node_modules
+*.tmp
+private/
+draft_*
+```
+
 ### `[synonyms]` section (thesaurus)
 
 | Field | Type | Default | Description |
@@ -170,6 +183,7 @@ exclude_dirs = ["node_modules", "templates"]
 - `cli/src/build_info.rs` — Dynamic version string generation for `--version` / `support`
 - `cli/src/util.rs` — Shared utilities (e.g., resolving DB path)
 - `cli/src/commands/chart.rs` — Full vault indexing (chunk-aware, optional embedding)
+- `cli/src/commands/check_ignore.rs` — Exclude pattern diagnostics
 - `cli/src/commands/clean.rs` — DB backup, delete, and re-index
 - `cli/src/commands/config.rs` — Config subcommands (`detect-noise`)
 - `cli/src/commands/config_migrate.rs` — Old-to-new config format migration
@@ -205,7 +219,8 @@ Resolution order:
 
 | Command | Output Format |
 |---------|--------------|
-| `chart` | Human-readable progress (indexed/skipped/errors, invalid patterns if any) |
+| `chart` | Human-readable progress (indexed/skipped/errors, invalid patterns if any, excluded file count) |
+| `check-ignore` | Human-readable exclusion diagnosis (EXCLUDED / NOT excluded + matching pattern source) |
 | `dive` | Pretty JSON with ANSI-highlighted matched terms (or raw JSON with `--json`) |
 | `doctor` | Human-readable diagnostic with interactive repair prompts (TTY) or read-only checks (non-TTY) |
 | `tide` | Human-readable statistics (or JSON with `--json`) |

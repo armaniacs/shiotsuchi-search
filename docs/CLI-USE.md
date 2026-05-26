@@ -67,6 +67,43 @@ Re-running `chart` is safe — it compares file hashes and only updates changed 
 | `--quiet` | off | Suppress the summary output |
 | `--vault` | — | Restrict indexing to a specific vault (e.g., `--vault work`) |
 
+### Exclude patterns
+
+You can exclude files from indexing using two mechanisms (both use the same glob syntax):
+
+1. **`config.toml`:** Set `exclude_dirs` in the `[indexing]` section.
+2. **`.shiotsuchiignore`:** Place a file named `.shiotsuchiignore` in the vault root directory.
+
+Patterns support `*` (any chars), `**` (recursive), `?` (single char), `[abc]` (character class).
+
+```sh
+# Example .shiotsuchiignore
+node_modules
+*.tmp
+private/
+draft_*
+```
+
+Patterns from both sources are merged at index time.
+
+### `check-ignore` — Diagnose exclude patterns
+
+Checks whether a given relative path would be excluded by `exclude_dirs` or `.shiotsuchiignore`.
+
+```sh
+shiotsuchi check-ignore "node_modules/foo.md"
+# ✗ EXCLUDED: node_modules/foo.md
+#   Reason: matched config.toml exclude_dirs (pattern: node_modules)
+
+shiotsuchi check-ignore "doc/manual.md"
+# ✓ NOT excluded: doc/manual.md
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `<path>` | — | Relative path to check (e.g. `private/notes.md`) |
+| `--vault` | first vault | Vault whose exclude rules to check against |
+
 ---
 
 ### `dive` — Search notes
