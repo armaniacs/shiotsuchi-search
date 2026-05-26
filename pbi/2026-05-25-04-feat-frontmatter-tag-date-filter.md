@@ -33,12 +33,12 @@ Scenario: Frontmatter を持たないノートも検索対象になる
 ```
 
 ## 受け入れ基準
-- [ ] `notes_meta` に `tags TEXT` と `frontmatter_date TEXT` カラムが追加される
-- [ ] インデックス時に YAML Frontmatter をパースして `tags`・`frontmatter_date` を格納する
-- [ ] `dive` コマンドに `--tag <tag>` フラグが追加される
-- [ ] `dive` コマンドに `--since <date>` フラグ（ISO 8601 形式）が追加される
-- [ ] タイトル・タグマッチ時に FTS5 スコアブーストが適用される
-- [ ] Frontmatter なしノートはフィルタなし検索では引き続き対象になる
+- [x] `chunks` テーブルに `tags TEXT` と `frontmatter_date TEXT` カラムが追加される
+- [x] インデックス時に YAML Frontmatter をパースして `tags`・`frontmatter_date` を格納する
+- [x] `dive` コマンドに `--tag <tag>` フラグが追加される
+- [x] `dive` コマンドに `--since <date>` フラグ（ISO 8601 形式）が追加される
+- [x] タイトル・タグマッチ時に FTS5 スコアブーストが適用される
+- [x] Frontmatter なしノートはフィルタなし検索では引き続き対象になる
 
 ## テスト戦略（t_wada スタイル）
 
