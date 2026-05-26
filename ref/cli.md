@@ -12,7 +12,7 @@ Crate path: `cli/`
 | `config detect-noise` | `[--notes-dir]` | Scan vault for exclusion candidates (read-only) |
 | `config-migrate` | `[--config]` | Migrate config from old `[vault]` format to new `[database]` + `[vaults.xxx]` format |
 | `delete <path>` | `[--notes-dir]` `[--db-path]` | Remove a note from the index by its vault-relative path |
-| `dive <query>` | `[--notes-dir]` `[--db-path]` `[--limit]` `[--mode]` `[--json]` `[--json-pretty]` `[--fuzzy]` `[--alpha]` `[--tag]` `[--since]` `[--vault]` `[--mmr]` `[--lambda]` `[--model-path]` | Search notes. `--mode`: `keyword` (default), `semantic`, `hybrid`. |
+| `dive <query>` | `[--notes-dir]` `[--db-path]` `[--limit]` `[--mode]` `[--json]` `[--json-pretty]` `[--fuzzy]` `[--alpha]` `[--tag]` `[--since]` `[--vault]` `[--mmr]` `[--lambda]` `[--threshold]` `[--model-path]` | Search notes. `--mode`: `keyword` (default), `semantic`, `hybrid`. |
 | `doctor` | (no args) | Environment health check with interactive repair for config, database, tokenizer, embedder, and vault directories |
 | `dredge` | `[--notes-dir]` `[--db-path]` | Extract and index chunks from existing notes without re-embedding content. Migrates pre-v0.3.3 vaults to chunked schema. |
 | `init` | `[--notes-dir]` `[--db-path]` `[--force]` `[--yes]` | Create config file with interactive exclusion selection |
@@ -20,8 +20,9 @@ Crate path: `cli/`
 | `scan` | `[--notes-dir]` `[--db-path]` `[--vault]` | Watch all configured vaults for file changes and auto-re-index |
 | `setup` | `[--check]` `[--model-path]` | Setup/check ONNX embedding model and Vaporetto tokenizer. `--check` verifies model availability and hash. |
 | `synonym` | `add/remove/list` | — | Manage thesaurus entries via CLI (synonym add/remove/list)
+| `tasks` | `[<keyword>]` `[--all]` | — | Cross-vault task checkbox search (incomplete `- [ ]` and completed `- [x]`) |
 | `support` | (no subcommands) | Display build info, dependency versions, and system information |
-| `tide` | `[--db-path]` | Show vault statistics (chunks, files, vec index status) |
+| `tide` | `[--db-path]` `[--json]` | Show vault statistics with optional JSON output (chunks, files, tags, vec status) |
 
 ## Global Options
 
@@ -104,6 +105,7 @@ When `vault_default` is set and no `--vault` flag is given, `dive`, `chart`, and
 |-------|------|---------|-------------|
 | `db_path` | string | `~/.cache/shiotsuchi/db.sqlite3` | Path to the shared SQLite database |
 | `vault_default` | string | — | Default vault ID used when `--vault` is not specified |
+| `semantic_threshold` | float | — | Minimum score threshold for search results. FTS/Vec: excludes results with score > threshold. Hybrid: excludes results with RRF score < threshold. CLI `--threshold` overrides this. |
 
 ### `[vaults.*]` sections
 
@@ -124,6 +126,10 @@ When `vault_default` is set and no `--vault` flag is given, `dive`, `chart`, and
 | `follow_links` | bool | `false` | Follow symbolic links when walking the vault (with vault boundary protection) |
 | `dynamic_threshold` | integer | 5 | Minimum number of matching files for a directory to be dynamically flagged as noise during `init` scan |
 | `user_dictionary` | string array | `[]` | Custom dictionary entries for Vaporetto tokenization |
+
+Note: `exclude_dirs` patterns support glob wildcards (`*`, `**`, `?`, `[abc]`, `{a,b}`).
+Patterns containing `/` are matched against the full relative path (e.g. `private/**`).
+Bare names match directories at any depth (e.g. `node_modules` matches `a/node_modules/foo.md`).
 
 ### `[synonyms]` section (thesaurus)
 
@@ -176,9 +182,10 @@ exclude_dirs = ["node_modules", "templates"]
 - `cli/src/commands/noise.rs` — Vault scanning logic for exclusion candidate detection
 - `cli/src/commands/scan.rs` — File watcher setup
 - `cli/src/commands/synonym.rs` — Thesaurus entry management
+- `cli/src/commands/tasks.rs` — Task checkbox search
 - `cli/src/commands/setup.rs` — ONNX model download/check
 - `cli/src/commands/support.rs` — Build info display
-- `cli/src/commands/tide.rs` — Statistics display (chunk/file/vector counts)
+- `cli/src/commands/tide.rs` — Statistics display (chunk/file/vector counts, tag stats)
 
 ## DB Path Resolution
 
@@ -199,9 +206,10 @@ Resolution order:
 | Command | Output Format |
 |---------|--------------|
 | `chart` | Human-readable progress (indexed/skipped/errors, invalid patterns if any) |
-| `dive` | Pretty JSON (or raw JSON with `--json`) |
+| `dive` | Pretty JSON with ANSI-highlighted matched terms (or raw JSON with `--json`) |
 | `doctor` | Human-readable diagnostic with interactive repair prompts (TTY) or read-only checks (non-TTY) |
-| `tide` | Human-readable statistics |
+| `tide` | Human-readable statistics (or JSON with `--json`) |
+| `tasks` | Human-readable task list with status markers (`[ ]` / `[x]`) |
 | `scan` | Watcher logs |
 | `log` | Table with columns |
 | `init` | Human-readable config creation summary |

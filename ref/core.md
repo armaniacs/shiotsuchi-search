@@ -67,8 +67,11 @@ CREATE VIRTUAL TABLE IF NOT EXISTS vec_chunks USING vec0(
 - `get_surrounding_chunks(chunk_id, window)` — Fetch chunks before/after a given chunk (for context, includes vault_name)
 - `cached_hash(vault_name, path)` / `upsert_file_cache(vault_name, ...)` / `delete_file_cache(vault_name, path)` — Per-vault incremental index tracking
 - `list_cached_paths(vault_name)` — Indexed file paths for a specific vault
-- `stats()` — Vault statistics (total_chunks, total_files, vec_indexed_chunks, db_path, etc.)
-- `migrate()` — Schema migration (v1→v2: old notes_fts/notes_meta to chunk schema; v2→v3: add vault_name)
+- `stats()` — Vault statistics (total_chunks, total_files, vec_indexed_chunks, db_path, total_chars, top_tags, etc.)
+- `tag_stats(limit)` — Returns top N tags by frequency
+- `insert_tasks(vault_name, file_path, tasks)` — Insert task list for a file
+- `query_tasks(keyword, include_checked)` — Search tasks with optional keyword filter
+- `migrate()` — Schema migration (v1→v2: old notes_fts/notes_meta to chunk schema; v2→v3: add vault_name; v4+: see Schema Migrations)
 
 **Error Type**: `DbError { Sqlite(rusqlite::Error), NotFound(String), Io(std::io::Error), Other(String) }`
 
@@ -83,6 +86,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS vec_chunks USING vec0(
 
 **Key Methods**:
 - `split(text)` → space-separated tokenized string (for FTS5 body column)
+- `tokenize_content(text, is_code)` → Whitespace-split if `is_code=true`, else Vaporetto-based
 - `and_query(text)` → `"東京" AND "検索" AND "エンジン"` (for FTS5 MATCH)
 - `or_query(text)` → `"東京" OR "検索"` (for future OR search)
 
@@ -137,6 +141,8 @@ CREATE VIRTUAL TABLE IF NOT EXISTS vec_chunks USING vec0(
 - `index_file(db, tokenizer, embedder, file_path, vault_name, relative_path, config)` → Index single file: read → split into chunks → FTS insert → optional embedding insert
 - `cleanup_deleted(db, config)` → Remove DB entries for deleted files across all vaults (checks file_cache per vault)
 - `extract_frontmatter(content)` → Parse YAML frontmatter, extract title
+- `extract_tasks(content)` → Scan for `- [ ]` / `- [x]` task markers and extract task text
+- `extract_emphasized(content)` → Extract text from `==highlight==` and `**bold**` markers
 - `markdown_to_text(markdown)` → Strip markup to plain text
 - `title_from_path(path)` → Derive title from filename
 - `sha256_hex(content)` → SHA-256 of raw file content
@@ -192,16 +198,17 @@ Progress is cumulative: `(processed_so_far, total_across_all_vaults)`.
 
 | Type | Fields |
 |------|--------|
-| `Chunk` | id, vault_name, file_path, chunk_index, parent_header, content, tokenized_content, tags, frontmatter_date, title |
-| `ChunkSearchResult` | vault_name, chunk_id, file_path, parent_header, content, score, search_mode, tags, frontmatter_date, title |
+| `Chunk` | id, vault_name, file_path, chunk_index, parent_header, content, tokenized_content, tags, frontmatter_date, title, emphasized_text |
+| `ChunkSearchResult` | vault_name, chunk_id, file_path, parent_header, content, score, search_mode, tags, frontmatter_date, title, emphasized_text |
 | `SearchMode` | `Fts` / `Vec` / `Hybrid` (default) |
 | `EmbedderStatus` | `Ready` / `Unavailable(String)` |
 | `NoteMetadata` | path, hash, mtime, indexed_at, title |
-| `VaultStats` | total_chunks, total_files, total_size_bytes, last_indexed_at, db_path, vec_indexed_chunks, embedder_status |
+| `Task` | id, vault_name, file_path, content, checked (bool), line_number |
+| `VaultStats` | total_chunks, total_files, total_size_bytes, last_indexed_at, db_path, vec_indexed_chunks, embedder_status, total_chars, top_tags |
 | `SearchConfig` | max_snippet_chars (128–65535, default 1000) |
 | `IndexConfig` | vaults, include_extensions, exclude_dirs, auto_exclude_hidden, follow_links, dynamic_threshold |
 | `IndexResult` | `Inserted` / `Updated` / `Skipped` / `Error(String)` |
-| `Config` | synonyms: HashMap\<String, Vec\<String\>\>, vault_default: Option\<String\>, hybrid_alpha: Option\<f64\> |
+| `Config` | synonyms: HashMap, vault_default: Option\<String\>, hybrid_alpha: Option\<f64\>, semantic_threshold: Option\<f64\> |
 
 ### `watcher.rs` — File System Watcher
 
@@ -248,6 +255,9 @@ Progress is cumulative: `(processed_so_far, total_across_all_vaults)`.
 | v3 | Added `vault_name` column to `chunks` and `file_cache`; composite PK on `file_cache(vault_name, path)` |
 | v4 | Added `file_size` column to `file_cache` for two-stage mtime+size skip |
 | v5 | Added `tags`, `frontmatter_date`, `title` columns to `chunks` for frontmatter metadata |
+| v6 | Added `emphasized_text` column to `chunks` for highlighted/bold text detection |
+| v7 | Added `tasks` table for task checkbox extraction (`- [ ]` / `- [x]`) |
+| v8 | (reserved / consolidated) |
 
 The v2→v3 migration is crash-safe: it checks for the column before adding it, and wraps the full migration in a transaction.
 

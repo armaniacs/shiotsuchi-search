@@ -98,6 +98,7 @@ shiotsuchi search "project plan"                     # alias for dive
 | `--alpha` | 0.5 | Hybrid blend ratio (0.0=vec only, 1.0=FTS only) |
 | `--mmr` | off | Enable MMR diversity re-ranking |
 | `--lambda` | 0.5 | MMR relevance/diversity balance (0.0=diversity, 1.0=relevance) |
+| `--threshold` | — | Minimum score threshold. FTS/Vec: excludes results with score above threshold. Hybrid: excludes results below threshold. |
 | `--model-path` | — | Path to ONNX embedding model file (overrides config/env) |
 
 **Search modes:**
@@ -158,15 +159,17 @@ Keep this running in a terminal or register it as a background service. Rapid ed
 
 ### `tide` — Vault statistics
 
-Shows the total note count, last indexed time, and database size.
+Shows total note count, last indexed time, database size, top 10 tags by frequency, and total character count.
 
 ```sh
 shiotsuchi tide
+shiotsuchi tide --json   # JSON output
 ```
 
 | Option | Default | Description |
 |--------|---------|-------------|
 | `--db-path` | `~/.cache/shiotsuchi/db.sqlite3` | Database to read statistics from |
+| `--json` | off | Output statistics as JSON |
 
 ---
 
@@ -188,6 +191,23 @@ The thesaurus file is auto-created on first use. Entries are merged into `config
 | `add <word> <synonyms>...` | Add a synonym pair (word → one or more synonyms) |
 | `remove <word>` | Remove an entire word entry |
 | `list` | List all registered entries |
+
+---
+
+### `tasks` — Search tasks across all vaults
+
+Searches all indexed notes for Markdown task checkboxes (`- [ ]` and `- [x]`).
+
+```sh
+shiotsuchi tasks                          # show all incomplete tasks
+shiotsuchi tasks "レビュー"                # filter tasks by keyword
+shiotsuchi tasks --all                    # include completed tasks
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `<keyword>` | — | Filter tasks by keyword (case-insensitive LIKE) |
+| `--all` | off | Include completed tasks (`- [x]`) in results |
 
 ---
 
