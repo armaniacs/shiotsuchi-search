@@ -16,15 +16,19 @@ use walkdir::WalkDir;
 pub type IndexProgress = Box<dyn Fn(usize, Option<usize>) + Send + 'static>;
 
 /// Escape glob meta-characters so a literal string can be used as a path
-/// component inside a glob pattern.
+/// NOTE: Only backslashes are escaped; glob meta-characters (*, ?, [...])
+/// are passed through so users can write patterns like `draft_*` or `*.tmp`.
 fn escape_glob_literal(s: &str) -> String {
     let mut escaped = String::with_capacity(s.len());
     for ch in s.chars() {
         match ch {
-            '*' | '?' | '[' | ']' | '{' | '}' | '\\' => escaped.push('\\'),
-            _ => {}
+            '\\' => {
+                escaped.push_str("\\\\");
+            }
+            _ => {
+                escaped.push(ch);
+            }
         }
-        escaped.push(ch);
     }
     escaped
 }
@@ -38,7 +42,18 @@ fn build_exclude_globset(patterns: &[String]) -> (GlobSet, usize) {
             continue;
         }
         let escaped = escape_glob_literal(pat);
-        let wrapped = format!("**/{}/**", escaped);
+        // Determine how to wrap each pattern:
+        // - Patterns containing '/' are partial/full relative path patterns
+        //   (prepend `**/` to match anywhere; strip leading `/` if present).
+        // - Patterns already ending with `**` are used as-is.
+        // - Everything else (bare names like `node_modules`, globs like `*.tmp`)
+        //   gets wrapped as `**/{pat}/**` for directory matching.
+        let wrapped = if pat.contains('/') || pat.ends_with("**") {
+            let stripped = pat.trim_start_matches('/');
+            format!("**/{}", stripped)
+        } else {
+            format!("**/{}/**", escaped)
+        };
         let glob = match Glob::new(&wrapped) {
             Ok(g) => g,
             Err(e) => {
@@ -516,17 +531,40 @@ mod tests {
         let (set, _count) = build_exclude_globset(&patterns);
         assert!(set.is_match("node_modules/foo.md"));
         assert!(set.is_match("a/node_modules/foo.md"));
-        assert!(set.is_match(r"[invalid/foo.md"));
+        // `[invalid` is an invalid glob (unclosed bracket) → skipped silently
+        assert!(!set.is_match(r"[invalid/foo.md"), "invalid pattern should be skipped");
     }
 
     #[test]
-    fn test_build_exclude_globset_escapes_special_chars() {
-        let patterns = vec!["draft_*".to_string(), "*.bak".to_string()];
+    fn test_build_exclude_globset_glob_patterns() {
+        // With glob characters no longer escaped, patterns like `draft_*`
+        // and `*.tmp` act as actual glob wildcards, not literal `*`.
+
+        let patterns = vec!["draft_*".to_string(), "*.tmp".to_string()];
         let (set, _count) = build_exclude_globset(&patterns);
-        assert!(set.is_match("draft_*/foo.md"));
-        assert!(!set.is_match("draft_2024/foo.md"));
-        assert!(set.is_match(r"*.bak/foo.md"));
-        assert!(!set.is_match("important.bak/foo.md"));
+
+        // `draft_*` is wrapped as `**/draft_*/**` → matches dirs starting with `draft_`
+        assert!(set.is_match("draft_2024/foo.md"), "draft_* should match draft_2024 directory");
+        assert!(!set.is_match("released_2024/foo.md"), "draft_* should not match released_2024");
+
+        // `*.tmp` is wrapped as `**/*.tmp/**` → matches dirs ending in `.tmp`
+        assert!(set.is_match("work.tmp/notes.md"), "*.tmp should match work.tmp directory");
+        assert!(!set.is_match("work_tmp/notes.md"), "*.tmp should not match work_tmp");
+
+        // With `draft_*`, non-matching paths pass through
+        assert!(!set.is_match("src/main.rs"), "unrelated path should not match");
+    }
+
+    #[test]
+    fn test_build_exclude_globset_slash_patterns() {
+        // Patterns containing '/' are treated as path patterns (not dir-only).
+        let patterns = vec!["private/".to_string(), "**/secret/*".to_string()];
+        let (set, _count) = build_exclude_globset(&patterns);
+
+        assert!(set.is_match("private/foo.md"), "private/ should match files under private/");
+        assert!(set.is_match("a/private/foo.md"), "private/ should match nested too");
+        assert!(!set.is_match("public/foo.md"), "public/ should not match");
+        assert!(set.is_match("team/secret/plan.md"), "secret/* should match files in secret dir");
     }
 
     #[test]
@@ -852,16 +890,19 @@ mod tests {
 
     #[test]
     fn test_escape_glob_literal_special_chars() {
-        assert_eq!(escape_glob_literal("file*"), "file\\*");
-        assert_eq!(escape_glob_literal("file?"), "file\\?");
-        assert_eq!(escape_glob_literal("[test]"), "\\[test\\]");
-        assert_eq!(escape_glob_literal("{a,b}"), "\\{a,b\\}");
+        // Glob meta-characters (*, ?, [...]) are NOT escaped anymore;
+        // only backslash is escaped.
+        assert_eq!(escape_glob_literal("file*"), "file*");
+        assert_eq!(escape_glob_literal("file?"), "file?");
+        assert_eq!(escape_glob_literal("[test]"), "[test]");
+        assert_eq!(escape_glob_literal("{a,b}"), "{a,b}");
         assert_eq!(escape_glob_literal("back\\slash"), "back\\\\slash");
     }
 
     #[test]
     fn test_escape_glob_literal_multiple_special() {
-        assert_eq!(escape_glob_literal("a*b?c[d]e{f}g"), "a\\*b\\?c\\[d\\]e\\{f\\}g");
+        // Meta-chars pass through; only backslash is doubled.
+        assert_eq!(escape_glob_literal("a*b?c[d]e{f}g"), "a*b?c[d]e{f}g");
     }
 
     #[test]
@@ -933,8 +974,8 @@ mod tests {
     fn test_build_exclude_globset_all_invalid_patterns() {
         let patterns = vec!["[".to_string()];
         let (set, invalid) = build_exclude_globset(&patterns);
-        assert_eq!(invalid, 0, "escape_glob_literal escapes [, making it valid");
-        assert!(set.is_match("projects/[/notes.md"), "escaped [ is a valid literal glob");
+        assert_eq!(invalid, 1, "unclosed bracket [ should be invalid as glob");
+        assert!(!set.is_match("projects/[/notes.md"), "invalid pattern should not match");
     }
 
     #[test]
@@ -999,12 +1040,13 @@ mod tests {
 
     #[test]
     fn test_build_exclude_globset_literal_with_brackets() {
-        // The function escapes [ ] so they're treated literally
+        // Brackets are glob meta-characters; `[test]` is a character class.
         let patterns = vec!["[test]".to_string()];
         let (set, invalid) = build_exclude_globset(&patterns);
         assert_eq!(invalid, 0);
-        assert!(set.is_match("dir/[test]/notes.md"));
-        assert!(!set.is_match("dir/t/notes.md")); // [test] is literal, not char class
+        assert!(set.is_match("dir/t/notes.md"), "[test] as char class should match 't'");
+        assert!(set.is_match("dir/s/notes.md"), "[test] as char class should match 's'");
+        assert!(!set.is_match("dir/z/notes.md"), "[test] should not match 'z'");
     }
 
     #[test]
@@ -1060,7 +1102,7 @@ mod tests {
     fn test_escape_glob_literal_all_special_chars() {
         assert_eq!(
             escape_glob_literal("*?[]{},"),
-            "\\*\\?\\[\\]\\{\\},"
+            "*?[]{},"
         );
     }
 }

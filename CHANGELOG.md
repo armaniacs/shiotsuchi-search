@@ -16,6 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   above the threshold (lower BM25 / cosine distance = more relevant). Hybrid
   mode excludes results with RRF score below the threshold. CLI `--threshold`
   overrides config value when both are specified.
+- **Glob pattern support for `exclude_dirs`**: `exclude_dirs` patterns now
+  support actual glob wildcards (`*`, `?`, `[abc]`, `{a,b}`) instead of treating
+  them as literal characters. Patterns like `draft_*` match directories starting
+  with `draft_`, and path patterns containing `/` are matched against the full
+  relative path. Backward-compatible for existing literal directory name patterns.
 
 ## [0.4.9] - 2026-05-26
 
