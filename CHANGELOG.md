@@ -7,6 +7,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > For project overview, features, installation, and usage, see [README.md](README.md).
 
+## [0.4.9] - 2026-05-26
+
+### Added
+
+- **MMR diversity re-ranking** (`dive --mmr --lambda 0.5`): Maximal Marginal Relevance
+  re-ranks search results to balance relevance and diversity. Prevents near-duplicate
+  chunks from dominating top results. Lambda controls the trade-off (0.0 = max
+  diversity, 1.0 = pure relevance). Works in Vec and Hybrid modes with O(n²)
+  precomputed similarity matrix. (4 unit tests)
+- **Synonym CLI manager** (`shiotsuchi synonym add/remove/list`): Manage thesaurus
+  entries from the command line without editing `config.toml` directly. Entries
+  are stored in `~/.config/shiotsuchi/thesaurus.toml` and auto-merged into
+  `ShiotsuchiConfig.synonyms` at startup. Supports multiple synonyms per word,
+  duplicate detection, and file auto-creation on first use.
+- **`vault_default` config option**: Set `vault_default = "work"` in `config.toml`
+  to always restrict `dive`, `chart`, and `scan` to a specific vault when `--vault`
+  is not specified.
+- **`--vault` flag for `chart` and `scan`**: Both commands now support filtering
+  by vault ID, matching the existing `dive --vault` behavior.
+- **Japanese help text for all subcommands**: All 15 `shiotsuchi` subcommand
+  descriptions now display in Japanese via `--help` (e.g., `ファイル監視`,
+  `設定初期化`, `データベースを削除して最初からインデックスを再構築する`).
+
+### Changed
+
+- **Semantic search now optional via Cargo feature flag**: The `ort` (ONNX Runtime)
+  dependency and all vector search code is gated behind the `semantic` feature
+  (enabled by default). Building with `cargo build --no-default-features` produces
+  a lightweight binary for FTS5-only users. The `--no-default-features` build
+  compiles cleanly across CLI, MCP, and E2E crates.
+- **`hybrid_alpha` config field**: The alpha blend ratio for hybrid search can now
+  be set in `config.toml` via `hybrid_alpha = 0.3` (0.0 = vec only, 1.0 = FTS only).
+  CLI `--alpha` flag takes precedence when both are specified. Default remains 0.5.
+- **`shiotsuchi support` command now shows config**: The `support` command displays
+  runtime configuration values alongside build info when invoked without `--json`.
+
+### Fixed
+
+- **Embedding error masking**: ONNX inference failures (e.g., input too long,
+  model corruption) are now propagated with the real error message instead of
+  the misleading "model not loaded" generic message.
+- **MMR similarity matrix OOM guard**: Added `MAX_MMR_CANDIDATES = 10_000` cap —
+  MMR re-ranking falls back to original order when the candidate pool exceeds
+  this bound, preventing accidental memory exhaustion.
+- **Removed dead code**: `get_chunk_vectors()` in `db.rs` was unused since
+  embeddings are now returned inline from `vec_search()`. Eliminated to reduce
+  maintenance surface.
+- **Embedding precomputation hoisted**: Query embedding is computed once and
+  shared across Vec search, Hybrid RRF blending, and MMR re-ranking, eliminating
+  duplicate ONNX inference calls.
+
+### Removed
+
+- **Archived 12 completed PBIs**: PBI-01 through PBI-11 (mtime+size scan,
+  semantic flag, multi-vault, frontmatter filter, i18n, DB path, user
+  dictionary, synonym map, fuzzy search, alpha tuning, MMR) and PBI-28
+  (synonym CLI manager) moved from `pbi/` to `.plan/archived/`.
+
 ## [0.4.8] - 2026-05-25
 
 ### Added
@@ -598,7 +656,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `docs/MODEL_LICENSES.md` with BSD-3-Clause notice for the bundled tokenizer model
 - `README.md` (English) and `README.ja.md` (Japanese)
 
-[Unreleased]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.4.8...HEAD
+[Unreleased]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.4.9...HEAD
+[0.4.9]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.4.8...v0.4.9
 [0.4.8]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.4.7...v0.4.8
 [0.4.7]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.4.6...v0.4.7
 [0.4.6]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.4.5...v0.4.6
