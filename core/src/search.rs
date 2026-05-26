@@ -1,7 +1,7 @@
 use crate::{
     db::{DbError, NoteDatabase},
     models::{ChunkSearchResult, SearchMode},
-    tokenizer::{apply_user_dictionary, simple_and_query, JapaneseTokenizer},
+    tokenizer::{apply_user_dictionary, normalize, simple_and_query, JapaneseTokenizer},
 };
 use std::collections::HashMap;
 use log;
@@ -10,6 +10,7 @@ use log;
 ///
 /// `tag_filter` — comma-separated tag string to match (empty/none = no filter).
 /// `since_date` — ISO 8601 date string for minimum frontmatter date filter.
+#[allow(clippy::too_many_arguments)]
 #[allow(clippy::too_many_arguments)]
 #[allow(clippy::too_many_arguments)]
 #[allow(clippy::too_many_arguments)]
@@ -26,6 +27,7 @@ pub fn search(
     since_date: Option<&str>,
     user_dictionary: &[String],
     synonyms: &HashMap<String, Vec<String>>,
+    fuzzy: bool,
 ) -> Result<Vec<ChunkSearchResult>, DbError> {
     if query.trim().is_empty() {
         return Ok(vec![]);
@@ -38,14 +40,14 @@ pub fn search(
     };
 
     match effective_mode {
-        SearchMode::Fts => search_fts(db, tokenizer, query, limit, min_score, vault_filter, tag_filter, since_date, user_dictionary, synonyms),
+        SearchMode::Fts => search_fts(db, tokenizer, query, limit, min_score, vault_filter, tag_filter, since_date, user_dictionary, synonyms, fuzzy),
         SearchMode::Vec => {
             let emb = embedder.ok_or_else(|| DbError::Other("Vec mode requires embedder — model not loaded".into()))?;
             search_vec(db, emb, query, limit, min_score, vault_filter, tag_filter, since_date)
         }
         SearchMode::Hybrid => {
             let emb = embedder.ok_or_else(|| DbError::Other("Hybrid mode requires embedder — model not loaded".into()))?;
-            search_hybrid(db, tokenizer, emb, query, limit, min_score, vault_filter, tag_filter, since_date, user_dictionary, synonyms)
+            search_hybrid(db, tokenizer, emb, query, limit, min_score, vault_filter, tag_filter, since_date, user_dictionary, synonyms, fuzzy)
         }
     }
 }
@@ -204,8 +206,14 @@ fn search_fts(
     since_date: Option<&str>,
     user_dictionary: &[String],
     synonyms: &HashMap<String, Vec<String>>,
+    fuzzy: bool,
 ) -> Result<Vec<ChunkSearchResult>, DbError> {
     let tokens = tokenizer.collect_tokens(query);
+    let tokens = if fuzzy {
+        tokens.iter().map(|t| normalize(t)).collect()
+    } else {
+        tokens
+    };
     let tokens = apply_user_dictionary(&tokens, user_dictionary);
     let fts5_query = expand_synonyms(&tokens, synonyms);
     let fts5_query = if fts5_query.is_empty() {
@@ -306,10 +314,11 @@ fn search_hybrid(
     since_date: Option<&str>,
     user_dictionary: &[String],
     synonyms: &HashMap<String, Vec<String>>,
+    fuzzy: bool,
 ) -> Result<Vec<ChunkSearchResult>, DbError> {
     const K: f64 = 60.0;
 
-    let fts_results = search_fts(db, tokenizer, query, limit * 2, None, vault_filter, None, None, user_dictionary, synonyms)?;
+    let fts_results = search_fts(db, tokenizer, query, limit * 2, None, vault_filter, None, None, user_dictionary, synonyms, fuzzy)?;
     let vec_results = search_vec(db, embedder, query, limit * 2, None, vault_filter, None, None)?;
 
     let rrf_scores = compute_rrf(&fts_results, &vec_results, limit, K);
@@ -476,7 +485,7 @@ mod tests {
         }];
         db.insert_chunks(&chunks).unwrap();
 
-        let results = search(&db, &tokenizer, "search engine", 10, SearchMode::Fts, None, None, None, None, None, &[], &HashMap::new()).unwrap();
+        let results = search(&db, &tokenizer, "search engine", 10, SearchMode::Fts, None, None, None, None, None, &[], &HashMap::new(), false).unwrap();
         assert!(!results.is_empty());
         assert_eq!(results[0].file_path, "test.md");
         assert!(matches!(results[0].search_mode, SearchMode::Fts));
@@ -516,19 +525,19 @@ mod tests {
         db.insert_chunks(&chunks).unwrap();
 
         // Filter by "work" vault
-        let results = search(&db, &tokenizer, "alpha", 10, SearchMode::Fts, None, None, Some("work"), None, None, &[], &HashMap::new()).unwrap();
+        let results = search(&db, &tokenizer, "alpha", 10, SearchMode::Fts, None, None, Some("work"), None, None, &[], &HashMap::new(), false).unwrap();
         assert_eq!(results.len(), 1, "expected 1 result in work vault");
         assert_eq!(results[0].vault_name, "work");
         assert_eq!(results[0].file_path, "vault_a.md");
 
         // Filter by "personal" vault
-        let results = search(&db, &tokenizer, "alpha", 10, SearchMode::Fts, None, None, Some("personal"), None, None, &[], &HashMap::new()).unwrap();
+        let results = search(&db, &tokenizer, "alpha", 10, SearchMode::Fts, None, None, Some("personal"), None, None, &[], &HashMap::new(), false).unwrap();
         assert_eq!(results.len(), 1, "expected 1 result in personal vault");
         assert_eq!(results[0].vault_name, "personal");
         assert_eq!(results[0].file_path, "vault_b.md");
 
         // No filter → both
-        let results = search(&db, &tokenizer, "alpha", 10, SearchMode::Fts, None, None, None, None, None, &[], &HashMap::new()).unwrap();
+        let results = search(&db, &tokenizer, "alpha", 10, SearchMode::Fts, None, None, None, None, None, &[], &HashMap::new(), false).unwrap();
         assert_eq!(results.len(), 2, "expected 2 results across all vaults");
     }
 
@@ -536,7 +545,7 @@ mod tests {
     fn test_search_empty_query_returns_empty() {
         let db = NoteDatabase::open_in_memory().unwrap();
         let tokenizer = crate::require_tokenizer!(crate::tokenizer::TokenizerConfig::default());
-        let results = search(&db, &tokenizer, "  ", 10, SearchMode::Fts, None, None, None, None, None, &[], &HashMap::new()).unwrap();
+        let results = search(&db, &tokenizer, "  ", 10, SearchMode::Fts, None, None, None, None, None, &[], &HashMap::new(), false).unwrap();
         assert!(results.is_empty());
     }
 
@@ -559,7 +568,7 @@ mod tests {
         db.insert_chunks(&chunks).unwrap();
 
         // Hybrid with no embedder → falls back to FTS
-        let results = search(&db, &tokenizer, "hybrid fallback", 10, SearchMode::Hybrid, None, None, None, None, None, &[], &HashMap::new()).unwrap();
+        let results = search(&db, &tokenizer, "hybrid fallback", 10, SearchMode::Hybrid, None, None, None, None, None, &[], &HashMap::new(), false).unwrap();
         assert!(!results.is_empty());
         assert!(matches!(results[0].search_mode, SearchMode::Fts));
     }
@@ -684,7 +693,7 @@ mod tests {
             Ok(tok) => tok,
             Err(_) => return,
         };
-        let result = search(&db, &tokenizer, "test", 10, SearchMode::Vec, None, None, None, None, None, &[], &HashMap::new());
+        let result = search(&db, &tokenizer, "test", 10, SearchMode::Vec, None, None, None, None, None, &[], &HashMap::new(), false);
         match result {
             Err(crate::db::DbError::Other(msg)) => {
                 assert!(msg.contains("embedder"), "error should mention embedder");
@@ -700,7 +709,7 @@ mod tests {
             Ok(tok) => tok,
             Err(_) => return,
         };
-        let result = search(&db, &tokenizer, "test", 10, SearchMode::Hybrid, None, None, None, None, None, &[], &HashMap::new());
+        let result = search(&db, &tokenizer, "test", 10, SearchMode::Hybrid, None, None, None, None, None, &[], &HashMap::new(), false);
         assert!(result.is_ok(), "Hybrid without embedder should fall back to FTS, got error");
     }
 
@@ -711,8 +720,109 @@ mod tests {
             Ok(tok) => tok,
             Err(_) => return,
         };
-        let result = search(&db, &tokenizer, "test", 10, SearchMode::Fts, None, None, None, None, None, &[], &HashMap::new());
+        let result = search(&db, &tokenizer, "test", 10, SearchMode::Fts, None, None, None, None, None, &[], &HashMap::new(), false);
         assert!(result.is_ok());
+    }
+
+    // ── fuzzy search ────────────────────────────────────────────────
+
+    #[test]
+    fn test_search_fuzzy_true_normalizes_query_and_matches() {
+        let db = crate::db::NoteDatabase::open_in_memory().unwrap();
+        let tokenizer = match JapaneseTokenizer::new(crate::tokenizer::TokenizerConfig::default()) {
+            Ok(tok) => tok,
+            Err(_) => return,
+        };
+
+        // Insert a chunk with normalized tokenized_content (mimics what the indexer stores)
+        let chunks = vec![
+            crate::models::Chunk {
+                id: None,
+                file_path: "test.md".into(),
+                chunk_index: 0,
+                parent_header: None,
+                content: "hello world".into(),
+                tokenized_content: "hello world".into(), // already normalized
+                vault_name: String::new(),
+                tags: String::new(),
+                frontmatter_date: String::new(),
+                title: String::new(),
+            },
+        ];
+        db.insert_chunks(&chunks).unwrap();
+
+        // fuzzy=false with uppercase query → no match (case-sensitive FTS5)
+        let results = search(&db, &tokenizer, "HELLO", 10, SearchMode::Fts, None, None, None, None, None, &[], &HashMap::new(), false).unwrap();
+        assert!(results.is_empty(), "non-fuzzy search should not match uppercase 'HELLO' against 'hello'");
+
+        // fuzzy=true → query is normalized to lowercase → matches
+        let results = search(&db, &tokenizer, "HELLO", 10, SearchMode::Fts, None, None, None, None, None, &[], &HashMap::new(), true).unwrap();
+        assert!(!results.is_empty(), "fuzzy search should match 'HELLO' against 'hello'");
+        assert_eq!(results[0].file_path, "test.md");
+    }
+
+    #[test]
+    fn test_search_fuzzy_fullwidth_matches_halfwidth() {
+        let db = crate::db::NoteDatabase::open_in_memory().unwrap();
+        let tokenizer = match JapaneseTokenizer::new(crate::tokenizer::TokenizerConfig::default()) {
+            Ok(tok) => tok,
+            Err(_) => return,
+        };
+
+        // Insert normalized tokenized content (halfwidth)
+        let chunks = vec![
+            crate::models::Chunk {
+                id: None,
+                file_path: "note.md".into(),
+                chunk_index: 0,
+                parent_header: None,
+                content: "apple".into(),
+                tokenized_content: "apple".into(),
+                vault_name: String::new(),
+                tags: String::new(),
+                frontmatter_date: String::new(),
+                title: String::new(),
+            },
+        ];
+        db.insert_chunks(&chunks).unwrap();
+
+        // fuzzy=true with fullwidth query → normalized to "apple" → matches
+        let results = search(&db, &tokenizer, "ａｐｐｌｅ", 10, SearchMode::Fts, None, None, None, None, None, &[], &HashMap::new(), true).unwrap();
+        assert!(!results.is_empty(), "fuzzy search should match fullwidth 'ａｐｐｌｅ' against 'apple'");
+    }
+
+    #[test]
+    fn test_search_fuzzy_false_does_not_normalize() {
+        let db = crate::db::NoteDatabase::open_in_memory().unwrap();
+        let tokenizer = match JapaneseTokenizer::new(crate::tokenizer::TokenizerConfig::default()) {
+            Ok(tok) => tok,
+            Err(_) => return,
+        };
+
+        // Insert non-normalized tokenized content (mixed case)
+        let chunks = vec![
+            crate::models::Chunk {
+                id: None,
+                file_path: "test.md".into(),
+                chunk_index: 0,
+                parent_header: None,
+                content: "Hello".into(),
+                tokenized_content: "Hello".into(), // not normalized (mimics old DB)
+                vault_name: String::new(),
+                tags: String::new(),
+                frontmatter_date: String::new(),
+                title: String::new(),
+            },
+        ];
+        db.insert_chunks(&chunks).unwrap();
+
+        // fuzzy=false with exact case → matches
+        let results = search(&db, &tokenizer, "Hello", 10, SearchMode::Fts, None, None, None, None, None, &[], &HashMap::new(), false).unwrap();
+        assert!(!results.is_empty(), "non-fuzzy should match exact case 'Hello'");
+
+        // fuzzy=false with different case → no match
+        let results = search(&db, &tokenizer, "hello", 10, SearchMode::Fts, None, None, None, None, None, &[], &HashMap::new(), false).unwrap();
+        assert!(results.is_empty(), "non-fuzzy should not match different case 'hello' against 'Hello'");
     }
 
     // ── extract_snippet edge cases ───────────────────────────────────

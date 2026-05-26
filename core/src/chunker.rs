@@ -1,6 +1,6 @@
 use crate::frontmatter::extract_frontmatter;
 use crate::models::Chunk;
-use crate::tokenizer::{apply_user_dictionary_str, JapaneseTokenizer};
+use crate::tokenizer::{apply_user_dictionary_str, normalize, JapaneseTokenizer};
 
 /// Maximum content length before attempting a paragraph-level split.
 /// Sections longer than this are split on blank-line boundaries.
@@ -64,7 +64,7 @@ pub fn split_into_chunks(
                     continue;
                 }
                 let idx = chunks.len() as i64;
-                let tokenized = apply_user_dictionary_str(&tokenizer.split(para), user_dictionary);
+                let tokenized = normalize(&apply_user_dictionary_str(&tokenizer.split(para), user_dictionary));
                 chunks.push(Chunk {
                     id: None,
                     file_path: file_path.to_string(),
@@ -80,7 +80,7 @@ pub fn split_into_chunks(
             }
         } else {
             let idx = chunks.len() as i64;
-            let tokenized = apply_user_dictionary_str(&tokenizer.split(trimmed), user_dictionary);
+            let tokenized = normalize(&apply_user_dictionary_str(&tokenizer.split(trimmed), user_dictionary));
             chunks.push(Chunk {
                 id: None,
                 file_path: file_path.to_string(),
@@ -98,7 +98,7 @@ pub fn split_into_chunks(
 
     // If the content had no splitting headers and no paragraphs, use whole doc
     if chunks.is_empty() {
-        let tokenized = apply_user_dictionary_str(&tokenizer.split(markdown.trim()), user_dictionary);
+        let tokenized = normalize(&apply_user_dictionary_str(&tokenizer.split(markdown.trim()), user_dictionary));
         chunks.push(Chunk {
             id: None,
             file_path: file_path.to_string(),
@@ -646,6 +646,51 @@ mod tests {
         // With correct fence tracking, the section after the fence should
         // be in the same chunk as the code block (since headers inside fences are not split).
         assert_eq!(chunks.len(), 1, "code block should not be split by inner ~~~");
+    }
+
+    #[test]
+    fn test_normalize_fullwidth_in_tokenized_content() {
+        let md = "# Fullwidth\n\nＡＢＣテスト";
+        let tok = crate::require_tokenizer!(Default::default());
+        let chunks = split_into_chunks(md, &tok, "test.md", "default", &[]);
+        assert_eq!(chunks.len(), 1);
+        // Tokenized content should be normalized: fullwidth ASCII → halfwidth lowercase
+        let tok = &chunks[0].tokenized_content;
+        assert!(
+            tok.contains("abc"),
+            "tokenized content should contain normalized 'abc', got: {}",
+            tok
+        );
+        // Original (non-normalized) form should NOT appear
+        assert!(
+            !tok.contains('Ａ'),
+            "fullwidth chars should not appear in tokenized content: {}",
+            tok
+        );
+    }
+
+    #[test]
+    fn test_normalize_mixed_case_in_tokenized_content() {
+        let md = "# Mixed Case\n\nHello World";
+        let tok = crate::require_tokenizer!(Default::default());
+        let chunks = split_into_chunks(md, &tok, "test.md", "default", &[]);
+        assert_eq!(chunks.len(), 1);
+        let tok = &chunks[0].tokenized_content;
+        assert!(
+            tok.contains("hello"),
+            "tokenized content should contain lowercase 'hello', got: {}",
+            tok
+        );
+        assert!(
+            tok.contains("world"),
+            "tokenized content should contain lowercase 'world', got: {}",
+            tok
+        );
+        assert!(
+            !tok.contains("Hello"),
+            "original case should not appear in tokenized content: {}",
+            tok
+        );
     }
 }
 

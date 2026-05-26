@@ -173,6 +173,25 @@ impl JapaneseTokenizer {
     }
 }
 
+/// Normalize text for fuzzy search: Unicode NFKC normalization followed by
+/// ASCII lowercasing.
+///
+/// NFKC handles:
+/// - Full-width to half-width ASCII (Ａ → A, １ → 1)
+/// - Compatibility normalization (㍻ → 平成, ℌ → H)
+/// - Combining character canonical recomposition (が → が)
+///
+/// Lowercasing handles case-insensitive matching for ASCII terms.
+///
+/// This is a no-op for text already in NFKC form with lowercase ASCII,
+/// which covers the vast majority of real-world content.
+pub fn normalize(text: &str) -> String {
+    use unicode_normalization::UnicodeNormalization;
+    text.nfkc()
+        .collect::<String>()
+        .to_lowercase()
+}
+
 /// Apply user dictionary to a space-separated token string.
 /// Convenience wrapper around [`apply_user_dictionary`].
 pub fn apply_user_dictionary_str(tokens: &str, dict: &[String]) -> String {
@@ -408,6 +427,47 @@ mod tests {
         // "Amazon Web" is a shorter match, but "Amazon Web Services" doesn't match fully
         // "Amazon Web" is 2 tokens — it should match
         assert_eq!(result, vec!["Amazon Web".to_string(), "Services".to_string()]);
+    }
+
+    // ── normalize / fuzzy normalization ──────────────────────────
+
+    #[test]
+    fn test_normalize_ascii_lowercase() {
+        assert_eq!(normalize("Hello World"), "hello world");
+        assert_eq!(normalize("ABC"), "abc");
+    }
+
+    #[test]
+    fn test_normalize_fullwidth_to_halfwidth() {
+        assert_eq!(normalize("ＡＢＣ"), "abc");
+        assert_eq!(normalize("１２３"), "123");
+    }
+
+    #[test]
+    fn test_normalize_mixed_width() {
+        assert_eq!(normalize("Ａｐｐｌｅ"), "apple");
+        assert_eq!(normalize("Hello１２３"), "hello123");
+    }
+
+    #[test]
+    fn test_normalize_combining_characters() {
+        // か + ゙(U+3099) should become が (U+304C) via NFC
+        let combined = "か\u{3099}"; // か + combining dakuten
+        let composed = normalize(combined);
+        assert_eq!(composed, "が", "combining dakuten should compose to single char");
+        assert_eq!(composed.chars().count(), 1, "composed result should be a single character");
+    }
+
+    #[test]
+    fn test_normalize_already_normalized_unchanged() {
+        // Already NFC and lowercase should be unchanged
+        let s = "hello world 123 東京";
+        assert_eq!(normalize(s), s);
+    }
+
+    #[test]
+    fn test_normalize_empty_string() {
+        assert_eq!(normalize(""), "");
     }
 
     #[test]

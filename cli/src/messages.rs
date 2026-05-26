@@ -41,6 +41,7 @@ pub const DIVE_MODEL_PATH_HELP: &str = "ONNX 埋め込みモデルファイル�
 pub const DIVE_VAULT_HELP: &str = "特定のボールトに絞り込む";
 pub const DIVE_TAG_HELP: &str = "フロントマターのタグで絞り込み（例: --tag project）";
 pub const DIVE_SINCE_HELP: &str = "フロントマターの日付で絞り込み（ISO 8601, 例: --since 2026-01-01）";
+pub const DIVE_FUZZY_HELP: &str = "あいまい検索を有効化（全角/半角・大文字/小文字の差異を吸収）";
 
 pub const ERR_VAULT_NOT_FOUND: &str = "ボールト '{}' は設定に定義されていません。利用可能なボールト: {}";
 pub const WARN_EMBEDDER_LOAD_FAILED: &str = "[警告] 埋め込みモデルの読み込みに失敗しました: {}。FTS（キーワード検索）のみ使用します";
