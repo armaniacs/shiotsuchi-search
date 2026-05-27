@@ -3,6 +3,58 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+/// Embedding provider configuration.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(tag = "provider", rename_all = "kebab-case")]
+pub enum EmbedderConfig {
+    /// Use the built-in model resolution (env var / XDG default). This is the default.
+    #[default]
+    BuiltIn,
+    /// Load a specific ONNX model file from disk.
+    OnnxFile {
+        path: PathBuf,
+    },
+}
+
+impl EmbedderConfig {
+    /// Resolve to an ONNX model path.
+    ///
+    /// - `OnnxFile`: returns the configured path if the file exists.
+    /// - `BuiltIn`: delegates to `embedder::resolve_model_path(None)`.
+    ///
+    /// Returns `None` if no model file is found.
+    pub fn resolve_model_path(&self) -> Option<PathBuf> {
+        match self {
+            EmbedderConfig::OnnxFile { path } => Some(path.clone()),
+            EmbedderConfig::BuiltIn => {
+                // Delegate to the standard resolution logic in the embedder module.
+                // We replicate the logic here to avoid a circular dependency between
+                // config and embedder modules.
+                use std::env;
+                if let Ok(val) = env::var("SHIOTSUCHI_EMBED_MODEL_PATH") {
+                    let p = PathBuf::from(val);
+                    if p.exists() {
+                        return Some(p);
+                    }
+                }
+                let xdg_data = if let Some(xdg) = env::var_os("XDG_DATA_HOME") {
+                    PathBuf::from(xdg)
+                } else if let Some(home) = dirs::home_dir() {
+                    home.join(".local").join("share")
+                } else {
+                    PathBuf::from(".")
+                };
+                let default_path = xdg_data.join("shiotsuchi").join("model.onnx");
+                if default_path.exists() {
+                    Some(default_path)
+                } else {
+                    None
+                }
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct DatabaseConfig {
@@ -108,6 +160,10 @@ pub struct ShiotsuchiConfig {
     /// Example config.toml: `semantic_threshold = 0.75`
     #[serde(default)]
     pub semantic_threshold: Option<f64>,
+    /// Embedding model configuration.
+    /// Defaults to built-in model resolution (env var / XDG default).
+    #[serde(default)]
+    pub embedder: EmbedderConfig,
 }
 
 impl ShiotsuchiConfig {
