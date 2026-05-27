@@ -20,7 +20,7 @@ pub mod watcher;
 pub mod embedder;
 
 #[cfg(feature = "semantic")]
-pub(crate) mod api_embedder;
+mod api_embedder;
 
 #[cfg(not(feature = "semantic"))]
 pub mod embedder {
