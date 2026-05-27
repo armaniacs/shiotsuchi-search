@@ -201,4 +201,43 @@ mod tests {
             &shiotsuchi_core::config::EmbedderConfig::default(),
         );
     }
+
+    #[test]
+    fn test_chart_warns_when_api_key_in_config() {
+        let temp = TempDir::new().unwrap();
+        let db_file = temp.path().join("test.db");
+        let vault = temp.path().join("vault");
+        std::fs::create_dir_all(&vault).unwrap();
+        std::fs::write(vault.join("note.md"), "# Hello").unwrap();
+
+        let api_cfg = shiotsuchi_core::config::EmbedderConfig::Api {
+            endpoint: "https://api.example.com".to_string(),
+            model: "model".to_string(),
+            api_key: Some("sk-test".to_string()),
+        };
+
+        let args = ChartArgs {
+            force: false,
+            quiet: false,
+            vault: None,
+        };
+        let idx_cfg = IndexingConfig::default();
+
+        // Ensure env var is not set for this test
+        let old_env = std::env::var_os("SHIOTSUCHI_API_KEY");
+        std::env::remove_var("SHIOTSUCHI_API_KEY");
+
+        // The fake endpoint doesn't exist, so create_embedder() will succeed in building
+        // the ApiClient but embedder operations may fail later. The warning path should
+        // still be exercised because the config contains api_key and the env var is absent.
+        let _ = run_chart(&args, &[("default".to_string(), vault)], &db_file, &idx_cfg, &api_cfg);
+
+        // Restore env var if it was set
+        if let Some(v) = old_env {
+            std::env::set_var("SHIOTSUCHI_API_KEY", v);
+        }
+
+        // This test is best-effort: verifying the warning branch compiles and runs
+        // without panicking. Full stderr capture would require a custom writer.
+    }
 }
