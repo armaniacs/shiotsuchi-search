@@ -19,6 +19,9 @@ pub mod watcher;
 #[cfg(feature = "semantic")]
 pub mod embedder;
 
+#[cfg(feature = "semantic")]
+pub(crate) mod api_embedder;
+
 #[cfg(not(feature = "semantic"))]
 pub mod embedder {
     //! Stub module — compiled only when the `semantic` feature is disabled.
