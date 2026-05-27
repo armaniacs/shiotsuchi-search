@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.10] - 2026-05-27
+
 ### Added
 
 - **`--threshold` CLI flag and `semantic_threshold` config option**: Filter
@@ -48,7 +50,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Extended `tide` stats**: Now displays top 10 tags by frequency, total
   character count across all indexed notes, and supports `--json` output format.
 
-## [0.4.9] - 2026-05-26
+### Fixed
+
+- **Hybrid mode score boost direction**: `apply_filters_and_boost` now receives
+  `search_mode` parameter. Title and emphasized text boosts correctly increase
+  RRF scores in Hybrid mode instead of decreasing them.
+- **ANSI highlighting accessibility**: Match highlighting uses inverse video
+  (`\x1b[7m`) in addition to bold red, making it distinguishable for colorblind users.
+- **Makefile `test-all`**: Removed `cargo clean` from the `test-all` target to
+  prevent unnecessary full rebuilds; separated into `clean-all`.
+- **Embedding error masking**: ONNX inference failures (e.g., input too long,
+  model corruption) are now propagated with the real error message instead of
+  the misleading "model not loaded" generic message.
+- **MMR similarity matrix OOM guard**: Added `MAX_MMR_CANDIDATES = 10_000` cap —
+  MMR re-ranking falls back to original order when the candidate pool exceeds
+  this bound, preventing accidental memory exhaustion.
+- **Removed dead code**: `get_chunk_vectors()` in `db.rs` was unused since
+  embeddings are now returned inline from `vec_search()`. Eliminated to reduce
+  maintenance surface.
+- **Embedding precomputation hoisted**: Query embedding is computed once and
+  shared across Vec search, Hybrid RRF blending, and MMR re-ranking, eliminating
+  duplicate ONNX inference calls.
+- **E2E test assertions**: 5 e2e tests updated to match Japanese output format
+  and v0.4.10 feature additions (chart summary, tide stats, log total, doctor
+  summary, XDG path handling).
+
+### Removed
+
+- **Archived 12 completed PBIs**: PBI-01 through PBI-11 (mtime+size scan,
+  semantic flag, multi-vault, frontmatter filter, i18n, DB path, user
+  dictionary, synonym map, fuzzy search, alpha tuning, MMR) and PBI-28
+  (synonym CLI manager) moved from `pbi/` to `.plan/archived/`.
+
+### Documentation
+
+- `ref/cli.md`: Added synonym subcommand, chart/scan `--vault`, expanded
+  dive flags (`--mmr`, `--lambda`, `--fuzzy`, `--alpha`, `--tag`, `--since`),
+  vault_default/user_dictionary/synonyms config fields
+- `ref/core.md`: Updated `chunks` schema (tags/frontmatter_date/title),
+  `file_cache` schema (file_size), `search()` signature (15 parameters),
+  semantic feature flag, schema migrations v4-v8
+- `docs/CLI-USE.md` / `docs/CLI-USE.ja.md`: Expanded dive docs with all
+  search modes, MMR explanation, fuzzy/alpha/tag/since flags, synonym
+  subcommand section, chart/scan `--vault` flag, check-ignore section,
+  `.shiotsuchiignore` examples, config example with all new fields
 
 ### Added
 
@@ -709,7 +754,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `docs/MODEL_LICENSES.md` with BSD-3-Clause notice for the bundled tokenizer model
 - `README.md` (English) and `README.ja.md` (Japanese)
 
-[Unreleased]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.4.9...HEAD
+[Unreleased]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.4.10...HEAD
 [0.4.10]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.4.9...v0.4.10
 [0.4.9]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.4.8...v0.4.9
 [0.4.8]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.4.7...v0.4.8
