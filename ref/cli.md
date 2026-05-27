@@ -152,6 +152,25 @@ draft_*
 
 Synonyms are also loaded from a standalone `~/.config/shiotsuchi/thesaurus.toml` file, managed by the `shiotsuchi synonym` CLI command.
 
+### `[embedder]` section
+
+Controls which ONNX embedding model is used for semantic indexing. Omitting this section (or setting `provider = "built-in"`) uses the standard model resolution order: `SHIOTSUCHI_EMBED_MODEL_PATH` env var → `~/.local/share/shiotsuchi/model.onnx`.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `provider` | string | `"built-in"` | Embedding provider. `"built-in"` uses env var / XDG default; `"onnx-file"` loads a specific file. |
+| `path` | string | — | Required when `provider = "onnx-file"`. Absolute path to the ONNX model directory (must contain `model.onnx` and `tokenizer.json`). |
+
+**Example — custom ONNX model:**
+
+```toml
+[embedder]
+provider = "onnx-file"
+path = "/path/to/my-model/model.onnx"
+```
+
+> **Note on model changes:** If you change the model after indexing, the existing vector embeddings in the database were generated with a different model and will be incompatible. Run `shiotsuchi chart` to re-index all files. A warning is shown at index time when a model change is detected.
+
 ### `[watcher]` section
 
 | Field | Type | Default | Description |

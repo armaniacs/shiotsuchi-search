@@ -121,9 +121,10 @@ mcp ──► core
 |--------|-----|---------|
 | Config file | `vaults.*.notes_dir` | `~/.config/shiotsuchi/config.toml` → `[vaults.default] notes_dir` |
 | Config file | `database.db_path` | `~/.config/shiotsuchi/config.toml` → `[database] db_path` |
+| Config file | `embedder.provider` + `embedder.path` | `[embedder] provider = "onnx-file"` / `path = "/path/to/model.onnx"` |
 | Config file (legacy) | `vault.notes_dir` / `vault.db_path` | Pre-v0.3.7 format, auto-detected with migration hint |
 | Env var | `SHIOTSUCHI_MODEL_PATH` | `models/bccwj-suw+unidic_pos+kana.model.zst` |
-| Env var | `SHIOTSUCHI_EMBED_MODEL` | `/path/to/model.onnx` (build-time embedding) |
+| Env var | `SHIOTSUCHI_EMBED_MODEL_PATH` | `/path/to/model.onnx` (runtime model resolution) |
 | Env var | `SHIOTSUCHI_NOTES_DIR` | `/Users/name/Notes` (overrides first vault's notes_dir) |
 | Env var | `SHIOTSUCHI_DB_PATH` | `~/.cache/shiotsuchi/db.sqlite3` |
 

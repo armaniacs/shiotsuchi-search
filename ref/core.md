@@ -67,6 +67,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS vec_chunks USING vec0(
 - `get_surrounding_chunks(chunk_id, window)` — Fetch chunks before/after a given chunk (for context, includes vault_name)
 - `cached_hash(vault_name, path)` / `upsert_file_cache(vault_name, ...)` / `delete_file_cache(vault_name, path)` — Per-vault incremental index tracking
 - `list_cached_paths(vault_name)` — Indexed file paths for a specific vault
+- `get_dominant_model_id()` — Returns the most common non-"none" `model_id` stored in `file_cache` (used to detect model changes before re-indexing)
 - `stats()` — Vault statistics (total_chunks, total_files, vec_indexed_chunks, db_path, total_chars, top_tags, etc.)
 - `tag_stats(limit)` — Returns top N tags by frequency
 - `insert_tasks(vault_name, file_path, tasks)` — Insert task list for a file
@@ -210,7 +211,8 @@ Progress is cumulative: `(processed_so_far, total_across_all_vaults)`.
 | `SearchConfig` | max_snippet_chars (128–65535, default 1000) |
 | `IndexConfig` | vaults, include_extensions, exclude_dirs, auto_exclude_hidden, follow_links, dynamic_threshold |
 | `IndexResult` | `Inserted` / `Updated` / `Skipped` / `Error(String)` |
-| `Config` | synonyms: HashMap, vault_default: Option\<String\>, hybrid_alpha: Option\<f64\>, semantic_threshold: Option\<f64\> |
+| `Config` | synonyms: HashMap, vault_default: Option\<String\>, hybrid_alpha: Option\<f64\>, semantic_threshold: Option\<f64\>, embedder: EmbedderConfig |
+| `EmbedderConfig` | `BuiltIn` (default) / `OnnxFile { path: PathBuf }` — embedding model provider; see `[embedder]` config section |
 
 ### `watcher.rs` — File System Watcher
 
