@@ -3,8 +3,9 @@ use crate::msg_fmt;
 use crate::config::IndexingConfig;
 use clap::Args;
 use shiotsuchi_core::{
+    config::EmbedderConfig,
     db::NoteDatabase,
-    embedder::{resolve_model_path, Embedder},
+    embedder::Embedder,
     indexer::{index_directory, IndexResult},
     models::IndexConfig,
     tokenizer::get_tokenizer,
@@ -35,6 +36,7 @@ pub fn run_chart(
     vaults: &[(String, PathBuf)],
     db_path: &Path,
     indexing_cfg: &IndexingConfig,
+    embedder_cfg: &EmbedderConfig,
 ) -> Result<ChartSummary, Box<dyn std::error::Error>> {
     if args.force {
         eprintln!("{}", messages::CHART_FORCE_DEPRECATED);
@@ -51,7 +53,7 @@ pub fn run_chart(
         user_dictionary: indexing_cfg.user_dictionary.clone(),
     };
 
-    let embedder = resolve_model_path(None).and_then(|p| match Embedder::load(&p) {
+    let embedder = embedder_cfg.resolve_model_path().and_then(|p| match Embedder::load(&p) {
         Ok(e) => {
             if !args.quiet {
                 eprintln!("{}", messages::INFO_EMBEDDER_LOADED);
@@ -65,6 +67,15 @@ pub fn run_chart(
             None
         }
     });
+
+    // Warn if the model has changed since the last indexing run.
+    if let Some(ref emb) = embedder {
+        if let Ok(Some(stored_model_id)) = db.get_dominant_model_id() {
+            if stored_model_id != emb.model_id() && !args.quiet {
+                eprintln!("{}", messages::WARN_MODEL_CHANGED);
+            }
+        }
+    }
 
     let (results, invalid_patterns, excluded_count) = index_directory(&db, &tokenizer, &config, embedder.as_ref(), None)?;
 
@@ -116,7 +127,7 @@ mod tests {
             vault: None,
         };
         let idx_cfg = IndexingConfig::default();
-        let result = run_chart(&args, &[("default".to_string(), temp.path().to_path_buf())], &db_file, &idx_cfg);
+        let result = run_chart(&args, &[("default".to_string(), temp.path().to_path_buf())], &db_file, &idx_cfg, &shiotsuchi_core::config::EmbedderConfig::default());
         match result {
             Ok(summary) => {
                 assert_eq!(summary.indexed, 1);
@@ -150,7 +161,7 @@ mod tests {
             vault: None,
         };
         let idx_cfg = IndexingConfig::default();
-        let _result = run_chart(&args, &[("default".to_string(), vault.clone())], &db_path, &idx_cfg);
+        let _result = run_chart(&args, &[("default".to_string(), vault.clone())], &db_path, &idx_cfg, &shiotsuchi_core::config::EmbedderConfig::default());
 
         let parent = db_path.parent().unwrap();
         if parent.exists() {
@@ -181,6 +192,7 @@ mod tests {
             &[("default".to_string(), vault.to_path_buf())],
             &db_path,
             &idx_cfg,
+            &shiotsuchi_core::config::EmbedderConfig::default(),
         );
     }
 }

@@ -703,6 +703,25 @@ impl NoteDatabase {
         rows.collect::<SqliteResult<Vec<_>>>().map_err(DbError::Sqlite)
     }
 
+    /// Return the most frequently stored model_id in file_cache, excluding "none".
+    ///
+    /// Used to detect model changes before re-indexing: if the stored ID differs
+    /// from the currently loaded model, existing vector embeddings may be stale.
+    /// Returns `None` when the cache is empty or all entries have model_id = "none".
+    pub fn get_dominant_model_id(&self) -> Result<Option<String>, DbError> {
+        let conn = self.write_conn.borrow();
+        let result: SqliteResult<String> = conn.query_row(
+            "SELECT model_id FROM file_cache WHERE model_id != 'none' GROUP BY model_id ORDER BY COUNT(*) DESC, model_id ASC LIMIT 1",
+            [],
+            |r| r.get(0),
+        );
+        match result {
+            Ok(id) => Ok(Some(id)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(DbError::Sqlite(e)),
+        }
+    }
+
     /// List all file paths in file_cache for a given vault.
     pub fn list_cached_paths(&self, vault_name: &str) -> Result<Vec<String>, DbError> {
         let conn = self.write_conn.borrow();
@@ -929,6 +948,52 @@ mod tests {
         assert_eq!(db.cached_mtime("default", "a.md").unwrap(), Some(1000));
         db.upsert_file_cache("default", "a.md", "hash2", 2000, "none", 99).unwrap();
         assert_eq!(db.cached_mtime("default", "a.md").unwrap(), Some(2000));
+    }
+
+    #[test]
+    fn test_get_dominant_model_id_single_model() {
+        let db = NoteDatabase::open_in_memory().unwrap();
+        db.upsert_file_cache("default", "a.md", "hash", 1000, "model-alpha", 42).unwrap();
+        db.upsert_file_cache("default", "b.md", "hash", 1000, "model-alpha", 42).unwrap();
+        let result = db.get_dominant_model_id().unwrap();
+        assert_eq!(result, Some("model-alpha".to_string()));
+    }
+
+    #[test]
+    fn test_get_dominant_model_id_returns_most_frequent() {
+        let db = NoteDatabase::open_in_memory().unwrap();
+        db.upsert_file_cache("default", "a.md", "hash", 1000, "model-alpha", 42).unwrap();
+        db.upsert_file_cache("default", "b.md", "hash", 1000, "model-alpha", 42).unwrap();
+        db.upsert_file_cache("default", "c.md", "hash", 1000, "model-beta", 42).unwrap();
+        let result = db.get_dominant_model_id().unwrap();
+        assert_eq!(result, Some("model-alpha".to_string()));
+    }
+
+    #[test]
+    fn test_get_dominant_model_id_excludes_none() {
+        let db = NoteDatabase::open_in_memory().unwrap();
+        db.upsert_file_cache("default", "a.md", "hash", 1000, "none", 42).unwrap();
+        db.upsert_file_cache("default", "b.md", "hash", 1000, "none", 42).unwrap();
+        let result = db.get_dominant_model_id().unwrap();
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_get_dominant_model_id_tie_breaks_deterministically() {
+        let db = NoteDatabase::open_in_memory().unwrap();
+        // Equal frequency for both
+        db.upsert_file_cache("default", "a.md", "hash", 1000, "model-beta", 42).unwrap();
+        db.upsert_file_cache("default", "b.md", "hash", 1000, "model-alpha", 42).unwrap();
+        let result = db.get_dominant_model_id().unwrap();
+        // ASC tie-breaker should pick model-alpha alphabetically
+        assert_eq!(result, Some("model-alpha".to_string()));
+    }
+
+    #[test]
+    fn test_get_dominant_model_id_empty_cache() {
+        let db = NoteDatabase::open_in_memory().unwrap();
+        let result = db.get_dominant_model_id().unwrap();
+        assert_eq!(result, None);
     }
 
     #[test]

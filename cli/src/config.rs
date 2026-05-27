@@ -1,6 +1,6 @@
 pub use shiotsuchi_core::config::{
-    default_config_path, thesaurus_path, DatabaseConfig, IndexingConfig, ShiotsuchiConfig,
-    VaultEntry, WatcherConfig,
+    default_config_path, thesaurus_path, DatabaseConfig, IndexingConfig,
+    ShiotsuchiConfig, VaultEntry, WatcherConfig,
 };
 
 #[cfg(test)]
@@ -189,6 +189,7 @@ mod tests {
             hybrid_alpha: None,
             vault_default: None,
             semantic_threshold: None,
+            embedder: EmbedderConfig::default(),
         };
         let vaults = config.resolved_vaults();
         assert_eq!(vaults.len(), 2);
@@ -212,6 +213,7 @@ mod tests {
             hybrid_alpha: None,
             vault_default: None,
             semantic_threshold: None,
+            embedder: EmbedderConfig::default(),
         };
         assert_eq!(config.resolved_db_path(), PathBuf::from("/custom/db.sqlite"));
     }
@@ -231,6 +233,7 @@ mod tests {
             hybrid_alpha: None,
             vault_default: None,
             semantic_threshold: None,
+            embedder: EmbedderConfig::default(),
         };
         assert_eq!(config.resolved_db_path(), PathBuf::from("/legacy/db.sqlite"));
     }
@@ -252,6 +255,7 @@ mod tests {
             hybrid_alpha: None,
             vault_default: None,
             semantic_threshold: None,
+            embedder: EmbedderConfig::default(),
         };
         assert_eq!(config.resolved_db_path(), PathBuf::from("/new/db.sqlite"));
     }

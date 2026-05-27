@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.12] - 2026-05-28
+
+### Added
+
+- **`get_dominant_model_id()`**: new DB query in `core/src/db.rs` to detect embedder model changes by returning the most frequent stored `model_id` in `file_cache` (excluding `"none"` entries).
+- **Model change warning**: `chart` and `scan` commands now emit `WARN_MODEL_CHANGED` when the loaded embedder's `model_id` differs from the dominant one stored in the database, prompting a full re-index via `shiotsuchi chart`.
+- **Deterministic tie-breaking**: `get_dominant_model_id` SQL query uses secondary `model_id ASC` sort for consistent results when multiple models have equal frequency.
+- **`EmbedderConfig` wired through CLI**: `chart` and `scan` now receive `&EmbedderConfig` instead of resolving via hardcoded `resolve_model_path(None)`, enabling full configurability of model paths.
+- **5 unit tests for `get_dominant_model_id`**: cover single model, most-frequent selection, `"none"` exclusion, deterministic tie-breaking, and empty cache.
+
+### Fixed
+
+- **Doc comment merge**: restored `list_cached_paths` doc comment that was accidentally folded into `get_dominant_model_id` in `core/src/db.rs`.
+
 ## [0.4.11] - 2026-05-27
 
 ### Added

@@ -59,6 +59,7 @@ pub fn run_config_migrate(args: &ConfigMigrateArgs) -> Result<(), Box<dyn std::e
         hybrid_alpha: old_cfg.hybrid_alpha,
         vault_default: old_cfg.vault_default,
         semantic_threshold: old_cfg.semantic_threshold,
+        embedder: old_cfg.embedder,
     };
 
     let timestamp = SystemTime::now()

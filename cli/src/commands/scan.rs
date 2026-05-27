@@ -2,8 +2,9 @@ use crate::messages;
 use crate::msg_fmt;
 use clap::Args;
 use shiotsuchi_core::{
+    config::EmbedderConfig,
     db::NoteDatabase,
-    embedder::{resolve_model_path, Embedder},
+    embedder::Embedder,
     models::IndexConfig,
     tokenizer::get_tokenizer,
     watcher::VaultWatcher,
@@ -30,11 +31,12 @@ pub fn run_scan(
     db_path: &Path,
     _watcher_cfg: &WatcherConfig,
     indexing_cfg: &crate::config::IndexingConfig,
+    embedder_cfg: &EmbedderConfig,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if let Some(_d) = args.debounce {
         eprintln!("{}", messages::SCAN_DEBOUNCE_DEPRECATED);
     }
-    let embedder = resolve_model_path(None).and_then(|p| match Embedder::load(&p) {
+    let embedder = embedder_cfg.resolve_model_path().and_then(|p| match Embedder::load(&p) {
         Ok(e) => {
             eprintln!("{}", messages::INFO_EMBEDDER_LOADED);
             Some(e)
@@ -50,6 +52,17 @@ pub fn run_scan(
     }
 
     let db = Arc::new(Mutex::new(NoteDatabase::open(db_path)?));
+
+    // Warn if the model has changed since the last indexing run.
+    if let Some(ref emb) = embedder {
+        let guard = db.lock().unwrap();
+        if let Ok(Some(stored_model_id)) = guard.get_dominant_model_id() {
+            if stored_model_id != emb.model_id() {
+                eprintln!("{}", messages::WARN_MODEL_CHANGED);
+            }
+        }
+    }
+
     let tokenizer = get_tokenizer()?;
     let config = IndexConfig {
         vaults: vaults.to_vec(),

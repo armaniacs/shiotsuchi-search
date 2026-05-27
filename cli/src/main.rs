@@ -167,7 +167,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Commands::Chart(args) => {
             let vault_id = args.vault.as_deref().or(cfg.vault_default.as_deref());
             let vaults = resolve_vaults(&resolved_vaults, vault_id)?;
-            commands::chart::run_chart(&args, &vaults, &db_path, &cfg.indexing)?;
+            commands::chart::run_chart(&args, &vaults, &db_path, &cfg.indexing, &cfg.embedder)?;
         }
         Commands::CheckIgnore(args) => {
             commands::check_ignore::run_check_ignore(&args, &resolved_vaults)?;
@@ -215,6 +215,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 &db_path,
                 &cfg.watcher,
                 &cfg.indexing,
+                &cfg.embedder,
             )?;
         }
         Commands::Doctor(_args) => {
