@@ -10,6 +10,7 @@ use std::io::Read;
 use hex;
 use sha2::{Digest, Sha256};
 use log;
+use crate::api_embedder::ApiClient;
 
 /// Maximum sequence length for the embedding model (Qwen3-Embedding supports up to 32K,
 /// but 512 is a practical default for note chunks).
@@ -25,9 +26,20 @@ const MAX_SEQ_LEN: usize = 512;
 /// - `last_hidden_state` (needs mean pooling + L2 normalization) — shape `(batch, seq_len, hidden)`
 #[derive(Debug)]
 pub struct Embedder {
-    session: RefCell<Session>,
-    tokenizer: Tokenizer,
-    model_id: String,
+    backend: EmbedderBackend,
+}
+
+#[derive(Debug)]
+enum EmbedderBackend {
+    Onnx {
+        session: RefCell<Session>,
+        tokenizer: Tokenizer,
+        model_id: String,
+    },
+    Api {
+        client: ApiClient,
+        model_id: String,
+    },
 }
 
 
@@ -81,9 +93,11 @@ impl Embedder {
             .map_err(|e| EmbedderError::Load(format!("Failed to load ONNX model: {}", e)))?;
 
         Ok(Self {
-            session: RefCell::new(session),
-            tokenizer,
-            model_id,
+            backend: EmbedderBackend::Onnx {
+                session: RefCell::new(session),
+                tokenizer,
+                model_id,
+            },
         })
     }
 
@@ -92,41 +106,79 @@ impl Embedder {
         Self::load(model_path)
     }
 
-    /// Embed a single text and return a vector of floats.
     pub fn embed(&self, text: &str) -> Result<Vec<f32>, EmbedderError> {
-        let results = self.embed_batch_inner(&[text])?;
-        results
-            .into_iter()
-            .next()
-            .ok_or_else(|| EmbedderError::Inference("No output from batch".to_string()))
-    }
-
-    /// Embed a batch of texts.
-    ///
-    /// Returns one `Result` per text so failures are isolated (the indexer skips `Err` entries).
-    pub fn embed_batch(&self, texts: &[&str]) -> Vec<Result<Vec<f32>, EmbedderError>> {
-        match self.embed_batch_inner(texts) {
-            Ok(results) => results.into_iter().map(Ok).collect(),
-            Err(e) => {
-                let err = e;
-                texts.iter().map(|_| Err(EmbedderError::Inference(err.to_string()))).collect()
+        match &self.backend {
+            EmbedderBackend::Onnx { .. } => {
+                let results = self.embed_batch_inner(&[text])?;
+                results.into_iter().next().ok_or_else(|| {
+                    EmbedderError::Inference("No output from batch".to_string())
+                })
+            }
+            EmbedderBackend::Api { client, .. } => {
+                let results = client.embed_batch(&[text])?;
+                results.into_iter().next().ok_or_else(|| {
+                    EmbedderError::Inference("No output from API batch".to_string())
+                })
             }
         }
     }
 
-    /// Get current embedder status.
-    pub fn status(&self) -> EmbedderStatus {
-        EmbedderStatus::Ready
+    pub fn embed_batch(&self, texts: &[&str]) -> Vec<Result<Vec<f32>, EmbedderError>> {
+        match &self.backend {
+            EmbedderBackend::Onnx { .. } => {
+                match self.embed_batch_inner(texts) {
+                    Ok(results) => results.into_iter().map(Ok).collect(),
+                    Err(e) => {
+                        let err = EmbedderError::Inference(e.to_string());
+                        texts.iter().map(|_| Err(err.clone())).collect()
+                    }
+                }
+            }
+            EmbedderBackend::Api { client, .. } => {
+                match client.embed_batch(texts) {
+                    Ok(results) => results.into_iter().map(Ok).collect(),
+                    Err(e) => {
+                        let err = EmbedderError::Inference(e.to_string());
+                        texts.iter().map(|_| Err(err.clone())).collect()
+                    }
+                }
+            }
+        }
     }
 
-    /// Returns a unique identifier for the loaded model (SHA-256 hash of model file).
+    pub fn status(&self) -> EmbedderStatus {
+        match &self.backend {
+            EmbedderBackend::Onnx { .. } => EmbedderStatus::Ready,
+            EmbedderBackend::Api { .. } => EmbedderStatus::Ready,
+        }
+    }
+
     pub fn model_id(&self) -> &str {
-        &self.model_id
+        match &self.backend {
+            EmbedderBackend::Onnx { model_id, .. } => model_id,
+            EmbedderBackend::Api { model_id, .. } => model_id,
+        }
+    }
+
+    pub(crate) fn from_api_client(client: ApiClient) -> Self {
+        let model_id = client.model_id();
+        Self {
+            backend: EmbedderBackend::Api { client, model_id },
+        }
     }
 
     // ── internal helpers ──────────────────────────────────────────────
 
     fn embed_batch_inner(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>, EmbedderError> {
+        let (session, tokenizer) = match &self.backend {
+            EmbedderBackend::Onnx { session, tokenizer, .. } => (session, tokenizer),
+            EmbedderBackend::Api { .. } => {
+                return Err(EmbedderError::Inference(
+                    "embed_batch_inner called on API backend".to_string()
+                ));
+            }
+        };
+
         if texts.is_empty() {
             return Ok(vec![]);
         }
@@ -137,7 +189,7 @@ impl Embedder {
         let encodings: Vec<tokenizers::Encoding> = texts
             .iter()
             .map(|t| {
-                self.tokenizer
+                tokenizer
                     .encode(*t, true)
                     .map_err(|e| EmbedderError::Inference(format!("Tokenization error: {}", e)))
             })
@@ -182,13 +234,13 @@ impl Embedder {
 
         // 4. Check if the model needs token_type_ids
         let needs_token_type_ids = {
-            let session = self.session.borrow();
+            let session = session.borrow();
             session.inputs().iter().any(|o| o.name() == "token_type_ids")
         };
 
         // 5. Run inference (session.run requires &mut self)
         let embeddings = {
-            let mut session = self.session.borrow_mut();
+            let mut session = session.borrow_mut();
 
             let shape = vec![batch_size as i64, max_len as i64];
 
@@ -420,7 +472,7 @@ pub fn verify_model_hash(model_path: &Path) -> Result<bool, std::io::Error> {
 
 // ── errors ──────────────────────────────────────────────────────────
 
-#[derive(Debug, Error)]
+#[derive(Debug, Clone, Error)]
 pub enum EmbedderError {
     #[error("model load error: {0}")]
     Load(String),
