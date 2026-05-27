@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.11] - 2026-05-27
+
+### Added
+
+- **Code block fence mixing tests**: Added test coverage for mixed backtick/tilde fence
+  markers in `chunker.rs` — confirms that ` ``` ` opened with ` ~~~ ` close and vice versa
+  are treated as content inside the block rather than closing it.
+
+### Fixed
+
+- **`reindex_file` task cleanup**: `reindex_file` now deletes associated tasks for the
+  file being re-indexed before inserting new chunks, preventing stale task data from
+  persisting across re-index operations (Data Integrity review finding).
+- **Tasks output Japanese localization**: `shiotsuchi tasks` total count message now
+  uses the Japanese message constant (`TASKS_TOTAL`) instead of hardcoded English text.
+
 ## [0.4.10] - 2026-05-27
 
 ### Added
@@ -754,7 +770,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `docs/MODEL_LICENSES.md` with BSD-3-Clause notice for the bundled tokenizer model
 - `README.md` (English) and `README.ja.md` (Japanese)
 
-[Unreleased]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.4.10...HEAD
+[Unreleased]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.4.11...HEAD
+[0.4.11]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.4.10...v0.4.11
 [0.4.10]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.4.9...v0.4.10
 [0.4.9]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.4.8...v0.4.9
 [0.4.8]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.4.7...v0.4.8

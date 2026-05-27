@@ -415,7 +415,7 @@ impl NoteDatabase {
         let mut conn = self.write_conn.borrow_mut();
         let tx = conn.transaction()?;
 
-        // 1. Delete old chunks and their FTS/vec entries
+        // 1. Delete old chunks, their FTS/vec entries, and associated tasks
         let old_ids: Vec<i64> = {
             let mut stmt =
                 tx.prepare("SELECT id FROM chunks WHERE vault_name = ?1 AND file_path = ?2")?;
@@ -428,6 +428,10 @@ impl NoteDatabase {
         }
         tx.execute(
             "DELETE FROM chunks WHERE vault_name = ?1 AND file_path = ?2",
+            params![vault_name, relative_path],
+        )?;
+        tx.execute(
+            "DELETE FROM tasks WHERE vault_name = ?1 AND file_path = ?2",
             params![vault_name, relative_path],
         )?;
 
@@ -1121,6 +1125,80 @@ mod tests {
 
         let result = db.get_chunks_by_ids(&[ids[0], 99999]).unwrap();
         assert_eq!(result.len(), 1, "should only return the existing chunk");
+    }
+
+    #[test]
+    fn test_reindex_file_cleans_up_tasks_for_file() {
+        let db = NoteDatabase::open_in_memory().unwrap();
+        // Insert a task manually
+        db.write_conn.borrow().execute(
+            "INSERT INTO tasks (vault_name, file_path, content, checked, line_number)
+             VALUES (?1, ?2, ?3, 0, 1)",
+            params!["default", "project.md", "old task content"],
+        ).unwrap();
+
+        // Now reindex the file with new content (no tasks in new data)
+        let chunks = vec![
+            Chunk {
+                id: None, file_path: "project.md".into(), chunk_index: 0,
+                parent_header: None, content: "new content".into(),
+                tokenized_content: "new content".into(),
+                vault_name: "default".to_string(),
+                tags: String::new(), frontmatter_date: String::new(),
+                title: String::new(), emphasized_text: String::new(),
+            },
+        ];
+        db.reindex_file("default", "project.md", "newhash", 2000, "none", &chunks, &[], 100).unwrap();
+
+        // Verify old task is gone
+        let tasks: Vec<(String, String)> = {
+            let conn = db.write_conn.borrow();
+            let mut stmt = conn.prepare(
+                "SELECT file_path, content FROM tasks WHERE vault_name = ?1 AND file_path = ?2"
+            ).unwrap();
+            let rows = stmt.query_map(params!["default", "project.md"], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+            }).unwrap();
+            rows.collect::<Result<Vec<_>, _>>().unwrap()
+        };
+        assert!(tasks.is_empty(),
+            "reindex_file should clean up old tasks, found {} tasks", tasks.len());
+    }
+
+    #[test]
+    fn test_reindex_file_clears_old_chunks_and_fts() {
+        let db = NoteDatabase::open_in_memory().unwrap();
+        // Insert old chunk and FTS entry
+        let old_chunks = vec![
+            Chunk {
+                id: None, file_path: "old.md".into(), chunk_index: 0,
+                parent_header: None, content: "old content here".into(),
+                tokenized_content: "old content here".into(),
+                vault_name: "default".to_string(),
+                tags: String::new(), frontmatter_date: String::new(),
+                title: String::new(), emphasized_text: String::new(),
+            },
+        ];
+        db.insert_chunks(&old_chunks).unwrap();
+        assert!(!db.fts_search("old content", 10, None).unwrap().is_empty());
+
+        // Reindex with new content
+        let new_chunks = vec![
+            Chunk {
+                id: None, file_path: "old.md".into(), chunk_index: 0,
+                parent_header: None, content: "brand new content".into(),
+                tokenized_content: "brand new content".into(),
+                vault_name: "default".to_string(),
+                tags: String::new(), frontmatter_date: String::new(),
+                title: String::new(), emphasized_text: String::new(),
+            },
+        ];
+        db.reindex_file("default", "old.md", "newhash", 2000, "none", &new_chunks, &[], 100).unwrap();
+
+        // Old content should not be findable
+        assert!(db.fts_search("old content", 10, None).unwrap().is_empty());
+        // New content should be findable
+        assert!(!db.fts_search("brand new", 10, None).unwrap().is_empty());
     }
 
     #[test]

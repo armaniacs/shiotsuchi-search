@@ -1,4 +1,5 @@
 use clap::Args;
+use crate::msg_fmt;
 use std::path::Path;
 
 #[derive(Args, Debug)]
@@ -17,6 +18,6 @@ pub fn run_tasks(args: &TasksArgs, db_path: &Path) -> Result<(), Box<dyn std::er
         let status = if task.checked { "[x]" } else { "[ ]" };
         println!("  {} {}:{} {}", status, task.file_path, task.line_number, task.content);
     }
-    println!("Total: {} tasks", tasks.len());
+    println!("{}", msg_fmt!(crate::messages::TASKS_TOTAL, tasks.len()));
     Ok(())
 }

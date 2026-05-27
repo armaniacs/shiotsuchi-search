@@ -821,6 +821,28 @@ mod tests {
     }
 
     #[test]
+    fn test_code_block_opened_backtick_closed_tilde_mixed() {
+        let md = "# Mixed Fence\n\n```\ncode block\n~~~\nstill inside\n```\n\nOutside.";
+        let tok = crate::require_tokenizer!(Default::default());
+        let chunks = split_into_chunks(md, &tok, "test.md", "default", &[]);
+        assert_eq!(chunks.len(), 1,
+            "``` opened with ~~~ close should remain one chunk (block not closed)");
+        assert!(chunks[0].content.contains("Outside."),
+            "content after attempted close should be in same chunk");
+    }
+
+    #[test]
+    fn test_code_block_backtick_open_tilde_as_content() {
+        let md = "Paragraph.\n\n```\nregular ~~~ fence\n```\n\nOutside.";
+        let tok = crate::require_tokenizer!(Default::default());
+        let chunks = split_into_chunks(md, &tok, "test.md", "default", &[]);
+        assert_eq!(chunks.len(), 1,
+            "~~~ inside ``` block should not close it");
+        assert!(chunks[0].content.contains("Outside."),
+            "content after block should be inside same chunk");
+    }
+
+    #[test]
     fn test_normalize_fullwidth_in_tokenized_content() {
         let md = "# Fullwidth\n\nＡＢＣテスト";
         let tok = crate::require_tokenizer!(Default::default());
