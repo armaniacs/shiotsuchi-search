@@ -5,7 +5,6 @@ use clap::Args;
 use shiotsuchi_core::{
     config::EmbedderConfig,
     db::NoteDatabase,
-    embedder::Embedder,
     indexer::{index_directory, IndexResult},
     models::IndexConfig,
     tokenizer::get_tokenizer,
@@ -53,12 +52,23 @@ pub fn run_chart(
         user_dictionary: indexing_cfg.user_dictionary.clone(),
     };
 
-    let embedder = embedder_cfg.resolve_model_path().and_then(|p| match Embedder::load(&p) {
-        Ok(e) => {
+    let embedder = match embedder_cfg.create_embedder() {
+        Ok(Some(e)) => {
             if !args.quiet {
                 eprintln!("{}", messages::INFO_EMBEDDER_LOADED);
+                if let shiotsuchi_core::config::EmbedderConfig::Api { api_key: Some(_), .. } = embedder_cfg {
+                    if std::env::var("SHIOTSUCHI_API_KEY").is_err() {
+                        eprintln!("{}", messages::WARN_API_KEY_IN_CONFIG);
+                    }
+                }
             }
             Some(e)
+        }
+        Ok(None) => {
+            if !args.quiet {
+                eprintln!("{}", messages::INFO_EMBEDDER_SKIPPED);
+            }
+            None
         }
         Err(e) => {
             if !args.quiet {
@@ -66,7 +76,7 @@ pub fn run_chart(
             }
             None
         }
-    });
+    };
 
     // Warn if the model has changed since the last indexing run.
     if let Some(ref emb) = embedder {
@@ -92,10 +102,6 @@ pub fn run_chart(
             IndexResult::Skipped => summary.skipped += 1,
             IndexResult::Error(_) => summary.errors += 1,
         }
-    }
-
-    if embedder.is_none() && !args.quiet {
-        eprintln!("{}", messages::INFO_EMBEDDER_SKIPPED);
     }
 
     if !args.quiet {

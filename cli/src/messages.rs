@@ -110,6 +110,7 @@ pub const CHART_FORCE_DEPRECATED: &str = "警告: --force は chart コマンド
 pub const INFO_EMBEDDER_LOADED: &str = "[情報] 埋め込みモデルを読み込みました — ベクトルインデックスを有効化";
 pub const WARN_EMBEDDER_LOAD: &str = "[警告] 埋め込みモデルを読み込めませんでした: {}";
 pub const INFO_EMBEDDER_SKIPPED: &str = "[情報] 埋め込みモデルが見つかりません — ベクトルインデックスをスキップします。`shiotsuchi setup` を実行してセマンティック検索を有効にしてください";
+pub const WARN_API_KEY_IN_CONFIG: &str = "[警告] config.toml に API キーが記載されています。環境変数 SHIOTSUCHI_API_KEY の使用を推奨します。";
 pub const WARN_MODEL_CHANGED: &str = "[警告] 埋め込みモデルが変更されました。既存のベクトルインデックスとの次元が一致しない可能性があります。\n `shiotsuchi chart` を再実行して全ファイルを再インデックスしてください。";
 pub const INDEX_SUMMARY: &str = "{} ファイルをインデックスしました（{} スキップ、{} エラー、{} 除外）";
 pub const INDEX_PATTERN_WARN: &str = "  {} 個の無効なパターンが exclude_dirs に含まれています";

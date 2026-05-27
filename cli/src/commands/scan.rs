@@ -4,7 +4,6 @@ use clap::Args;
 use shiotsuchi_core::{
     config::EmbedderConfig,
     db::NoteDatabase,
-    embedder::Embedder,
     models::IndexConfig,
     tokenizer::get_tokenizer,
     watcher::VaultWatcher,
@@ -36,20 +35,25 @@ pub fn run_scan(
     if let Some(_d) = args.debounce {
         eprintln!("{}", messages::SCAN_DEBOUNCE_DEPRECATED);
     }
-    let embedder = embedder_cfg.resolve_model_path().and_then(|p| match Embedder::load(&p) {
-        Ok(e) => {
+    let embedder = match embedder_cfg.create_embedder() {
+        Ok(Some(e)) => {
             eprintln!("{}", messages::INFO_EMBEDDER_LOADED);
+            if let shiotsuchi_core::config::EmbedderConfig::Api { api_key: Some(_), .. } = embedder_cfg {
+                if std::env::var("SHIOTSUCHI_API_KEY").is_err() {
+                    eprintln!("{}", messages::WARN_API_KEY_IN_CONFIG);
+                }
+            }
             Some(e)
+        }
+        Ok(None) => {
+            eprintln!("{}", messages::INFO_EMBEDDER_SKIPPED);
+            None
         }
         Err(e) => {
             eprintln!("{}", msg_fmt!(messages::WARN_EMBEDDER_LOAD, e));
             None
         }
-    });
-
-    if embedder.is_none() {
-        eprintln!("{}", messages::INFO_EMBEDDER_SKIPPED);
-    }
+    };
 
     let db = Arc::new(Mutex::new(NoteDatabase::open(db_path)?));
 
