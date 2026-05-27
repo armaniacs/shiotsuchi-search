@@ -14,9 +14,61 @@ pub enum EmbedderConfig {
     OnnxFile {
         path: PathBuf,
     },
+    /// Use an external OpenAI-compatible embedding API.
+    Api {
+        endpoint: String,
+        model: String,
+        #[serde(default)]
+        api_key: Option<String>,
+    },
 }
 
 impl EmbedderConfig {
+    /// Resolve to an embedder instance.
+    ///
+    /// - `OnnxFile` / `BuiltIn`: returns `Embedder::load(path)` via `resolve_model_path()`.
+    /// - `Api`: returns `Embedder` backed by `ApiClient`.
+    #[cfg(feature = "semantic")]
+    pub fn create_embedder(&self) -> Result<Option<crate::embedder::Embedder>, crate::embedder::EmbedderError> {
+        use crate::api_embedder::ApiClient;
+        use crate::embedder::{Embedder, EmbedderError};
+
+        match self {
+            EmbedderConfig::OnnxFile { path } => {
+                if path.exists() {
+                    Ok(Some(Embedder::load(path)?))
+                } else {
+                    Ok(None)
+                }
+            }
+            EmbedderConfig::BuiltIn => {
+                match self.resolve_model_path() {
+                    Some(path) => Ok(Some(Embedder::load(&path)?)),
+                    None => Ok(None),
+                }
+            }
+            EmbedderConfig::Api { endpoint, model, api_key } => {
+                let key = std::env::var("SHIOTSUCHI_API_KEY")
+                    .ok()
+                    .or_else(|| api_key.clone())
+                    .ok_or_else(|| EmbedderError::Load(
+                        "API key not set. Set SHIOTSUCHI_API_KEY or api_key in config".to_string()
+                    ))?;
+
+                let client = ApiClient::new(endpoint.clone(), model.clone(), key);
+                Ok(Some(Embedder::from_api_client(client)))
+            }
+        }
+    }
+
+    /// Stub when the `semantic` feature is disabled.
+    #[cfg(not(feature = "semantic"))]
+    pub fn create_embedder(&self) -> Result<Option<crate::embedder::Embedder>, crate::embedder::EmbedderError> {
+        Err(crate::embedder::EmbedderError::Unavailable(
+            "compiled without the 'semantic' feature".into(),
+        ))
+    }
+
     /// Resolve to an ONNX model path.
     ///
     /// - `OnnxFile`: returns the configured path if the file exists.
@@ -51,6 +103,7 @@ impl EmbedderConfig {
                     None
                 }
             }
+            EmbedderConfig::Api { .. } => None,
         }
     }
 }
