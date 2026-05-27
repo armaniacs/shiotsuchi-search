@@ -313,3 +313,56 @@ impl ShiotsuchiConfig {
         Ok(syns)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_embedder_config_api_deserialization() {
+        let toml = r#"
+            provider = "api"
+            endpoint = "https://api.ai.sakura.ad.jp/v1/embeddings"
+            model = "multilingual-e5-large"
+            api_key = "sk-test"
+        "#;
+        let config: EmbedderConfig = toml::from_str(toml).unwrap();
+        match config {
+            EmbedderConfig::Api { endpoint, model, api_key } => {
+                assert_eq!(endpoint, "https://api.ai.sakura.ad.jp/v1/embeddings");
+                assert_eq!(model, "multilingual-e5-large");
+                assert_eq!(api_key, Some("sk-test".to_string()));
+            }
+            other => panic!("Expected Api variant, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_embedder_config_api_without_api_key() {
+        let toml = r#"
+            provider = "api"
+            endpoint = "https://api.example.com/v1/embeddings"
+            model = "text-embedding-3-small"
+        "#;
+        let config: EmbedderConfig = toml::from_str(toml).unwrap();
+        match config {
+            EmbedderConfig::Api { api_key, .. } => {
+                assert_eq!(api_key, None);
+            }
+            other => panic!("Expected Api variant, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_embedder_config_default_is_builtin() {
+        let config: EmbedderConfig = EmbedderConfig::default();
+        assert!(matches!(config, EmbedderConfig::BuiltIn));
+    }
+
+    #[test]
+    fn test_embedder_config_builtin_omitted_provider() {
+        let toml = r#""#;
+        let config: ShiotsuchiConfig = toml::from_str(toml).unwrap();
+        assert!(matches!(config.embedder, EmbedderConfig::BuiltIn));
+    }
+}
