@@ -212,7 +212,7 @@ Progress is cumulative: `(processed_so_far, total_across_all_vaults)`.
 | `IndexConfig` | vaults, include_extensions, exclude_dirs, auto_exclude_hidden, follow_links, dynamic_threshold |
 | `IndexResult` | `Inserted` / `Updated` / `Skipped` / `Error(String)` |
 | `Config` | synonyms: HashMap, vault_default: Option\<String\>, hybrid_alpha: Option\<f64\>, semantic_threshold: Option\<f64\>, embedder: EmbedderConfig |
-| `EmbedderConfig` | `BuiltIn` (default) / `OnnxFile { path: PathBuf }` — embedding model provider; see `[embedder]` config section |
+| `EmbedderConfig` | `BuiltIn` (default) / `OnnxFile { path: PathBuf }` / `Api { endpoint, model, api_key }` — embedding model provider; see `[embedder]` config section |
 
 ### `watcher.rs` — File System Watcher
 

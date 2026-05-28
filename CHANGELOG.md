@@ -18,6 +18,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Deterministic tie-breaking**: `get_dominant_model_id` SQL query uses secondary `model_id ASC` sort for consistent results when multiple models have equal frequency.
 - **`EmbedderConfig` wired through CLI**: `chart` and `scan` now receive `&EmbedderConfig` instead of resolving via hardcoded `resolve_model_path(None)`, enabling full configurability of model paths.
 - **5 unit tests for `get_dominant_model_id`**: cover single model, most-frequent selection, `"none"` exclusion, deterministic tie-breaking, and empty cache.
+- **OpenAI-compatible API embedder (`ApiEmbedder`)**: new `provider = "api"` in `[embedder]` config. Supports any OpenAI-compatible embedding API (e.g. Sakura AI `multilingual-e5-large`, OpenAI `text-embedding-3-small`). Configure via `endpoint`, `model`, and optional `api_key` fields.
+- **`EmbedderBackend` enum**: internal refactor unifying ONNX local inference (`Onnx`) and HTTP API inference (`Api`) behind the existing `Embedder` public type. Consumers (`indexer.rs`, `search.rs`, watcher) require no changes.
+- **`EmbedderConfig::create_embedder()`**: replaces `resolve_model_path()` as the primary embedder construction API. Routes `BuiltIn`/`OnnxFile` to local ONNX loading and `Api` to `ApiClient` HTTP calls.
+- **API key resolution**: `SHIOTSUCHI_API_KEY` environment variable takes precedence over `config.toml` `api_key`. CLI emits a warning when the key is stored in config instead of the env var.
+- **Batch API requests**: `ApiClient` chunks embedding requests into batches of 100 texts with a 60-second timeout per request.
+- **Stable `model_id` for API provider**: derived from SHA-256 hash of `endpoint + model`, enabling model change detection for API-based embeddings as well.
+
+### Changed
+
+- **Embedder config documentation** (`ref/cli.md`): expanded `[embedder]` section with `api` provider fields (`endpoint`, `model`, `api_key`) and security note about env var usage.
+- **Core type documentation** (`ref/core.md`): `EmbedderConfig` now documents all three variants including `Api`.
 
 ### Fixed
 

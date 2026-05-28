@@ -154,12 +154,15 @@ Synonyms are also loaded from a standalone `~/.config/shiotsuchi/thesaurus.toml`
 
 ### `[embedder]` section
 
-Controls which ONNX embedding model is used for semantic indexing. Omitting this section (or setting `provider = "built-in"`) uses the standard model resolution order: `SHIOTSUCHI_EMBED_MODEL_PATH` env var → `~/.local/share/shiotsuchi/model.onnx`.
+Controls which embedding model is used for semantic indexing. Omitting this section (or setting `provider = "built-in"`) uses the standard model resolution order: `SHIOTSUCHI_EMBED_MODEL_PATH` env var → `~/.local/share/shiotsuchi/model.onnx`.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `provider` | string | `"built-in"` | Embedding provider. `"built-in"` uses env var / XDG default; `"onnx-file"` loads a specific file. |
-| `path` | string | — | Required when `provider = "onnx-file"`. Absolute path to the ONNX model directory (must contain `model.onnx` and `tokenizer.json`). |
+| `provider` | string | `"built-in"` | Embedding provider. `"built-in"` uses env var / XDG default; `"onnx-file"` loads a specific file; `"api"` uses an OpenAI-compatible HTTP API. |
+| `path` | string | — | Required when `provider = "onnx-file"`. Absolute path to the ONNX model file (must be alongside `tokenizer.json`). |
+| `endpoint` | string | — | Required when `provider = "api"`. Base URL of the OpenAI-compatible embedding API (e.g. `https://api.ai.sakura.ad.jp/v1/embeddings`). |
+| `model` | string | — | Required when `provider = "api"`. Model name to request (e.g. `multilingual-e5-large`). |
+| `api_key` | string | — | Optional fallback API key when `provider = "api"`. The `SHIOTSUCHI_API_KEY` environment variable takes precedence; use it instead of this field for better security. |
 
 **Example — custom ONNX model:**
 
@@ -168,6 +171,17 @@ Controls which ONNX embedding model is used for semantic indexing. Omitting this
 provider = "onnx-file"
 path = "/path/to/my-model/model.onnx"
 ```
+
+**Example — API provider (Sakura AI):**
+
+```toml
+[embedder]
+provider = "api"
+endpoint = "https://api.ai.sakura.ad.jp/v1/embeddings"
+model = "multilingual-e5-large"
+```
+
+> **Security note:** When using `provider = "api"`, set the API key via the `SHIOTSUCHI_API_KEY` environment variable instead of `api_key` in `config.toml`. The CLI will warn you if the key is stored in the config file.
 
 > **Note on model changes:** If you change the model after indexing, the existing vector embeddings in the database were generated with a different model and will be incompatible. Run `shiotsuchi chart` to re-index all files. A warning is shown at index time when a model change is detected.
 
