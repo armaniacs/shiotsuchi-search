@@ -196,15 +196,19 @@ Vaporetto モデル（`bccwj-suw+unidic_pos+kana`）はビルド時にバイナ�
 
 ## ベクトル検索（セマンティック検索）モデルについて
 
-`dive --mode vec` / `--mode hybrid` によるセマンティック検索を使うには、別途 ONNX Embedding モデルを配置する必要があります。
+`dive --mode vec` / `--mode hybrid` によるセマンティック検索には、**ローカル ONNX モデル**または**外部 API プロバイダー**のいずれかを使用できます。
 
-### 対応モデル
+### 方法 A — ローカル ONNX モデルを使う（推奨）
+
+ローカルで推論を行う場合、ONNX Embedding モデルを配置する必要があります。
+
+#### 対応モデル
 
 | モデル | 次元数 | 備考 |
 |--------|--------|------|
 | [Qwen/Qwen3-Embedding-0.6B](https://huggingface.co/Qwen/Qwen3-Embedding-0.6B) | 1024 | 推奨。多言語対応、軽量 |
 
-### ダウンロードと配置
+#### ダウンロードと配置
 
 **ONNX モデルの前提条件**
 
@@ -276,6 +280,29 @@ shiotsuchi dive --mode hybrid "検索クエリ"
 ```
 
 モデルが見つからない場合、`dive` は自動的に FTS モード（キーワード検索）にフォールバックします（`--mode vec` を明示した場合はエラー）。
+
+### 方法 B — API プロバイダーを使う（OpenAI 互換）
+
+ローカルモデルを使わず、外部の OpenAI 互換 API でベクトルを生成することもできます。設定ファイルで指定します。
+
+**さくらAI（推奨：月 10,000 回まで無料）**
+
+```toml
+[embedder]
+provider = "api"
+endpoint = "https://api.ai.sakura.ad.jp/v1/embeddings"
+model = "multilingual-e5-large"
+```
+
+その後、環境変数で API キーを設定します：
+
+```sh
+export SHIOTSUCHI_API_KEY="sk-your-api-key"
+```
+
+> **セキュリティ：** API キーは環境変数 `SHIOTSUCHI_API_KEY` で設定してください。`config.toml` の `api_key` に書くこともできますが、設定ファイルに機密情報を置くより安全です。
+
+> **ハイブリッドモードとの比較：** API 方式は ONNX モデルのダウンロード・変換が不要で、利用開始までの手順が少なくなります。一方、インデックス時に毎回 API を呼び出すため、大量のノートを扱う場合は速度やコストの面でローカルモデルが有利です。
 
 ## トラブルシューティング
 

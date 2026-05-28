@@ -29,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Embedder config documentation** (`ref/cli.md`): expanded `[embedder]` section with `api` provider fields (`endpoint`, `model`, `api_key`) and security note about env var usage.
 - **Core type documentation** (`ref/core.md`): `EmbedderConfig` now documents all three variants including `Api`.
+- **Japanese documentation** (`docs/CLI-USE.ja.md`, `docs/INSTALL.ja.md`, `README.ja.md`): translated `[embedder]` section and added API provider setup instructions.
 
 ### Fixed
 

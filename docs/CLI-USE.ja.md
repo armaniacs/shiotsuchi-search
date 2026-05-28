@@ -425,6 +425,39 @@ db_path = "/home/name/.cache/shiotsuchi/db.sqlite3"
 > **移行:** `shiotsuchi config-migrate` を実行すると旧 `[vault]` 形式から新形式にアップグレードできます。
 > 書き換え前にタイムスタンプ付きの `.bak` バックアップが作成されます。
 
+### `[embedder]` セクション
+
+セマンティックインデックスに使用する埋め込みモデルを指定します。このセクションを省略するか `provider = "built-in"` にすると、標準のモデル解決順序（`SHIOTSUCHI_EMBED_MODEL_PATH` 環境変数 → `~/.local/share/shiotsuchi/model.onnx`）が使われます。
+
+| フィールド | 型 | デフォルト | 説明 |
+|-----------|-----|----------|------|
+| `provider` | string | `"built-in"` | プロバイダー。`"built-in"`（内蔵・標準解決）、`"onnx-file"`（独自 ONNX ファイル）、`"api"`（OpenAI 互換 API） |
+| `path` | string | — | `provider = "onnx-file"` の場合に必須。ONNX モデルファイルの絶対パス（`tokenizer.json` と同じディレクトリに配置） |
+| `endpoint` | string | — | `provider = "api"` の場合に必須。OpenAI 互換 API のベース URL（例: `https://api.ai.sakura.ad.jp/v1/embeddings`） |
+| `model` | string | — | `provider = "api"` の場合に必須。使用するモデル名（例: `multilingual-e5-large`） |
+| `api_key` | string | — | `provider = "api"` の場合のフォールバック API キー。優先度は `SHIOTSUCHI_API_KEY` 環境変数が高く、セキュリティのためそちらの使用を推奨 |
+
+**カスタム ONNX モデルの例:**
+
+```toml
+[embedder]
+provider = "onnx-file"
+path = "/path/to/my-model/model.onnx"
+```
+
+**API プロバイダーの例（さくらAI）：**
+
+```toml
+[embedder]
+provider = "api"
+endpoint = "https://api.ai.sakura.ad.jp/v1/embeddings"
+model = "multilingual-e5-large"
+```
+
+> **セキュリティ:** `provider = "api"` を使う場合は、API キーを `config.toml` の `api_key` に書くのではなく、`SHIOTSUCHI_API_KEY` 環境変数で設定してください。config にキーが書かれていると CLI が警告を出します。
+
+> **モデル変更について:** インデックス後にモデルを変更すると、既存のベクトル埋め込みが互換性を失います。`shiotsuchi chart` で全ファイルを再インデックスしてください。インデックス時にモデル変更が検出されると警告が表示されます。
+
 ### 複数 vault の例
 
 ```toml
