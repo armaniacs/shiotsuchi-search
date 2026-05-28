@@ -29,13 +29,12 @@ MCP 経由でのノート作成・編集・削除はプロジェクトの範囲�
 
 ### PBI-13: 埋め込みモデルの差し替え（API 方式）
 
-以下の方針で実装する:
+**Status: Completed in v0.4.12**
 
-- **API エンドポイント**: `https://api.ai.sakura.ad.jp/v1/embeddings`
-- **モデル**: `multilingual-e5-large`（OpenAI API 互換）
-- **API キー**: 環境変数 `SAKURA_AI_API_KEY` で指定
-- **無料枠**: 月 10,000 回のリクエストまで無料
-- **実装方式**: ONNX ローカル推論に加えて、OpenAI 互換 API クライアントを
-  `core/src/embedder.rs` に追加する。`Embedder` トレイト（または enum）で
-  ローカル / API を切り替えられるようにする。 
+実装方策（実際に実装されたもの）:
+
+- **API エンドポイント**: OpenAI 互換 API へのベース URL（例: `https://api.ai.sakura.ad.jp/v1/embeddings`）
+- **モデル**: OpenAI 互換 API がサポートする任意のモデル名（例: `multilingual-e5-large`）
+- **API キー**: 環境変数 `SHIOTSUCHI_API_KEY` で指定（プロバイダー非依存の命名）
+- **実装方式**: `EmbedderBackend` enum で ONNX ローカル推論と HTTP API を統一
 
