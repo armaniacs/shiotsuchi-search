@@ -35,14 +35,15 @@ pub fn run_scan(
     if let Some(_d) = args.debounce {
         eprintln!("{}", messages::SCAN_DEBOUNCE_DEPRECATED);
     }
+
+    // Warn if API key is in config.toml instead of SHIOTSUCHI_API_KEY env var
+    if embedder_cfg.has_api_key_in_config_but_not_env() {
+        eprintln!("{}", messages::WARN_API_KEY_IN_CONFIG);
+    }
+
     let embedder = match embedder_cfg.create_embedder() {
         Ok(Some(e)) => {
             eprintln!("{}", messages::INFO_EMBEDDER_LOADED);
-            if let shiotsuchi_core::config::EmbedderConfig::Api { api_key: Some(_), .. } = embedder_cfg {
-                if std::env::var("SHIOTSUCHI_API_KEY").is_err() {
-                    eprintln!("{}", messages::WARN_API_KEY_IN_CONFIG);
-                }
-            }
             Some(e)
         }
         Ok(None) => {

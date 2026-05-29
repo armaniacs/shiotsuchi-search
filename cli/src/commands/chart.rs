@@ -56,11 +56,6 @@ pub fn run_chart(
         Ok(Some(e)) => {
             if !args.quiet {
                 eprintln!("{}", messages::INFO_EMBEDDER_LOADED);
-                if let shiotsuchi_core::config::EmbedderConfig::Api { api_key: Some(_), .. } = embedder_cfg {
-                    if std::env::var("SHIOTSUCHI_API_KEY").is_err() {
-                        eprintln!("{}", messages::WARN_API_KEY_IN_CONFIG);
-                    }
-                }
             }
             Some(e)
         }
@@ -77,6 +72,11 @@ pub fn run_chart(
             None
         }
     };
+
+    // Warn if API key is in config.toml instead of SHIOTSUCHI_API_KEY env var
+    if embedder_cfg.has_api_key_in_config_but_not_env() && !args.quiet {
+        eprintln!("{}", messages::WARN_API_KEY_IN_CONFIG);
+    }
 
     // Warn if the model has changed since the last indexing run.
     if let Some(ref emb) = embedder {

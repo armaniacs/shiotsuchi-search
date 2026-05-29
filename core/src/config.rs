@@ -106,6 +106,18 @@ impl EmbedderConfig {
             EmbedderConfig::Api { .. } => None,
         }
     }
+
+    /// Returns true if the API key is configured in config.toml but not via
+    /// the SHIOTSUCHI_API_KEY environment variable. Use this to warn users
+    /// about the less secure configuration.
+    pub fn has_api_key_in_config_but_not_env(&self) -> bool {
+        match self {
+            EmbedderConfig::Api { api_key: Some(_), .. } => {
+                std::env::var("SHIOTSUCHI_API_KEY").is_err()
+            }
+            _ => false,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -364,5 +376,44 @@ mod tests {
         let toml = r#""#;
         let config: ShiotsuchiConfig = toml::from_str(toml).unwrap();
         assert!(matches!(config.embedder, EmbedderConfig::BuiltIn));
+    }
+
+    #[test]
+    fn test_has_api_key_in_config_but_not_env_builtin_returns_false() {
+        let cfg = EmbedderConfig::BuiltIn;
+        assert!(!cfg.has_api_key_in_config_but_not_env());
+    }
+
+    #[test]
+    fn test_has_api_key_in_config_but_not_env_onnx_returns_false() {
+        let cfg = EmbedderConfig::OnnxFile { path: PathBuf::from("/tmp/model.onnx") };
+        assert!(!cfg.has_api_key_in_config_but_not_env());
+    }
+
+    #[test]
+    fn test_has_api_key_in_config_but_not_env_api_no_key_returns_false() {
+        let cfg = EmbedderConfig::Api {
+            endpoint: "https://example.com".to_string(),
+            model: "model".to_string(),
+            api_key: None,
+        };
+        assert!(!cfg.has_api_key_in_config_but_not_env());
+    }
+
+    #[test]
+    fn test_has_api_key_in_config_but_not_env_with_env_key_returns_false() {
+        let old_env = std::env::var_os("SHIOTSUCHI_API_KEY");
+        std::env::set_var("SHIOTSUCHI_API_KEY", "sk-env-test");
+        let cfg = EmbedderConfig::Api {
+            endpoint: "https://example.com".to_string(),
+            model: "model".to_string(),
+            api_key: Some("sk-config".to_string()),
+        };
+        assert!(!cfg.has_api_key_in_config_but_not_env());
+        // Restore previous env var state
+        match old_env {
+            Some(v) => std::env::set_var("SHIOTSUCHI_API_KEY", v),
+            None => std::env::remove_var("SHIOTSUCHI_API_KEY"),
+        }
     }
 }
