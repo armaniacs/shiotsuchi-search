@@ -164,7 +164,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     match cli.command {
-        None => {}
+        None => {
+            commands::welcome::run_welcome(&mut cfg, cli.notes_dir.as_deref(), cli.db_path.as_deref())?;
+        }
         Some(Commands::Chart(args)) => {
             let vault_id = args.vault.as_deref().or(cfg.vault_default.as_deref());
             let vaults = resolve_vaults(&resolved_vaults, vault_id)?;
