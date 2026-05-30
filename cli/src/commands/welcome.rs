@@ -7,7 +7,7 @@
 //! - Showing text guidance (non-TTY)
 
 use std::io::IsTerminal;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::commands;
 use crate::config::{default_config_path, ShiotsuchiConfig};
@@ -194,16 +194,152 @@ pub fn run_welcome(
 // ──────────────────────────────────────────────
 
 /// Run the 3-step onboarding wizard: init → index → search.
-/// To be implemented in a subsequent task.
+/// Each step shows a pre-flight summary and asks for confirmation.
+/// Steps are skipped based on config_exists/db_exists state.
 fn run_onboarding(
-    _config_exists: bool,
-    _db_exists: bool,
-    _cfg: &ShiotsuchiConfig,
-    _config_path: &Path,
-    _raw_notes_dir: Option<&Path>,
-    _raw_db_path: Option<&Path>,
+    config_exists: bool,
+    db_exists: bool,
+    cfg: &ShiotsuchiConfig,
+    config_path: &Path,
+    raw_notes_dir: Option<&Path>,
+    raw_db_path: Option<&Path>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    todo!("onboarding wizard")
+    use dialoguer::Confirm;
+    use dialoguer::theme::ColorfulTheme;
+
+    // ── Step 1: Config ──
+    if !config_exists {
+        println!("\n🔰 Step 1/3: 設定ファイルを作成します");
+        println!("  作成先: {}", config_path.display());
+        let notes_dir = raw_notes_dir.map(|p| p.to_path_buf()).unwrap_or_else(|| {
+            cfg.resolved_vaults().first()
+                .map(|(_, d)| d.clone())
+                .unwrap_or_else(|| PathBuf::from("."))
+        });
+        println!("  ノート: {}", notes_dir.display());
+
+        if !Confirm::with_theme(&ColorfulTheme::default())
+            .with_prompt("この内容で設定ファイルを作成しますか？")
+            .default(true)
+            .interact()?
+        {
+            println!("オンボーディングを中断しました。メニューからいつでも再開できます。");
+            return Ok(());
+        }
+
+        let init_args = commands::init::InitArgs { force: false, yes: false };
+        commands::init::run_init(&init_args, cfg, config_path, raw_notes_dir, raw_db_path)?;
+        println!("✅ Step 1/3 完了: 設定ファイルを作成しました");
+
+        if !Confirm::with_theme(&ColorfulTheme::default())
+            .with_prompt("Step 2 に進んでノートをインデックスしますか？")
+            .default(true)
+            .interact()?
+        {
+            println!("オンボーディングを中断しました。メニューからいつでも再開できます。");
+            return Ok(());
+        }
+    }
+
+    // ── Step 2: Index ──
+    if !db_exists {
+        println!("\n⚡ Step 2/3: ノートをインデックスします");
+        let vault_display = cfg.resolved_vaults().first()
+            .map(|(_, d)| d.display().to_string())
+            .unwrap_or_else(|| ".".to_string());
+        println!("  ボールト: {}", vault_display);
+
+        if !Confirm::with_theme(&ColorfulTheme::default())
+            .with_prompt("この内容でインデックスを実行しますか？")
+            .default(true)
+            .interact()?
+        {
+            println!("オンボーディングを中断しました。メニューからいつでも再開できます。");
+            return Ok(());
+        }
+
+        commands::chart::run_chart(
+            &commands::chart::ChartArgs { vault: None, quiet: false, force: false },
+            &cfg.resolved_vaults(), &cfg.resolved_db_path(),
+            &cfg.indexing, &cfg.embedder, &cfg.vlm,
+        )?;
+        println!("✅ Step 2/3 完了: ノートのインデックスが完了しました");
+    } else {
+        println!("\n⚡ Step 2/3: ノートを再インデックスします（すでにデータベースが存在します）");
+        if !Confirm::with_theme(&ColorfulTheme::default())
+            .with_prompt("データベースが存在します。再インデックスしますか？")
+            .default(false)
+            .interact()?
+        {
+            // Skip re-index, proceed to Step 3
+        } else {
+            commands::chart::run_chart(
+                &commands::chart::ChartArgs { vault: None, quiet: false, force: false },
+                &cfg.resolved_vaults(), &cfg.resolved_db_path(),
+                &cfg.indexing, &cfg.embedder, &cfg.vlm,
+            )?;
+            println!("✅ Step 2/3 完了: ノートの再インデックスが完了しました");
+        }
+    }
+
+    if !Confirm::with_theme(&ColorfulTheme::default())
+        .with_prompt("Step 3 に進んで検索を体験しますか？")
+        .default(true)
+        .interact()?
+    {
+        println!("オンボーディングを中断しました。メニューからいつでも検索できます。");
+        return Ok(());
+    }
+
+    // ── Step 3: Search ──
+    println!("\n🔍 Step 3/3: ノートを検索してみましょう");
+    let query: String = dialoguer::Input::with_theme(&ColorfulTheme::default())
+        .with_prompt("検索クエリを入力してください")
+        .interact_text()?;
+
+    let db_path = cfg.resolved_db_path();
+    use commands::dive::DiveArgs;
+    let args = DiveArgs {
+        query,
+        json: false,
+        limit: 20,
+        format: commands::dive::OutputFormat::Table,
+        mode: commands::dive::CliSearchMode::Hybrid,
+        model_path: None,
+        vault: None,
+        tag: None,
+        since: None,
+        fuzzy: false,
+        alpha: None,
+        mmr: false,
+        lambda: 0.5,
+        threshold: None,
+    };
+    let start = std::time::Instant::now();
+    let results = commands::dive::run_dive(
+        &args, &db_path, &cfg.resolved_vaults(),
+        &cfg.indexing.user_dictionary, &cfg.synonyms,
+        args.fuzzy, args.alpha, args.mmr, args.lambda, args.threshold,
+    )?;
+    commands::dive::print_results(&results, &args.query, &args.format, start.elapsed());
+
+    // ── Completion screen ──
+    println!();
+    println!("╔══════════════════════════════════════════════╗");
+    println!("║         🎉 オンボーディング完了！            ║");
+    println!("║                                              ║");
+    println!("║  これで shiotsuchi-search を使い始める準備が   ║");
+    println!("║  整いました。                                ║");
+    println!("║                                              ║");
+    println!("║  メニューからさらに操作を選べます:            ║");
+    println!("║    search  ノートを検索する                   ║");
+    println!("║    index   再インデックスする                  ║");
+    println!("║    stats   統計情報を表示する                 ║");
+    println!("║    ...                                       ║");
+    println!("╚══════════════════════════════════════════════╝");
+    println!();
+
+    Ok(())
 }
 
 /// Execute a single menu command (non-onboarding).
