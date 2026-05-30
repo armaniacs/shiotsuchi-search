@@ -335,23 +335,25 @@ fn split_code_math_segments(content: &str) -> Vec<(String, bool)> {
 /// Process regular text for inline code (`` ` ``) and inline math (`$...$`),
 /// splitting them into separate segments.
 fn split_inline_segments(segments: &mut Vec<(String, bool)>, text: String) {
-    let chars: Vec<char> = text.chars().collect();
+    // Collect (byte_offset, char) pairs so we can slice `text` correctly
+    // when multi-byte UTF-8 characters are present.
+    let chars: Vec<(usize, char)> = text.char_indices().collect();
     let mut i = 0;
     let mut start = 0;
 
     while i < chars.len() {
         // Inline code: backtick (not part of ```)
-        if chars[i] == '`' && !(i + 2 < chars.len() && chars[i + 1] == '`' && chars[i + 2] == '`')
+        if chars[i].1 == '`' && !(i + 2 < chars.len() && chars[i + 1].1 == '`' && chars[i + 2].1 == '`')
         {
             let mut j = i + 1;
-            while j < chars.len() && chars[j] != '`' && chars[j] != '\n' {
+            while j < chars.len() && chars[j].1 != '`' && chars[j].1 != '\n' {
                 j += 1;
             }
-            if j < chars.len() && chars[j] == '`' {
+            if j < chars.len() && chars[j].1 == '`' {
                 if i > start {
-                    segments.push((text[start..i].to_string(), false));
+                    segments.push((text[chars[start].0..chars[i].0].to_string(), false));
                 }
-                segments.push((text[i..j + 1].to_string(), true));
+                segments.push((text[chars[i].0..chars[j].0 + 1].to_string(), true));
                 start = j + 1;
                 i = j + 1;
                 continue;
@@ -359,16 +361,16 @@ fn split_inline_segments(segments: &mut Vec<(String, bool)>, text: String) {
         }
 
         // Inline math: $ (not part of $$)
-        if chars[i] == '$' && !(i + 1 < chars.len() && chars[i + 1] == '$') {
+        if chars[i].1 == '$' && !(i + 1 < chars.len() && chars[i + 1].1 == '$') {
             let mut j = i + 1;
-            while j < chars.len() && chars[j] != '$' && chars[j] != '\n' {
+            while j < chars.len() && chars[j].1 != '$' && chars[j].1 != '\n' {
                 j += 1;
             }
-            if j < chars.len() && chars[j] == '$' {
+            if j < chars.len() && chars[j].1 == '$' {
                 if i > start {
-                    segments.push((text[start..i].to_string(), false));
+                    segments.push((text[chars[start].0..chars[i].0].to_string(), false));
                 }
-                segments.push((text[i..j + 1].to_string(), true));
+                segments.push((text[chars[i].0..chars[j].0 + 1].to_string(), true));
                 start = j + 1;
                 i = j + 1;
                 continue;
@@ -379,7 +381,7 @@ fn split_inline_segments(segments: &mut Vec<(String, bool)>, text: String) {
     }
 
     if start < chars.len() {
-        segments.push((text[start..].to_string(), false));
+        segments.push((text[chars[start].0..].to_string(), false));
     }
 }
 
