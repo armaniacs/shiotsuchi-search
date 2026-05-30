@@ -156,6 +156,12 @@ pub struct IndexConfig {
     /// Whether to extract text from PDF files during indexing.
     /// When false, PDF files are indexed with empty content (files still appear in the DB).
     pub enable_pdf_extraction: bool,
+    /// VLM-based PDF extraction configuration (for scanned PDFs with no embedded text).
+    /// Only effective when compiled with the `vlm` feature.
+    pub vlm_enabled: bool,
+    pub vlm_provider: String,
+    pub vlm_model: String,
+    pub vlm_max_pages_per_doc: Option<usize>,
 }
 
 impl IndexConfig {
@@ -185,6 +191,10 @@ impl Default for IndexConfig {
             dynamic_threshold: 5,
             user_dictionary: vec![],
             enable_pdf_extraction: true,
+            vlm_enabled: false,
+            vlm_provider: "openai".to_string(),
+            vlm_model: "gpt-4.1-nano".to_string(),
+            vlm_max_pages_per_doc: None,
         }
     }
 }

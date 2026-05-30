@@ -19,6 +19,7 @@ pub fn run_dredge(
     vaults: &[(String, PathBuf)],
     db_path: &Path,
     indexing_cfg: &crate::config::IndexingConfig,
+    vlm_cfg: &shiotsuchi_core::config::VlmConfig,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if !db_path.exists() {
         eprintln!("{}", messages::DREDGE_DB_NOT_FOUND);
@@ -35,6 +36,10 @@ pub fn run_dredge(
         dynamic_threshold: indexing_cfg.dynamic_threshold,
         user_dictionary: indexing_cfg.user_dictionary.clone(),
         enable_pdf_extraction: indexing_cfg.enable_pdf_extraction,
+        vlm_enabled: vlm_cfg.enabled,
+        vlm_provider: vlm_cfg.provider.clone(),
+        vlm_model: vlm_cfg.model.clone(),
+        vlm_max_pages_per_doc: vlm_cfg.max_pages_per_doc,
     };
 
     let stale = cleanup_deleted(&db, &config)?;
@@ -80,7 +85,7 @@ mod tests {
             vacuum: false,
         };
         let idx_cfg = IndexingConfig::default();
-        let result = run_dredge(&args, &[("default".to_string(), temp.path().to_path_buf())], &db_file, &idx_cfg);
+        let result = run_dredge(&args, &[("default".to_string(), temp.path().to_path_buf())], &db_file, &idx_cfg, &Default::default());
         assert!(result.is_ok());
     }
 
@@ -95,7 +100,7 @@ mod tests {
             vacuum: false,
         };
         let idx_cfg = IndexingConfig::default();
-        let result = run_dredge(&args, &[("default".to_string(), temp.path().to_path_buf())], &db_file, &idx_cfg);
+        let result = run_dredge(&args, &[("default".to_string(), temp.path().to_path_buf())], &db_file, &idx_cfg, &Default::default());
         assert!(result.is_ok());
     }
 
@@ -112,7 +117,7 @@ mod tests {
             vacuum: true,
         };
         let idx_cfg = IndexingConfig::default();
-        let result = run_dredge(&args, &[("default".to_string(), temp.path().to_path_buf())], &db_file, &idx_cfg);
+        let result = run_dredge(&args, &[("default".to_string(), temp.path().to_path_buf())], &db_file, &idx_cfg, &Default::default());
         assert!(result.is_ok());
     }
 }

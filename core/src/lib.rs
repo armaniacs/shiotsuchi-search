@@ -18,6 +18,9 @@ pub mod watcher;
 
 pub mod pdf;
 
+#[cfg(feature = "vlm")]
+pub mod vlm;
+
 #[cfg(feature = "semantic")]
 pub mod embedder;
 

@@ -322,8 +322,10 @@ pub fn index_file_with_embedder(
         }
     }
 
-    let content = {
-        let ext = file_path.extension().and_then(|e| e.to_str()).unwrap_or("");
+    let ext = file_path.extension().and_then(|e| e.to_str()).unwrap_or("").to_string();
+
+    #[allow(unused_mut)]
+    let mut content = {
         if ext == "pdf" {
             if config.enable_pdf_extraction {
                 #[cfg(feature = "pdf")]
@@ -347,6 +349,32 @@ pub fn index_file_with_embedder(
             }
         }
     };
+
+    // If native PDF extraction returned empty text, try VLM for scanned PDFs
+    if ext == "pdf" && content.is_empty() && config.vlm_enabled {
+        #[cfg(feature = "vlm")]
+        {
+            use crate::config::VlmConfig;
+            let vlm_config = VlmConfig {
+                enabled: true,
+                provider: config.vlm_provider.clone(),
+                model: config.vlm_model.clone(),
+                max_pages_per_doc: config.vlm_max_pages_per_doc,
+            };
+            match crate::vlm::extract_text_with_vlm(file_path, &vlm_config) {
+                Ok(Some(text)) => content = text,
+                Ok(None) => {}, // VLM returned nothing, keep empty
+                Err(e) => {
+                    log::warn!("VLM extraction failed for {}: {}", relative_path, e);
+                    // keep empty, fall back to native result
+                }
+            }
+        }
+        #[cfg(not(feature = "vlm"))]
+        {
+            // VLM feature not compiled, keep empty
+        }
+    }
 
     let hash = sha256_hex(&content);
 

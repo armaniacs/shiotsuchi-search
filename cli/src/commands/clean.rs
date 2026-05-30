@@ -85,6 +85,7 @@ pub fn run_clean(
     vaults: &[(String, PathBuf)],
     db_path: &Path,
     indexing_cfg: &IndexingConfig,
+    vlm_cfg: &shiotsuchi_core::config::VlmConfig,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if !db_path.exists() {
         return Err(msg_fmt!(messages::CLEAN_DB_NOT_FOUND, db_path.display()).into());
@@ -100,6 +101,10 @@ pub fn run_clean(
         dynamic_threshold: indexing_cfg.dynamic_threshold,
         user_dictionary: indexing_cfg.user_dictionary.clone(),
         enable_pdf_extraction: indexing_cfg.enable_pdf_extraction,
+        vlm_enabled: vlm_cfg.enabled,
+        vlm_provider: vlm_cfg.provider.clone(),
+        vlm_model: vlm_cfg.model.clone(),
+        vlm_max_pages_per_doc: vlm_cfg.max_pages_per_doc,
     };
 
     let tokenizer = get_tokenizer()?;
@@ -295,7 +300,7 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let db_path = tmp.path().join("nonexistent.db");
         let vaults = vec![("default".to_string(), tmp.path().join("vault"))];
-        let result = super::run_clean(&vaults, &db_path, &IndexingConfig::default());
+        let result = super::run_clean(&vaults, &db_path, &IndexingConfig::default(), &Default::default());
         assert!(result.is_err(), "clean without DB should return error");
         let msg = format!("{}", result.unwrap_err());
         assert!(msg.contains("見つかりません"), "error should mention '見つかりません', got: {}", msg);
@@ -335,7 +340,7 @@ mod tests {
         let idx_cfg = IndexingConfig::default();
         let vaults = vec![("default".to_string(), vault.clone())];
 
-        if let Err(e) = super::run_clean(&vaults, &db_path, &idx_cfg) {
+        if let Err(e) = super::run_clean(&vaults, &db_path, &idx_cfg, &Default::default()) {
             let msg = format!("{}", e);
             if msg.contains("no model") || msg.contains("NoModel") {
                 eprintln!("[SKIPPED] clean::test_run_clean_full_flow — Vaporetto model not available");

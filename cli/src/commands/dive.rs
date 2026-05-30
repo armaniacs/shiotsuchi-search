@@ -281,7 +281,7 @@ mod tests {
             vault: None,
         };
         let chart_result =
-            crate::commands::chart::run_chart(&chart_args, &[("default".to_string(), temp.path().to_path_buf())], &db_file, &idx_cfg, &shiotsuchi_core::config::EmbedderConfig::default());
+            crate::commands::chart::run_chart(&chart_args, &[("default".to_string(), temp.path().to_path_buf())], &db_file, &idx_cfg, &shiotsuchi_core::config::EmbedderConfig::default(), &Default::default());
         if chart_result.is_err() {
             return; // Model not available — skip
         }

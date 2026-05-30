@@ -136,6 +136,7 @@ fn fix_config_old_vault_format(config_path: &Path) -> Result<(), Box<dyn std::er
         vault: None,
         indexing: old_cfg.indexing,
         watcher: old_cfg.watcher,
+        vlm: old_cfg.vlm.clone(),
         synonyms: HashMap::new(),
         hybrid_alpha: old_cfg.hybrid_alpha,
         vault_default: old_cfg.vault_default,
@@ -178,6 +179,7 @@ fn index_vault(
     db_path: &Path,
     vaults: &[(String, PathBuf)],
     indexing_cfg: &IndexingConfig,
+    vlm_cfg: &shiotsuchi_core::config::VlmConfig,
 ) -> Result<(usize, usize), Box<dyn std::error::Error>> {
     let db = NoteDatabase::open(db_path)?;
     let tokenizer = get_tokenizer()?;
@@ -190,6 +192,10 @@ fn index_vault(
         dynamic_threshold: indexing_cfg.dynamic_threshold,
         user_dictionary: indexing_cfg.user_dictionary.clone(),
         enable_pdf_extraction: indexing_cfg.enable_pdf_extraction,
+        vlm_enabled: vlm_cfg.enabled,
+        vlm_provider: vlm_cfg.provider.clone(),
+        vlm_model: vlm_cfg.model.clone(),
+        vlm_max_pages_per_doc: vlm_cfg.max_pages_per_doc,
     };
     let embedder = resolve_model_path(None).and_then(|p| match Embedder::load(&p) {
         Ok(e) => {
@@ -233,6 +239,7 @@ fn rebuild_db(
     db_path: &Path,
     vaults: &[(String, PathBuf)],
     indexing_cfg: &IndexingConfig,
+    vlm_cfg: &shiotsuchi_core::config::VlmConfig,
 ) -> Result<(usize, usize), Box<dyn std::error::Error>> {
     // Backup old DB (best-effort)
     let backed_up = super::clean::backup_file(db_path);
@@ -243,7 +250,7 @@ fn rebuild_db(
     // Delete old DB files
     super::clean::delete_db_files(db_path);
     // Index fresh
-    let result = index_vault(db_path, vaults, indexing_cfg);
+    let result = index_vault(db_path, vaults, indexing_cfg, vlm_cfg);
     if let Some(ref backup_path) = backed_up {
         println!("{}", msg_fmt!(messages::DOCTOR_BACKUP_SAVED, backup_path.display()));
     }
@@ -259,6 +266,7 @@ pub fn run_doctor(
     db_path: &Path,
     vaults: &[(String, PathBuf)],
     indexing_cfg: &IndexingConfig,
+    vlm_cfg: &shiotsuchi_core::config::VlmConfig,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut all_ok = true;
     let tty = is_tty();
@@ -328,20 +336,20 @@ pub fn run_doctor(
                     all_ok = false;
                     drop(db);
                     if tty && ask(messages::DOCTOR_DB_REBUILD_PROMPT)? {
-                        match rebuild_db(db_path, vaults, indexing_cfg) {
-                            Ok((files, chunks)) => println!("{}", msg_fmt!(messages::DOCTOR_DB_REBUILT, files, chunks)),
-                            Err(fix_err) => {
-                                eprintln!("{}", msg_fmt!(messages::DOCTOR_DB_REBUILD_FAILED, fix_err))
+                            match rebuild_db(db_path, vaults, indexing_cfg, vlm_cfg) {
+                                Ok((files, chunks)) => println!("{}", msg_fmt!(messages::DOCTOR_DB_REBUILT, files, chunks)),
+                                Err(fix_err) => {
+                                    eprintln!("{}", msg_fmt!(messages::DOCTOR_DB_REBUILD_FAILED, fix_err))
+                                }
                             }
                         }
                     }
-                }
-            },
+                },
             Err(e) => {
                 println!("{}", msg_fmt!(messages::DOCTOR_DB_OPEN_FAILED, db_path.display(), e));
                 all_ok = false;
                 if tty && ask(messages::DOCTOR_DB_REBUILD_PROMPT)? {
-                    match rebuild_db(db_path, vaults, indexing_cfg) {
+                    match rebuild_db(db_path, vaults, indexing_cfg, vlm_cfg) {
                         Ok((files, chunks)) => println!("{}", msg_fmt!(messages::DOCTOR_DB_REBUILT, files, chunks)),
                         Err(fix_err) => {
                             eprintln!("{}", msg_fmt!(messages::DOCTOR_DB_REBUILD_FAILED, fix_err))
@@ -353,7 +361,7 @@ pub fn run_doctor(
     } else {
         println!("{}", msg_fmt!(messages::DOCTOR_DB_NOT_FOUND, db_path.display()));
         if tty && ask(messages::DOCTOR_DB_CREATE_PROMPT)? {
-            match index_vault(db_path, vaults, indexing_cfg) {
+            match index_vault(db_path, vaults, indexing_cfg, vlm_cfg) {
                 Ok((files, chunks)) => println!("{}", msg_fmt!(messages::DOCTOR_DB_CREATED, files, chunks)),
                 Err(fix_err) => eprintln!("{}", msg_fmt!(messages::DOCTOR_DB_INDEX_FAILED, fix_err)),
             }
@@ -671,7 +679,7 @@ notes_dir = "/work/notes"
         let vaults = vec![("default".to_string(), vault)];
         let idx_cfg = IndexingConfig::default();
 
-        match index_vault(&db_path, &vaults, &idx_cfg) {
+        match index_vault(&db_path, &vaults, &idx_cfg, &shiotsuchi_core::config::VlmConfig::default()) {
             Ok((files, chunks)) => {
                 assert!(files >= 2, "should index at least 2 files, got {}", files);
                 assert!(chunks >= 2, "should have at least 2 chunks, got {}", chunks);
@@ -703,7 +711,7 @@ notes_dir = "/work/notes"
         let idx_cfg = IndexingConfig::default();
 
         // First index
-        match index_vault(&db_path, &vaults, &idx_cfg) {
+        match index_vault(&db_path, &vaults, &idx_cfg, &shiotsuchi_core::config::VlmConfig::default()) {
             Ok(_) => {}
             Err(e) => {
                 let msg = format!("{}", e);
@@ -719,7 +727,7 @@ notes_dir = "/work/notes"
         fs::write(&db_path, "garbage data").unwrap();
 
         // Rebuild
-        match rebuild_db(&db_path, &vaults, &idx_cfg) {
+        match rebuild_db(&db_path, &vaults, &idx_cfg, &shiotsuchi_core::config::VlmConfig::default()) {
             Ok((files, chunks)) => {
                 assert!(
                     files >= 1,

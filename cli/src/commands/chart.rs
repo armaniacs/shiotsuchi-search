@@ -36,6 +36,7 @@ pub fn run_chart(
     db_path: &Path,
     indexing_cfg: &IndexingConfig,
     embedder_cfg: &EmbedderConfig,
+    vlm_cfg: &shiotsuchi_core::config::VlmConfig,
 ) -> Result<ChartSummary, Box<dyn std::error::Error>> {
     if args.force {
         eprintln!("{}", messages::CHART_FORCE_DEPRECATED);
@@ -51,6 +52,10 @@ pub fn run_chart(
         dynamic_threshold: indexing_cfg.dynamic_threshold,
         user_dictionary: indexing_cfg.user_dictionary.clone(),
         enable_pdf_extraction: indexing_cfg.enable_pdf_extraction,
+        vlm_enabled: vlm_cfg.enabled,
+        vlm_provider: vlm_cfg.provider.clone(),
+        vlm_model: vlm_cfg.model.clone(),
+        vlm_max_pages_per_doc: vlm_cfg.max_pages_per_doc,
     };
 
     let embedder = match embedder_cfg.create_embedder() {
@@ -134,7 +139,7 @@ mod tests {
             vault: None,
         };
         let idx_cfg = IndexingConfig::default();
-        let result = run_chart(&args, &[("default".to_string(), temp.path().to_path_buf())], &db_file, &idx_cfg, &shiotsuchi_core::config::EmbedderConfig::default());
+        let result = run_chart(&args, &[("default".to_string(), temp.path().to_path_buf())], &db_file, &idx_cfg, &shiotsuchi_core::config::EmbedderConfig::default(), &shiotsuchi_core::config::VlmConfig::default());
         match result {
             Ok(summary) => {
                 assert_eq!(summary.indexed, 1);
@@ -168,7 +173,7 @@ mod tests {
             vault: None,
         };
         let idx_cfg = IndexingConfig::default();
-        let _result = run_chart(&args, &[("default".to_string(), vault.clone())], &db_path, &idx_cfg, &shiotsuchi_core::config::EmbedderConfig::default());
+        let _result = run_chart(&args, &[("default".to_string(), vault.clone())], &db_path, &idx_cfg, &shiotsuchi_core::config::EmbedderConfig::default(), &shiotsuchi_core::config::VlmConfig::default());
 
         let parent = db_path.parent().unwrap();
         if parent.exists() {
@@ -200,6 +205,7 @@ mod tests {
             &db_path,
             &idx_cfg,
             &shiotsuchi_core::config::EmbedderConfig::default(),
+            &shiotsuchi_core::config::VlmConfig::default(),
         );
     }
 
@@ -231,7 +237,7 @@ mod tests {
         // The fake endpoint doesn't exist, so create_embedder() will succeed in building
         // the ApiClient but embedder operations may fail later. The warning path should
         // still be exercised because the config contains api_key and the env var is absent.
-        let _ = run_chart(&args, &[("default".to_string(), vault)], &db_file, &idx_cfg, &api_cfg);
+        let _ = run_chart(&args, &[("default".to_string(), vault)], &db_file, &idx_cfg, &api_cfg, &shiotsuchi_core::config::VlmConfig::default());
 
         // Restore env var if it was set
         if let Some(v) = old_env {

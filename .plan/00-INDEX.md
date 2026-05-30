@@ -79,4 +79,5 @@
 | `2026-05-25-11-backlog-mmr-diversity-reranking.md` | PBI-11: MMR 多様化リランキング — 実装＋レビュー修正完了 |
 | `2026-05-25-13-backlog-pluggable-embedding-model.md` | PBI-13: 埋め込みモデル差し替え（API 方式）— ✅ v0.4.12 完了 |
 | `2026-05-25-28-backlog-synonym-cli-manager.md` | PBI-28: 同義語管理 CLI と専用ファイル対応 — 実装完了 |
+| `2026-05-25-21-backlog-ocr-pdf-image-search.md` | PBI-21: PDF テキスト抽出検索 Phase A — pdfium-auto + XY-Cut 完了、画像 OCR は PBI-28 へ移動 |
 

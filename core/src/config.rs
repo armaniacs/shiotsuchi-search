@@ -205,6 +205,34 @@ impl Default for WatcherConfig {
     }
 }
 
+/// Configuration for VLM-based PDF extraction (e.g., scanned PDFs with no embedded text).
+/// Requires the `vlm` Cargo feature flag.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct VlmConfig {
+    /// Enable VLM-based extraction. When false, all VLM features are skipped (even if API key is set).
+    pub enabled: bool,
+    /// VLM provider name (e.g., "openai", "anthropic", "bedrock", "gemini", "ollama").
+    /// Default: "openai"
+    pub provider: String,
+    /// Model name to use (e.g., "gpt-4.1-nano", "claude-sonnet-4-20250514").
+    /// Default: "gpt-4.1-nano"
+    pub model: String,
+    /// Maximum pages to process per document. None = unlimited.
+    pub max_pages_per_doc: Option<usize>,
+}
+
+impl Default for VlmConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            provider: "openai".to_string(),
+            model: "gpt-4.1-nano".to_string(),
+            max_pages_per_doc: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct ShiotsuchiConfig {
@@ -213,6 +241,7 @@ pub struct ShiotsuchiConfig {
     pub vault: Option<VaultEntry>,
     pub indexing: IndexingConfig,
     pub watcher: WatcherConfig,
+    pub vlm: VlmConfig,
     /// Synonym mappings for search query expansion.
     /// Keys are query tokens, values are lists of synonyms.
     /// Synonyms are OR-expanded in FTS5 queries.

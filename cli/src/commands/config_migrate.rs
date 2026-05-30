@@ -55,6 +55,7 @@ pub fn run_config_migrate(args: &ConfigMigrateArgs) -> Result<(), Box<dyn std::e
         vault: None,
         indexing: old_cfg.indexing,
         watcher: old_cfg.watcher,
+        vlm: old_cfg.vlm.clone(),
         synonyms: HashMap::new(),
         hybrid_alpha: old_cfg.hybrid_alpha,
         vault_default: old_cfg.vault_default,

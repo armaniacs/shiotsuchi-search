@@ -167,13 +167,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Commands::Chart(args) => {
             let vault_id = args.vault.as_deref().or(cfg.vault_default.as_deref());
             let vaults = resolve_vaults(&resolved_vaults, vault_id)?;
-            commands::chart::run_chart(&args, &vaults, &db_path, &cfg.indexing, &cfg.embedder)?;
+            commands::chart::run_chart(&args, &vaults, &db_path, &cfg.indexing, &cfg.embedder, &cfg.vlm)?;
         }
         Commands::CheckIgnore(args) => {
             commands::check_ignore::run_check_ignore(&args, &resolved_vaults)?;
         }
         Commands::Clean(_args) => {
-            commands::clean::run_clean(&resolved_vaults, &db_path, &cfg.indexing)?;
+            commands::clean::run_clean(&resolved_vaults, &db_path, &cfg.indexing, &cfg.vlm)?;
         }
         Commands::Dive(args) => {
             if !db_path.exists() {
@@ -216,10 +216,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 &cfg.watcher,
                 &cfg.indexing,
                 &cfg.embedder,
+                &cfg.vlm,
             )?;
         }
         Commands::Doctor(_args) => {
-            commands::doctor::run_doctor(&cfg, &db_path, &resolved_vaults, &cfg.indexing)?;
+            commands::doctor::run_doctor(&cfg, &db_path, &resolved_vaults, &cfg.indexing, &cfg.vlm)?;
         }
         Commands::Dredge(args) => {
             commands::dredge::run_dredge(
@@ -227,6 +228,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 &resolved_vaults,
                 &db_path,
                 &cfg.indexing,
+                &cfg.vlm,
             )?;
         }
         Commands::Log => commands::log::run_log(&db_path, "default")?,

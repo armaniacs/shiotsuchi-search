@@ -39,6 +39,7 @@ ort = { version = "2.0.0-rc.12", default-features = false, features = ["std", "d
 ureq = { version = "3", optional = true }
 pdfium-render = { version = "0.9", default-features = false, features = ["pdfium_latest"], optional = true }
 pdfium-auto = { version = "0.3", features = ["bundled"], optional = true }
+edgequake-pdf2md = { version = "0.9", default-features = false, features = ["bundled"], optional = true }
 indicatif = "0.17"
 notify = { version = "9.0.0-rc.4", optional = true }
 log = "0.4"
@@ -55,6 +56,7 @@ semantic = ["dep:ort", "dep:tokenizers", "dep:ureq"]
 watcher = ["dep:notify"]
 async-index = ["dep:tokio"]
 pdf = ["dep:pdfium-render", "dep:pdfium-auto"]
+vlm = ["dep:edgequake-pdf2md", "dep:tokio", "pdf"]
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }

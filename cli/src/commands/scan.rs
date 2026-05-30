@@ -31,6 +31,7 @@ pub fn run_scan(
     _watcher_cfg: &WatcherConfig,
     indexing_cfg: &crate::config::IndexingConfig,
     embedder_cfg: &EmbedderConfig,
+    vlm_cfg: &shiotsuchi_core::config::VlmConfig,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if let Some(_d) = args.debounce {
         eprintln!("{}", messages::SCAN_DEBOUNCE_DEPRECATED);
@@ -78,6 +79,10 @@ pub fn run_scan(
         dynamic_threshold: indexing_cfg.dynamic_threshold,
         user_dictionary: indexing_cfg.user_dictionary.clone(),
         enable_pdf_extraction: indexing_cfg.enable_pdf_extraction,
+        vlm_enabled: vlm_cfg.enabled,
+        vlm_provider: vlm_cfg.provider.clone(),
+        vlm_model: vlm_cfg.model.clone(),
+        vlm_max_pages_per_doc: vlm_cfg.max_pages_per_doc,
     };
     let watcher = VaultWatcher::new(db, tokenizer, config, embedder);
     watcher.watch()
