@@ -9,6 +9,7 @@
 use std::io::IsTerminal;
 use std::path::Path;
 
+use crate::commands;
 use crate::config::{default_config_path, ShiotsuchiConfig};
 use crate::messages;
 
@@ -208,13 +209,104 @@ fn run_onboarding(
 /// Execute a single menu command (non-onboarding).
 /// To be implemented in a subsequent task.
 fn run_single_command(
-    _choice: MenuChoice,
-    _cfg: &ShiotsuchiConfig,
-    _config_path: &Path,
-    _raw_notes_dir: Option<&Path>,
-    _raw_db_path: Option<&Path>,
+    choice: MenuChoice,
+    cfg: &ShiotsuchiConfig,
+    config_path: &Path,
+    raw_notes_dir: Option<&Path>,
+    raw_db_path: Option<&Path>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    todo!("single command dispatch")
+    use dialoguer::Confirm;
+    use dialoguer::theme::ColorfulTheme;
+
+    match choice {
+        MenuChoice::Stats => {
+            commands::tide::run_tide(&cfg.resolved_db_path())?;
+            println!();
+        }
+        MenuChoice::Doctor => {
+            commands::doctor::run_doctor(
+                cfg, &cfg.resolved_db_path(),
+                &cfg.resolved_vaults(), &cfg.indexing, &cfg.vlm,
+            )?;
+            println!("✅ 診断が完了しました。問題があれば表示されたメッセージに従ってください");
+        }
+        MenuChoice::Init => {
+            let init_args = commands::init::InitArgs { force: false, yes: false };
+            commands::init::run_init(&init_args, cfg, config_path, raw_notes_dir, raw_db_path)?;
+            if Confirm::with_theme(&ColorfulTheme::default())
+                .with_prompt("✅ 設定ファイルを作成しました。オンボーディングを続けて index → search まで完了しませんか？")
+                .default(true)
+                .interact()?
+            {
+                run_onboarding(true, false, cfg, config_path, raw_notes_dir, raw_db_path)?;
+            }
+        }
+        MenuChoice::Setup => {
+            let setup_args = commands::setup::SetupArgs { check: false };
+            commands::setup::run_setup(&setup_args)?;
+            println!("✅ モデルのセットアップが完了しました。次に index を実行してベクトルインデックスを有効にしてください");
+        }
+        MenuChoice::Index => {
+            commands::chart::run_chart(
+                &commands::chart::ChartArgs { vault: None, quiet: false, force: false },
+                &cfg.resolved_vaults(), &cfg.resolved_db_path(),
+                &cfg.indexing, &cfg.embedder, &cfg.vlm,
+            )?;
+            if Confirm::with_theme(&ColorfulTheme::default())
+                .with_prompt("✅ インデックスが完了しました。続けて search で検索してみませんか？")
+                .default(true)
+                .interact()?
+            {
+                run_onboarding(true, true, cfg, config_path, raw_notes_dir, raw_db_path)?;
+            }
+        }
+        MenuChoice::Search => {
+            let db_path = cfg.resolved_db_path();
+            if !db_path.exists() {
+                eprintln!("{}", crate::messages::ERR_DB_NOT_FOUND);
+                if Confirm::with_theme(&ColorfulTheme::default())
+                    .with_prompt("オンボーディングを開始して index → search まで進めますか？")
+                    .default(true)
+                    .interact()?
+                {
+                    run_onboarding(false, false, cfg, config_path, raw_notes_dir, raw_db_path)?;
+                }
+                return Ok(());
+            }
+            let query: String = dialoguer::Input::with_theme(&ColorfulTheme::default())
+                .with_prompt("検索クエリを入力してください")
+                .interact_text()?;
+
+            let start = std::time::Instant::now();
+            use commands::dive::DiveArgs;
+            let args = DiveArgs {
+                query,
+                json: false,
+                limit: 20,
+                format: commands::dive::OutputFormat::Table,
+                mode: commands::dive::CliSearchMode::Hybrid,
+                model_path: None,
+                vault: None,
+                tag: None,
+                since: None,
+                fuzzy: false,
+                alpha: None,
+                mmr: false,
+                lambda: 0.5,
+                threshold: None,
+            };
+            let results = commands::dive::run_dive(
+                &args, &db_path, &cfg.resolved_vaults(),
+                &cfg.indexing.user_dictionary, &cfg.synonyms,
+                args.fuzzy, args.alpha, args.mmr, args.lambda, args.threshold,
+            )?;
+            commands::dive::print_results(&results, &args.query, &args.format, start.elapsed());
+        }
+        MenuChoice::Onboarding | MenuChoice::Exit => {
+            unreachable!("handled in menu loop")
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
