@@ -16,6 +16,8 @@ pub mod search;
 pub mod tokenizer;
 pub mod watcher;
 
+pub mod pdf;
+
 #[cfg(feature = "semantic")]
 pub mod embedder;
 
