@@ -175,7 +175,7 @@ impl Default for IndexConfig {
     fn default() -> Self {
         Self {
             vaults: vec![("default".to_string(), PathBuf::from("."))],
-            include_extensions: vec!["md".to_string(), "markdown".to_string()],
+            include_extensions: vec!["md".to_string(), "markdown".to_string(), "pdf".to_string()],
             exclude_dirs: vec!["node_modules".to_string()],
             auto_exclude_hidden: true,
             follow_links: false,
@@ -234,7 +234,7 @@ mod tests {
     fn default_index_config() {
         let config = IndexConfig::default();
         assert_eq!(config.vaults, vec![("default".to_string(), PathBuf::from("."))]);
-        assert_eq!(config.include_extensions, vec!["md", "markdown"]);
+        assert_eq!(config.include_extensions, vec!["md", "markdown", "pdf"]);
         assert_eq!(config.exclude_dirs, vec!["node_modules"]);
         assert!(config.auto_exclude_hidden);
         assert!(!config.follow_links);
@@ -256,5 +256,15 @@ mod tests {
         assert_eq!(config.vaults.len(), 2);
         assert_eq!(config.vaults[0].0, "work");
         assert_eq!(config.vaults[1].0, "personal");
+    }
+
+    #[test]
+    fn test_index_config_default_includes_pdf_extension() {
+        let config = IndexConfig::default();
+        assert!(
+            config.include_extensions.iter().any(|e| e == "pdf"),
+            "default config should include 'pdf', got: {:?}",
+            config.include_extensions
+        );
     }
 }
