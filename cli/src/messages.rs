@@ -321,3 +321,27 @@ pub const SYNONYM_CREATED: &str = "新しい辞書ファイルを作成しまし
 pub const SYNONYM_LIST_EMPTY: &str = "同義語は登録されていません。`shiotsuchi synonym add <単語> <同義語>` で追加できます。";
 pub const SYNONYM_LIST_HEADER: &str = "登録済み同義語:";
 pub const SYNONYM_LOAD_ERROR: &str = "警告: 同義語辞書の読み込みに失敗しました。デフォルトを使用します。";
+
+// ──────────────────────────────────────────────
+// welcome.rs — ウェルカムメニュー・オンボーディング
+// ──────────────────────────────────────────────
+
+pub const WELCOME_TAGLINE: &str = "データの潮流を導く — 日本語対応ノート検索エンジン";
+pub const WELCOME_EXIT: &str = "またのお越しをお待ちしています。";
+pub const WELCOME_NON_TTY_NO_CONFIG: &str = "\
+設定ファイルが見つかりません。
+`shiotsuchi init` を実行して設定ファイルを作成してください。";
+pub const WELCOME_NON_TTY_HINT: &str = "サブコマンドを指定するか、`shiotsuchi --help` で使い方を確認してください。";
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_welcome_constants_are_non_empty() {
+        assert!(!WELCOME_TAGLINE.is_empty());
+        assert!(!WELCOME_EXIT.is_empty());
+        assert!(!WELCOME_NON_TTY_HINT.is_empty());
+        assert!(!WELCOME_NON_TTY_NO_CONFIG.is_empty());
+    }
+}
