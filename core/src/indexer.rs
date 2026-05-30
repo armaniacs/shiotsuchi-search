@@ -322,9 +322,26 @@ pub fn index_file_with_embedder(
         }
     }
 
-    let content = match fs::read_to_string(file_path) {
-        Ok(c) => c,
-        Err(e) => return IndexResult::Error(format!("Read error: {}", e)),
+    let content = {
+        let ext = file_path.extension().and_then(|e| e.to_str()).unwrap_or("");
+        if ext == "pdf" {
+            #[cfg(feature = "pdf")]
+            {
+                match crate::pdf::extract_text(file_path) {
+                    Ok(text) => text,
+                    Err(e) => return IndexResult::Error(format!("PDF extract error: {}", e)),
+                }
+            }
+            #[cfg(not(feature = "pdf"))]
+            {
+                String::new()
+            }
+        } else {
+            match fs::read_to_string(file_path) {
+                Ok(c) => c,
+                Err(e) => return IndexResult::Error(format!("Read error: {}", e)),
+            }
+        }
     };
 
     let hash = sha256_hex(&content);
@@ -1243,5 +1260,71 @@ mod tests {
             escape_glob_literal("*?[]{},"),
             "*?[]{},"
         );
+    }
+
+    #[test]
+    fn test_index_pdf_inserted_without_pdf_feature() {
+        // Even with pdf feature OFF (default for this test), .pdf should be Inserted
+        // with empty content (not Error from fs::read_to_string on binary data)
+        let tokenizer = crate::require_tokenizer!(Default::default());
+        let temp = TempDir::new().unwrap();
+        let vault = temp.path().join("vault");
+        fs::create_dir(&vault).unwrap();
+        // Write binary PDF bytes that would cause fs::read_to_string to fail with UTF-8 error
+        fs::write(vault.join("report.pdf"), b"%PDF-1.4\x80\x81\xff").unwrap();
+        let db = NoteDatabase::open_in_memory().unwrap();
+        let config = IndexConfig {
+            vaults: vec![("default".to_string(), vault.clone())],
+            include_extensions: vec!["pdf".to_string()],
+            ..Default::default()
+        };
+        let (results, _invalid, _excluded) =
+            index_directory(&db, &tokenizer, &config, None, None).unwrap();
+        assert_eq!(results.len(), 1, "PDF should be indexed");
+        assert_eq!(results[0].2, IndexResult::Inserted, "should be Inserted, not Error");
+    }
+
+    #[cfg(feature = "pdf")]
+    #[test]
+    fn test_index_pdf_text_is_searchable_with_pdf_feature() {
+        use crate::models::SearchMode;
+        use crate::search::search;
+        use std::collections::HashMap;
+
+        let tokenizer = crate::require_tokenizer!(Default::default());
+        let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/hello.pdf");
+        if !fixture.exists() {
+            eprintln!("SKIP: fixture not found");
+            return;
+        }
+
+        let temp = TempDir::new().unwrap();
+        let vault = temp.path().join("vault");
+        fs::create_dir(&vault).unwrap();
+        fs::copy(&fixture, vault.join("hello.pdf")).unwrap();
+
+        let db = NoteDatabase::open_in_memory().unwrap();
+        let config = IndexConfig {
+            vaults: vec![("default".to_string(), vault.clone())],
+            include_extensions: vec!["pdf".to_string()],
+            ..Default::default()
+        };
+
+        let (results, _invalid, _excluded) =
+            index_directory(&db, &tokenizer, &config, None, None).unwrap();
+        assert_eq!(results.len(), 1, "should index 1 PDF");
+        assert_eq!(results[0].2, IndexResult::Inserted);
+
+        let hits = search(
+            &db, &tokenizer, "Hello", 10, SearchMode::Fts,
+            None, None, Some("default"), None, None,
+            &[], &HashMap::new(), false, None, false, 0.5,
+        ).unwrap();
+        assert!(
+            !hits.is_empty(),
+            "should find 'Hello' in indexed PDF, but got no results"
+        );
+        assert_eq!(hits[0].file_path, "hello.pdf");
     }
 }
