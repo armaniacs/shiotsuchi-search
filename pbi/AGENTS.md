@@ -12,16 +12,17 @@ shiotsuchi-search はノートの検索エンジンであり、読み取り専�
 MCP 経由でのノート作成・編集・削除はプロジェクトの範囲外であり、ツールの哲学（「検索することに特化する」）
 に反する。読み取り専用の検索結果の返却に専念する。
 
-## 実装済み（完了報告待ち）
+## 完了・アーカイブ済み
 
-### PBI-21: OCR PDF/画像検索 — Phase A 完了
+### PBI-21: PDF テキスト抽出検索
 
-**Phase A (PDF テキスト抽出 + XY-Cut レイアウト解析) は実装済み。**
+**Phase A (PDF テキスト抽出 + XY-Cut レイアウト解析) — 完了・アーカイブ済み。**
 
 採用技術:
 - `pdfium-render` + `pdfium-auto` (bundled): Chrome 内蔵 PDFium エンジンの Rust バインディング
 - XY-Cut レイアウト解析: Rust 自前実装（段組認識・読書順復元）
 - feature flag: `pdf`（default に含む）
+- 設定トグル: `IndexingConfig.enable_pdf_extraction`
 
 実装詳細:
 - `core/src/pdf.rs`: RawChar/TextLine 型、cluster_to_lines、xycut_to_text、extract_text
@@ -30,19 +31,11 @@ MCP 経由でのノート作成・編集・削除はプロジェクトの範囲�
 - E2E テスト: hello.pdf のテキストが FTS5 検索可能なことを確認済み
 
 **画像 OCR は別 PBI（Phase B）として分割。**
-参照: `pbi/2026-05-30-28-backlog-vlm-pdf-markdown.md` 
-
-## 実装順序に関する決定
-
-### PBI-18: Backlink PageRank スコアリング
-
-この PBI は **PBI-27（Obsidian プラグイン）の後に実装する**。
-理由: Backlink 情報は Obsidian プラグイン経由で取得する方が効率的であり、
-スタンドアロンでのリンク解析よりも精度が高い。
+参照: `pbi/2026-05-30-28-backlog-vlm-pdf-markdown.md`
 
 ### PBI-13: 埋め込みモデルの差し替え（API 方式）
 
-**Status: Completed in v0.4.12**
+**Completed in v0.4.12**
 
 実装方策（実際に実装されたもの）:
 
