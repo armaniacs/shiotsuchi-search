@@ -77,5 +77,6 @@
 | `2026-05-25-09-backlog-fuzzy-search.md` | PBI-09: あいまい検索 — 既存実装確認済み |
 | `2026-05-25-10-backlog-hybrid-search-alpha-tuning.md` | PBI-10: ハイブリッド検索 Alpha 値 — 既存実装確認済み |
 | `2026-05-25-11-backlog-mmr-diversity-reranking.md` | PBI-11: MMR 多様化リランキング — 実装＋レビュー修正完了 |
+| `2026-05-25-13-backlog-pluggable-embedding-model.md` | PBI-13: 埋め込みモデル差し替え（API 方式）— ✅ v0.4.12 完了 |
 | `2026-05-25-28-backlog-synonym-cli-manager.md` | PBI-28: 同義語管理 CLI と専用ファイル対応 — 実装完了 |
 
