@@ -16,3 +16,4 @@ pub mod support;
 pub mod synonym;
 pub mod tasks;
 pub mod tide;
+pub mod welcome;
