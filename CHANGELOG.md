@@ -9,6 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.13] - 2026-05-31
+
+### Added
+
+- **Intuitive command aliases (PBI-29)**: All CLI commands now have standard names as primary — `index` (`chart`), `search` (`dive`), `prune` (`dredge`), `watch` (`scan`), `list` (`log`), `stats` (`tide`). Ocean-themed original names remain as backward-compatible aliases. New names appear as primary in `--help`.
+- **GFM-style task checkbox parsing**: `- [X]` (uppercase X) now recognized as checked task alongside `- [x]` in `shiotsuchi tasks`.
+
+### Changed
+
+- **MMR OOM guard tightened**: `MAX_MMR_CANDIDATES` reduced from 10,000 to 1,000 to prevent memory exhaustion on large result sets. Candidate pools exceeding 1,000 skip MMR reranking (fall back to original order).
+- **PDF extraction graceful degradation**: Failed PDF extraction no longer stops indexing — logs a warning and falls back to VLM-based extraction if configured, continuing with empty body otherwise.
+- **VLM performance**: Global tokio runtime reused via `OnceLock` instead of creating a new runtime per call.
+- **User-facing messages**: All error messages referencing `shiotsuchi chart` updated to `shiotsuchi index`.
+
+### Fixed
+
+- **DB migration ordering**: v6 column-addition migration (`tags`, `frontmatter_date`, `title` on `chunks`) now runs before v7 tasks-table creation, preventing column loss on version-5 databases. Includes defensive column check before v7 for self-healing databases that hit the interim broken ordering.
+- **VLM runtime panic**: `Runtime::new().expect()` replaced with `OnceLock<Result<Runtime, String>>` — tokio init failures are now propagated as `VlmError` instead of panicking, preserving the caller's graceful error-recovery path.
+
+### Documentation
+
+- All user-facing docs (`README.md`, `README.ja.md`, `docs/CLI-USE.md`, `docs/CLI-USE.ja.md`, `docs/INSTALL.md`, `docs/INSTALL.ja.md`, `docs/HUMAN-VERIFICATION.md`, `ref/cli.md`, `ref/architecture.md`, `CLAUDE.md`, `pbi/PBI-process.md`) updated to use new command names as primary.
+
 ## [0.4.12] - 2026-05-28
 
 ### Added
