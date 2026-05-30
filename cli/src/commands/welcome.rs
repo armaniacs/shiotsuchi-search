@@ -63,6 +63,66 @@ fn menu_items(config_exists: bool, db_exists: bool) -> Vec<String> {
     ]
 }
 
+// ──────────────────────────────────────────────
+// Banner display
+// ──────────────────────────────────────────────
+
+/// Display the welcome banner with categorized command listing.
+/// Content adapts based on config/DB existence state.
+fn show_banner(config_exists: bool, db_exists: bool) {
+    let version = format!("Shiotsuchi Search  v{}", env!("CARGO_PKG_VERSION"));
+    let inner_w: usize = 50;
+    let pad_v = inner_w.saturating_sub(version.chars().count());
+    let left_v = pad_v / 2;
+    let right_v = pad_v - left_v;
+
+    println!("╔{}╗", "═".repeat(inner_w));
+    println!("║{}{}{}║", " ".repeat(left_v), version, " ".repeat(right_v));
+    println!("║  {}  ║", messages::WELCOME_TAGLINE);
+    println!("║{}║", " ".repeat(inner_w));
+
+    if !config_exists {
+        println!("║  🔰 はじめての方へ                         ║");
+        println!("║     この画面では以下の3ステップを            ║");
+        println!("║     一緒に進められます                      ║");
+        println!("║     ① 設定ファイルを作る                    ║");
+        println!("║     ② ノートをインデックスする               ║");
+        println!("║     ③ 検索してみる                          ║");
+    } else if !db_exists {
+        println!("║  ⚡ オンボーディングの続きから始めましょう    ║");
+        println!("║     ② ノートをインデックスする               ║");
+        println!("║     ③ 検索してみる                          ║");
+    } else {
+        println!("║  🔰 はじめての方も: 「🚀 クイック            ║");
+        println!("║     オンボーディング」で使い方を体験できます  ║");
+    }
+
+    println!("║{}║", " ".repeat(inner_w));
+    println!("╚{}╝", "═".repeat(inner_w));
+    println!();
+
+    // Category listing (informational, not selectable — Select menu follows)
+    println!("実行する操作を選んでください (上下キー:移動, Enter:決定):");
+    println!();
+    println!("  🚀 オンボーディング  (init → index → search を一緒に完了)");
+    println!();
+    println!("  ── セットアップ ──");
+    println!("  init     設定ファイルを作成・編集する");
+    println!("  setup    埋め込みモデルをインストールする");
+    println!();
+    println!("  ── 検索・操作 ──");
+    println!("  search   ノートを検索する");
+    println!("  index    ノートをインデックスする");
+    println!();
+    println!("  ── 情報・メンテナンス ──");
+    println!("  stats    統計情報を表示する");
+    println!("  doctor   環境の状態を診断する");
+    println!();
+    println!("  ── 終了 ──");
+    println!("  exit     終了する");
+    println!();
+}
+
 /// Run the welcome/guidance screen when no subcommand is given.
 ///
 /// - Non-TTY: prints a brief guidance message and exits with code 0.
@@ -128,5 +188,28 @@ mod tests {
     #[test]
     fn test_stdin_is_not_terminal_in_test_env() {
         assert!(!std::io::stdin().is_terminal());
+    }
+
+    #[test]
+    fn test_show_banner_always_shows_onboarding_option() {
+        let items_cfg_no = menu_items(false, false);
+        let items_db_no = menu_items(true, false);
+        let items_all = menu_items(true, true);
+
+        assert!(items_cfg_no[0].contains("オンボーディング"));
+        assert!(items_db_no[0].contains("オンボーディング"));
+        assert!(items_all[0].contains("オンボーディング"));
+    }
+
+    #[test]
+    fn test_show_banner_category_keywords_present() {
+        let items = menu_items(true, true);
+        assert!(items.iter().any(|i| i.contains("init")));
+        assert!(items.iter().any(|i| i.contains("setup")));
+        assert!(items.iter().any(|i| i.contains("search")));
+        assert!(items.iter().any(|i| i.contains("index")));
+        assert!(items.iter().any(|i| i.contains("stats")));
+        assert!(items.iter().any(|i| i.contains("doctor")));
+        assert!(items.iter().any(|i| i.contains("exit")));
     }
 }
