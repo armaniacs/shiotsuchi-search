@@ -32,3 +32,9 @@ plans/archive-old
 docs/articles/
 
 .plan/archived/
+
+# Superpowers working docs (design specs, plans — duplicates main codebase)
+docs/superpowers/
+
+# Vendored third-party binaries (auto-downloaded by build deps)
+/vendor/

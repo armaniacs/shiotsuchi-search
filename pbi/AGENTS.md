@@ -18,6 +18,7 @@ MCP 経由でのノート作成・編集・削除はプロジェクトの範囲�
 
 **edgequake/pdf2md** の採用が最有力。  
 調査・検証済み次第、実装方針を確定する。
+https://github.com/raphaelmansuy/edgequake-pdf2md 
 
 ## 実装順序に関する決定
 

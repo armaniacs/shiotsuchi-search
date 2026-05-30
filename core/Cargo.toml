@@ -37,6 +37,8 @@ thiserror = "2"
 # For production, set ORT_LIB_LOCATION env var to use system-installed ONNX Runtime instead.
 ort = { version = "2.0.0-rc.12", default-features = false, features = ["std", "download-binaries", "tls-rustls"], optional = true }
 ureq = { version = "3", optional = true }
+pdfium-render = { version = "0.9", default-features = false, features = ["pdfium_latest"], optional = true }
+pdfium-auto = { version = "0.3", features = ["bundled"], optional = true }
 indicatif = "0.17"
 notify = { version = "9.0.0-rc.4", optional = true }
 log = "0.4"
@@ -48,10 +50,11 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "sync", 
 toml = "1.1"
 
 [features]
-default = ["watcher", "async-index", "semantic"]
+default = ["watcher", "async-index", "semantic", "pdf"]
 semantic = ["dep:ort", "dep:tokenizers", "dep:ureq"]
 watcher = ["dep:notify"]
 async-index = ["dep:tokio"]
+pdf = ["dep:pdfium-render", "dep:pdfium-auto"]
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
