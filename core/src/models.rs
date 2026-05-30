@@ -153,6 +153,9 @@ pub struct IndexConfig {
     pub dynamic_threshold: usize,
     /// User-defined dictionary entries for custom tokenization post-processing.
     pub user_dictionary: Vec<String>,
+    /// Whether to extract text from PDF files during indexing.
+    /// When false, PDF files are indexed with empty content (files still appear in the DB).
+    pub enable_pdf_extraction: bool,
 }
 
 impl IndexConfig {
@@ -181,6 +184,7 @@ impl Default for IndexConfig {
             follow_links: false,
             dynamic_threshold: 5,
             user_dictionary: vec![],
+            enable_pdf_extraction: true,
         }
     }
 }

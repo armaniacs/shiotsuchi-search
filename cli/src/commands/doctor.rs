@@ -189,6 +189,7 @@ fn index_vault(
         follow_links: indexing_cfg.follow_links,
         dynamic_threshold: indexing_cfg.dynamic_threshold,
         user_dictionary: indexing_cfg.user_dictionary.clone(),
+        enable_pdf_extraction: indexing_cfg.enable_pdf_extraction,
     };
     let embedder = resolve_model_path(None).and_then(|p| match Embedder::load(&p) {
         Ok(e) => {

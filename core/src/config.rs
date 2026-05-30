@@ -168,6 +168,15 @@ pub struct IndexingConfig {
     /// entries that Vaporetto would split (e.g., "ChatGPT") are supported.
     #[serde(default)]
     pub user_dictionary: Vec<String>,
+    /// Whether to extract text from PDF files during indexing.
+    /// When false, PDF files are indexed with empty content (files still appear in the DB).
+    /// Default: true.
+    #[serde(default = "default_enable_pdf_extraction")]
+    pub enable_pdf_extraction: bool,
+}
+
+fn default_enable_pdf_extraction() -> bool {
+    true
 }
 
 impl Default for IndexingConfig {
@@ -179,6 +188,7 @@ impl Default for IndexingConfig {
             follow_links: false,
             dynamic_threshold: 5,
             user_dictionary: vec![],
+            enable_pdf_extraction: true,
         }
     }
 }
@@ -415,5 +425,32 @@ mod tests {
             Some(v) => std::env::set_var("SHIOTSUCHI_API_KEY", v),
             None => std::env::remove_var("SHIOTSUCHI_API_KEY"),
         }
+    }
+
+    #[test]
+    fn test_indexing_config_enable_pdf_extraction_default_is_true() {
+        let cfg = IndexingConfig::default();
+        assert!(cfg.enable_pdf_extraction, "should default to true");
+    }
+
+    #[test]
+    fn test_indexing_config_enable_pdf_extraction_deserialize_false() {
+        let toml = r#"
+            [indexing]
+            enable_pdf_extraction = false
+        "#;
+        let config: ShiotsuchiConfig = toml::from_str(toml).unwrap();
+        assert!(!config.indexing.enable_pdf_extraction);
+    }
+
+    #[test]
+    fn test_indexing_config_enable_pdf_extraction_omitted_is_true() {
+        // Backward compat: old configs without the field should still parse
+        let toml = r"
+            [indexing]
+            include_extensions = ['md']
+        ";
+        let config: ShiotsuchiConfig = toml::from_str(toml).unwrap();
+        assert!(config.indexing.enable_pdf_extraction, "omitted field should default to true");
     }
 }

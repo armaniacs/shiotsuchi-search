@@ -304,7 +304,7 @@ pub fn index_file_with_embedder(
     file_path: &Path,
     vault_name: &str,
     relative_path: &str,
-    _config: &IndexConfig,
+    config: &IndexConfig,
 ) -> IndexResult {
     let mtime = file_mtime(file_path);
     let file_size = std::fs::metadata(file_path)
@@ -325,15 +325,19 @@ pub fn index_file_with_embedder(
     let content = {
         let ext = file_path.extension().and_then(|e| e.to_str()).unwrap_or("");
         if ext == "pdf" {
-            #[cfg(feature = "pdf")]
-            {
-                match crate::pdf::extract_text(file_path) {
-                    Ok(text) => text,
-                    Err(e) => return IndexResult::Error(format!("PDF extract error: {}", e)),
+            if config.enable_pdf_extraction {
+                #[cfg(feature = "pdf")]
+                {
+                    match crate::pdf::extract_text(file_path) {
+                        Ok(text) => text,
+                        Err(e) => return IndexResult::Error(format!("PDF extract error: {}", e)),
+                    }
                 }
-            }
-            #[cfg(not(feature = "pdf"))]
-            {
+                #[cfg(not(feature = "pdf"))]
+                {
+                    String::new()
+                }
+            } else {
                 String::new()
             }
         } else {
@@ -353,7 +357,7 @@ pub fn index_file_with_embedder(
         Err(e) => return IndexResult::Error(e.to_string()),
     };
 
-    let mut chunks = split_into_chunks(&content, tokenizer, relative_path, vault_name, &_config.user_dictionary);
+    let mut chunks = split_into_chunks(&content, tokenizer, relative_path, vault_name, &config.user_dictionary);
 
     for chunk in &mut chunks {
         chunk.emphasized_text = extract_emphasized(&chunk.content);
@@ -1326,5 +1330,27 @@ mod tests {
             "should find 'Hello' in indexed PDF, but got no results"
         );
         assert_eq!(hits[0].file_path, "hello.pdf");
+    }
+
+    #[test]
+    fn test_index_pdf_disabled_extraction_still_inserts() {
+        // When enable_pdf_extraction=false, PDF files should still be Inserted
+        // (not Error) with empty content.
+        let tokenizer = crate::require_tokenizer!(Default::default());
+        let temp = TempDir::new().unwrap();
+        let vault = temp.path().join("vault");
+        fs::create_dir(&vault).unwrap();
+        fs::write(vault.join("report.pdf"), b"%PDF-1.4\x80\x81\xff").unwrap();
+        let db = NoteDatabase::open_in_memory().unwrap();
+        let config = IndexConfig {
+            vaults: vec![("default".to_string(), vault.clone())],
+            include_extensions: vec!["pdf".to_string()],
+            enable_pdf_extraction: false,
+            ..Default::default()
+        };
+        let (results, _invalid, _excluded) =
+            index_directory(&db, &tokenizer, &config, None, None).unwrap();
+        assert_eq!(results.len(), 1, "PDF should be indexed");
+        assert_eq!(results[0].2, IndexResult::Inserted, "should be Inserted, not Error");
     }
 }

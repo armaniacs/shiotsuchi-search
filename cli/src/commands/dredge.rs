@@ -34,6 +34,7 @@ pub fn run_dredge(
         follow_links: indexing_cfg.follow_links,
         dynamic_threshold: indexing_cfg.dynamic_threshold,
         user_dictionary: indexing_cfg.user_dictionary.clone(),
+        enable_pdf_extraction: indexing_cfg.enable_pdf_extraction,
     };
 
     let stale = cleanup_deleted(&db, &config)?;

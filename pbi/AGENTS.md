@@ -12,13 +12,25 @@ shiotsuchi-search はノートの検索エンジンであり、読み取り専�
 MCP 経由でのノート作成・編集・削除はプロジェクトの範囲外であり、ツールの哲学（「検索することに特化する」）
 に反する。読み取り専用の検索結果の返却に専念する。
 
-## 事前調査中・実装方針未確定のもの
+## 実装済み（完了報告待ち）
 
-### PBI-21: OCR PDF/画像検索
+### PBI-21: OCR PDF/画像検索 — Phase A 完了
 
-**edgequake/pdf2md** の採用が最有力。  
-調査・検証済み次第、実装方針を確定する。
-https://github.com/raphaelmansuy/edgequake-pdf2md 
+**Phase A (PDF テキスト抽出 + XY-Cut レイアウト解析) は実装済み。**
+
+採用技術:
+- `pdfium-render` + `pdfium-auto` (bundled): Chrome 内蔵 PDFium エンジンの Rust バインディング
+- XY-Cut レイアウト解析: Rust 自前実装（段組認識・読書順復元）
+- feature flag: `pdf`（default に含む）
+
+実装詳細:
+- `core/src/pdf.rs`: RawChar/TextLine 型、cluster_to_lines、xycut_to_text、extract_text
+- `index_file_with_embedder` で `.pdf` 拡張子を特別処理
+- デフォルトの include_extensions に `pdf` を追加
+- E2E テスト: hello.pdf のテキストが FTS5 検索可能なことを確認済み
+
+**画像 OCR は別 PBI（Phase B）として分割。**
+参照: `pbi/2026-05-30-28-backlog-vlm-pdf-markdown.md` 
 
 ## 実装順序に関する決定
 
