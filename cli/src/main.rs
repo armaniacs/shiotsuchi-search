@@ -72,7 +72,7 @@ struct Cli {
     verbose: bool,
 
     #[command(subcommand)]
-    command: Commands,
+    command: Option<Commands>,
 }
 
 #[derive(Subcommand)]
@@ -164,18 +164,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     match cli.command {
-        Commands::Chart(args) => {
+        None => {}
+        Some(Commands::Chart(args)) => {
             let vault_id = args.vault.as_deref().or(cfg.vault_default.as_deref());
             let vaults = resolve_vaults(&resolved_vaults, vault_id)?;
             commands::chart::run_chart(&args, &vaults, &db_path, &cfg.indexing, &cfg.embedder, &cfg.vlm)?;
         }
-        Commands::CheckIgnore(args) => {
+        Some(Commands::CheckIgnore(args)) => {
             commands::check_ignore::run_check_ignore(&args, &resolved_vaults)?;
         }
-        Commands::Clean(_args) => {
+        Some(Commands::Clean(_args)) => {
             commands::clean::run_clean(&resolved_vaults, &db_path, &cfg.indexing, &cfg.vlm)?;
         }
-        Commands::Dive(args) => {
+        Some(Commands::Dive(args)) => {
             if !db_path.exists() {
                 eprintln!("{}", crate::messages::ERR_DB_NOT_FOUND);
                 std::process::exit(1);
@@ -202,11 +203,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
         }
-        Commands::Tide(args) => {
+        Some(Commands::Tide(args)) => {
             let stats = commands::tide::run_tide(&db_path)?;
             commands::tide::print_stats(&stats, &args);
         }
-        Commands::Scan(args) => {
+        Some(Commands::Scan(args)) => {
             let vault_id = args.vault.as_deref().or(cfg.vault_default.as_deref());
             let vaults = resolve_vaults(&resolved_vaults, vault_id)?;
             commands::scan::run_scan(
@@ -219,10 +220,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 &cfg.vlm,
             )?;
         }
-        Commands::Doctor(_args) => {
+        Some(Commands::Doctor(_args)) => {
             commands::doctor::run_doctor(&cfg, &db_path, &resolved_vaults, &cfg.indexing, &cfg.vlm)?;
         }
-        Commands::Dredge(args) => {
+        Some(Commands::Dredge(args)) => {
             commands::dredge::run_dredge(
                 &args,
                 &resolved_vaults,
@@ -231,14 +232,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 &cfg.vlm,
             )?;
         }
-        Commands::Log => commands::log::run_log(&db_path, "default")?,
-        Commands::Setup(args) => {
+        Some(Commands::Log) => commands::log::run_log(&db_path, "default")?,
+        Some(Commands::Setup(args)) => {
             commands::setup::run_setup(&args)?;
         }
-        Commands::Delete(args) => {
+        Some(Commands::Delete(args)) => {
             commands::delete::run_delete(&args, &resolved_vaults, &db_path)?;
         }
-        Commands::Init(args) => {
+        Some(Commands::Init(args)) => {
             let config_path = config::default_config_path();
             commands::init::run_init(
                 &args,
@@ -248,20 +249,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 cli.db_path.as_deref(),
             )?;
         }
-        Commands::Tasks(args) => {
+        Some(Commands::Tasks(args)) => {
             if !db_path.exists() {
                 eprintln!("{}", crate::messages::ERR_DB_NOT_FOUND);
                 std::process::exit(1);
             }
             commands::tasks::run_tasks(&args, &db_path)?;
         }
-        Commands::Support(args) => {
+        Some(Commands::Support(args)) => {
             commands::support::run_support(&args, &cfg)?;
         }
-        Commands::Synonym(cmd) => {
+        Some(Commands::Synonym(cmd)) => {
             commands::synonym::run_synonym(&cmd)?;
         }
-        Commands::Config(args) => {
+        Some(Commands::Config(args)) => {
             commands::config::run_config(
                 &args,
                 &resolved_vaults,
@@ -270,10 +271,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 cfg.indexing.dynamic_threshold,
             )?;
         }
-        Commands::ConfigMigrate(args) => {
+        Some(Commands::ConfigMigrate(args)) => {
             commands::config_migrate::run_config_migrate(&args)?;
         }
-        Commands::Completion { shell } => {
+        Some(Commands::Completion { shell }) => {
             let mut cmd = <Cli as clap::CommandFactory>::command();
             clap_complete::generate(shell, &mut cmd, "shiotsuchi", &mut std::io::stdout());
         }
@@ -319,35 +320,35 @@ mod tests {
     fn test_global_notes_dir_on_dive_subcommand() {
         let cli = parse_cli(&["shiotsuchi", "dive", "--notes-dir", "/my/notes", "query"]);
         assert_eq!(cli.notes_dir, Some(PathBuf::from("/my/notes")));
-        assert!(matches!(cli.command, Commands::Dive(_)));
+        assert!(matches!(cli.command, Some(Commands::Dive(_))));
     }
 
     #[test]
     fn test_global_db_path_on_dive_subcommand() {
         let cli = parse_cli(&["shiotsuchi", "dive", "--db-path", "/my/db", "query"]);
         assert_eq!(cli.db_path, Some(PathBuf::from("/my/db")));
-        assert!(matches!(cli.command, Commands::Dive(_)));
+        assert!(matches!(cli.command, Some(Commands::Dive(_))));
     }
 
     #[test]
     fn test_global_verbose_on_tide_subcommand() {
         let cli = parse_cli(&["shiotsuchi", "tide", "--verbose"]);
         assert!(cli.verbose);
-        assert!(matches!(cli.command, Commands::Tide(_)));
+        assert!(matches!(cli.command, Some(Commands::Tide(_))));
     }
 
     #[test]
     fn test_global_flag_before_subcommand_position() {
         let cli = parse_cli(&["shiotsuchi", "--notes-dir", "/my/notes", "dive", "query"]);
         assert_eq!(cli.notes_dir, Some(PathBuf::from("/my/notes")));
-        assert!(matches!(cli.command, Commands::Dive(_)));
+        assert!(matches!(cli.command, Some(Commands::Dive(_))));
     }
 
     #[test]
     fn test_global_db_path_on_scan_subcommand() {
         let cli = parse_cli(&["shiotsuchi", "scan", "--db-path", "/my/db"]);
         assert_eq!(cli.db_path, Some(PathBuf::from("/my/db")));
-        assert!(matches!(cli.command, Commands::Scan(_)));
+        assert!(matches!(cli.command, Some(Commands::Scan(_))));
     }
 
     #[test]
@@ -399,59 +400,71 @@ mod tests {
     #[test]
     fn test_alias_index_for_chart() {
         let cli = parse_cli(&["shiotsuchi", "index"]);
-        assert!(matches!(cli.command, Commands::Chart(_)));
+        assert!(matches!(cli.command, Some(Commands::Chart(_))));
     }
 
     #[test]
     fn test_alias_search_for_dive() {
         let cli = parse_cli(&["shiotsuchi", "search", "test query"]);
-        assert!(matches!(cli.command, Commands::Dive(_)));
+        assert!(matches!(cli.command, Some(Commands::Dive(_))));
     }
 
     #[test]
     fn test_alias_prune_for_dredge() {
         let cli = parse_cli(&["shiotsuchi", "prune"]);
-        assert!(matches!(cli.command, Commands::Dredge(_)));
+        assert!(matches!(cli.command, Some(Commands::Dredge(_))));
     }
 
     #[test]
     fn test_alias_stats_for_tide() {
         let cli = parse_cli(&["shiotsuchi", "stats"]);
-        assert!(matches!(cli.command, Commands::Tide(_)));
+        assert!(matches!(cli.command, Some(Commands::Tide(_))));
     }
 
     #[test]
     fn test_alias_watch_for_scan() {
         let cli = parse_cli(&["shiotsuchi", "watch"]);
-        assert!(matches!(cli.command, Commands::Scan(_)));
+        assert!(matches!(cli.command, Some(Commands::Scan(_))));
     }
 
     #[test]
     fn test_alias_list_for_log() {
         let cli = parse_cli(&["shiotsuchi", "list"]);
-        assert!(matches!(cli.command, Commands::Log));
+        assert!(matches!(cli.command, Some(Commands::Log)));
     }
 
     #[test]
     fn test_backward_compat_original_names_still_work() {
         // All ocean-themed original names must still be accepted
         let cli = parse_cli(&["shiotsuchi", "chart"]);
-        assert!(matches!(cli.command, Commands::Chart(_)));
+        assert!(matches!(cli.command, Some(Commands::Chart(_))));
 
         let cli = parse_cli(&["shiotsuchi", "dive", "query"]);
-        assert!(matches!(cli.command, Commands::Dive(_)));
+        assert!(matches!(cli.command, Some(Commands::Dive(_))));
 
         let cli = parse_cli(&["shiotsuchi", "dredge"]);
-        assert!(matches!(cli.command, Commands::Dredge(_)));
+        assert!(matches!(cli.command, Some(Commands::Dredge(_))));
 
         let cli = parse_cli(&["shiotsuchi", "log"]);
-        assert!(matches!(cli.command, Commands::Log));
+        assert!(matches!(cli.command, Some(Commands::Log)));
 
         let cli = parse_cli(&["shiotsuchi", "scan"]);
-        assert!(matches!(cli.command, Commands::Scan(_)));
+        assert!(matches!(cli.command, Some(Commands::Scan(_))));
 
         let cli = parse_cli(&["shiotsuchi", "tide"]);
-        assert!(matches!(cli.command, Commands::Tide(_)));
+        assert!(matches!(cli.command, Some(Commands::Tide(_))));
+    }
+
+    #[test]
+    fn test_no_subcommand_parses_as_none() {
+        let cli = Cli::try_parse_from(["shiotsuchi"]).unwrap();
+        assert!(cli.command.is_none(), "no subcommand -> command should be None");
+    }
+
+    #[test]
+    fn test_subcommand_still_parses_with_option_wrapper() {
+        let cli = Cli::try_parse_from(["shiotsuchi", "index"]).unwrap();
+        assert!(cli.command.is_some(), "index subcommand should parse as Some");
     }
 
     #[test]
