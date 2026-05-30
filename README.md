@@ -22,22 +22,22 @@ Powered by [Vaporetto](https://github.com/daac-tools/vaporetto) × SQLite FTS5.
 
 | Command | Description |
 |---------|-------------|
-| `chart` | Index/re-index all Markdown files |
+| `index` / `chart` | Index/re-index all Markdown files |
 | `check-ignore <path>` | Check if a path matches exclude rules |
 | `clean` | Backup database, delete, and re-index from scratch |
 | `config` | Manage indexing settings (detect-noise) |
 | `config-migrate` | Upgrade config from legacy `[vault]` to new format |
 | `delete <path>` | Remove a note from the index (does not delete the file) |
-| `dive <query>` / `search <query>` | Search notes (fts/vec/hybrid modes, filters, MMR) |
+| `search <query>` / `dive <query>` | Search notes (fts/vec/hybrid modes, filters, MMR) |
 | `doctor` | Environment health check with interactive repair |
-| `dredge` | Chunk migration for pre-v0.3.3 vaults |
+| `prune` / `dredge` | Chunk migration for pre-v0.3.3 vaults |
 | `init` | Create config file with interactive exclusion selection |
-| `log` | Show indexing history |
-| `scan` | Watch for file changes and auto-re-index |
+| `list` / `log` | Show indexing history |
+| `watch` / `scan` | Watch for file changes and auto-re-index |
 | `setup` | Download/check ONNX embedding model |
 | `synonym` | Manage thesaurus entries (add/remove/list) |
 | `tasks` | Cross-vault task checkbox search |
-| `tide` | Show vault statistics (files, chunks, tags, --json) |
+| `stats` / `tide` | Show vault statistics (files, chunks, tags, --json) |
 | `support` | Show build info and dependency versions |
 
 ## Claude Desktop Integration (MCP)
@@ -61,7 +61,7 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 Then index your vault first:
 
 ```bash
-shiotsuchi chart --notes-dir ~/Notes
+shiotsuchi index --notes-dir ~/Notes
 ```
 
 Restart Claude Desktop and ask: "Search my notes for project"

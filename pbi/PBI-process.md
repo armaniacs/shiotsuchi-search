@@ -121,7 +121,7 @@ git mv pbi/2026-05-25-01-fix-mtime-size-two-stage-scan.md .plan/archived/
 | Fix-1 mtime スキャン | `indexer.rs` に mtime fast-path 実装済み |
 | Fix-3 マルチ Vault | `config.rs` に `resolved_vaults()` 実装済み |
 | PBI-25 除外ルール | `indexer.rs` に `build_exclude_globset` 実装済み |
-| PBI-26 stats | `tide` コマンドとして実装済み |
+| PBI-26 stats | `stats` コマンドとして実装済み（旧名: `tide`） |
 | PBI-12 min_score | `search()` に `min_score: Option<f64>` 引数実装済み |
 
 **PBI への着手前に必ず現状コードを確認すること。**
@@ -213,12 +213,14 @@ docs(pbi): archive multi-vault-support PBI
 
 ## 8. コマンドリファレンス
 
-| コマンド | 用途 |
+| コマンド (旧名) | 用途 |
 |---------|------|
-| `shiotsuchi chart` | インデックス作成・更新 |
-| `shiotsuchi dive <query>` | 検索（`search` はエイリアス） |
-| `shiotsuchi scan` | ファイルシステム監視 |
-| `shiotsuchi tide` | 統計情報表示 |
+| `shiotsuchi index` (`chart`) | インデックス作成・更新 |
+| `shiotsuchi search <query>` (`dive`) | 検索 |
+| `shiotsuchi watch` (`scan`) | ファイルシステム監視 |
+| `shiotsuchi stats` (`tide`) | 統計情報表示 |
+| `shiotsuchi prune` (`dredge`) | スタイルエントリ削除 |
+| `shiotsuchi list` (`log`) | インデックス済みファイル一覧 |
 | `shiotsuchi doctor` | 環境ヘルスチェック |
 | `shiotsuchi clean` | バックアップ + 再インデックス |
 | `shiotsuchi config-migrate` | 設定ファイルフォーマット移行 |

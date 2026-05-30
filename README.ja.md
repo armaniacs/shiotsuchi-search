@@ -22,25 +22,23 @@ Markdownノートvault（Obsidianなど）向けの高性能日本語対応全�
 
 | コマンド | 説明 |
 |---------|------|
-| `chart` | Markdownファイルをインデックス（または再インデックス） |
+| `index` / `chart` | Markdownファイルをインデックス（または再インデックス） |
 | `check-ignore <path>` | パスが除外ルールにマッチするか確認 |
 | `clean` | データベースをバックアップ・削除し、全 vault を再インデックス |
 | `config` | インデックス設定の管理（detect-noise） |
 | `config-migrate` | 設定ファイルを旧形式から新形式に変換 |
 | `delete <path>` | インデックスからノートを削除（ファイル自体は削除されません） |
-| `dive <query>` / `search <query>` | ノートを検索（fts/vec/hybrid モード、フィルタ、MMR） |
+| `search <query>` / `dive <query>` | ノートを検索（fts/vec/hybrid モード、フィルタ、MMR） |
 | `doctor` | 環境ヘルスチェックとインタラクティブ修復 |
-| `dredge` | 旧バージョンの vault をチャンク形式に移行 |
+| `prune` / `dredge` | 旧バージョンの vault をチャンク形式に移行 |
 | `init` | 設定ファイルの作成（対話型除外選択） |
-| `log` | インデックス履歴を表示 |
-| `scan` | ファイル変更を監視して自動再インデックス |
+| `list` / `log` | インデックス履歴を表示 |
+| `watch` / `scan` | ファイル変更を監視して自動再インデックス |
 | `setup` | 埋め込みモデルのダウンロード・確認（ONNX）または API 設定の確認 |
 | `synonym` | 同義語辞書の管理（追加・削除・一覧） |
 | `tasks` | 全 vault のタスクチェックボックスを横断検索 |
-| `tide` | vault 統計情報を表示（--json 対応） |
+| `stats` / `tide` | vault 統計情報を表示（--json 対応） |
 | `support` | ビルド情報と依存バージョンを表示 |
-| `scan` | ファイル変更を監視して自動再インデックス |
-| `tide` | vault の統計情報を表示 |
 
 ## Claude Desktop 連携（MCP）
 
@@ -63,7 +61,7 @@ Markdownノートvault（Obsidianなど）向けの高性能日本語対応全�
 先にvaultをインデックスしておく:
 
 ```bash
-shiotsuchi chart --notes-dir ~/Notes
+shiotsuchi index --notes-dir ~/Notes
 ```
 
 Claude Desktopを再起動して「プロジェクトについてノートを検索して」と聞いてみる。

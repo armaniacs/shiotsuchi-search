@@ -102,7 +102,7 @@ Search flow:
 
 | Binary | File | Purpose |
 |--------|------|---------|
-| `shiotsuchi` | `cli/src/main.rs` | CLI tool (chart, clean, config-migrate, dive, tide, scan, log, init, setup, dredge, delete) |
+| `shiotsuchi` | `cli/src/main.rs` | CLI tool (index, search, watch, stats, prune, list, clean, config-migrate, init, setup, delete) |
 | `shiotsuchi-mcp` | `mcp/src/main.rs` | MCP server for Claude Desktop (tokio async) |
 
 ## Crate Dependencies

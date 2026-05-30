@@ -276,10 +276,10 @@ make prepare  # トークナイザー + ONNX ファイルをダウンロード
 
 ```sh
 shiotsuchi setup --check
-shiotsuchi dive --mode hybrid "検索クエリ"
+shiotsuchi search --mode hybrid "検索クエリ"
 ```
 
-モデルが見つからない場合、`dive` は自動的に FTS モード（キーワード検索）にフォールバックします（`--mode vec` を明示した場合はエラー）。
+モデルが見つからない場合、`search` は自動的に FTS モード（キーワード検索）にフォールバックします（`--mode vec` を明示した場合はエラー）。
 
 ### 方法 B — API プロバイダーを使う（OpenAI 互換）
 

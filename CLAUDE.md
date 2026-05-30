@@ -48,13 +48,13 @@ cargo bench -p shiotsuchi-core
 
 # Index vault
 SHIOTSUCHI_MODEL_PATH=models/bccwj-suw+unidic_pos+kana.model.zst \
-  shiotsuchi chart --notes-dir ~/Notes
+  shiotsuchi index --notes-dir ~/Notes
 
 # Search
-shiotsuchi dive "project plan"
+shiotsuchi search "project plan"
 
 # Watch
-shiotsuchi scan --notes-dir ~/Notes
+shiotsuchi watch --notes-dir ~/Notes
 ```
 
 ## Important Context

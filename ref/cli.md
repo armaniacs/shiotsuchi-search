@@ -7,23 +7,23 @@ Crate path: `cli/`
 
 | Command | Args | Description |
 |---------|------|-------------|
-| `chart` | `[--notes-dir]` `[--db-path]` `[--vault]` | Index/re-index all Markdown files in all configured vaults. Reports indexed/skipped/error/excluded counts. |
+| `index` (alias: `chart`) | `[--notes-dir]` `[--db-path]` `[--vault]` | Index/re-index all Markdown files in all configured vaults. Reports indexed/skipped/error/excluded counts. |
+| `search` (alias: `dive`) | `[--notes-dir]` `[--db-path]` `[--limit]` `[--mode]` `[--json]` `[--json-pretty]` `[--fuzzy]` `[--alpha]` `[--tag]` `[--since]` `[--vault]` `[--mmr]` `[--lambda]` `[--threshold]` `[--model-path]` | Search notes. `--mode`: `fts` (default), `vec`, `hybrid`. Old name: `dive`. |
+| `prune` (alias: `dredge`) | `[--notes-dir]` `[--db-path]` | Extract and index chunks from existing notes without re-embedding content. Migrates pre-v0.3.3 vaults to chunked schema. |
+| `watch` (alias: `scan`) | `[--notes-dir]` `[--db-path]` `[--vault]` | Watch all configured vaults for file changes and auto-re-index |
+| `list` (alias: `log`) | `[--db-path]` | Show indexing history |
+| `stats` (alias: `tide`) | `[--db-path]` `[--json]` | Show vault statistics with optional JSON output (chunks, files, tags, vec status) |
 | `check-ignore <path>` | `[--vault]` | Check whether a relative path would be excluded by `exclude_dirs` or `.shiotsuchiignore` patterns |
 | `clean` | `[--db-path]` | Backup the database, delete it, then re-index all vaults from scratch |
 | `config detect-noise` | `[--notes-dir]` | Scan vault for exclusion candidates (read-only) |
 | `config-migrate` | `[--config]` | Migrate config from old `[vault]` format to new `[database]` + `[vaults.xxx]` format |
 | `delete <path>` | `[--notes-dir]` `[--db-path]` | Remove a note from the index by its vault-relative path |
-| `dive <query>` | `[--notes-dir]` `[--db-path]` `[--limit]` `[--mode]` `[--json]` `[--json-pretty]` `[--fuzzy]` `[--alpha]` `[--tag]` `[--since]` `[--vault]` `[--mmr]` `[--lambda]` `[--threshold]` `[--model-path]` | Search notes. `--mode`: `fts` (default), `vec`, `hybrid`. |
 | `doctor` | (no args) | Environment health check with interactive repair for config, database, tokenizer, embedder, and vault directories |
-| `dredge` | `[--notes-dir]` `[--db-path]` | Extract and index chunks from existing notes without re-embedding content. Migrates pre-v0.3.3 vaults to chunked schema. |
 | `init` | `[--notes-dir]` `[--db-path]` `[--force]` `[--yes]` | Create config file with interactive exclusion selection |
-| `log` | `[--db-path]` | Show indexing history |
-| `scan` | `[--notes-dir]` `[--db-path]` `[--vault]` | Watch all configured vaults for file changes and auto-re-index |
 | `setup` | `[--check]` `[--model-path]` | Setup/check ONNX embedding model and Vaporetto tokenizer. `--check` verifies model availability and hash. |
 | `synonym` | `add/remove/list` | — | Manage thesaurus entries via CLI (synonym add/remove/list)
 | `tasks` | `[<keyword>]` `[--all]` | — | Cross-vault task checkbox search (incomplete `- [ ]` and completed `- [x]`) |
 | `support` | (no subcommands) | Display build info, dependency versions, and system information |
-| `tide` | `[--db-path]` `[--json]` | Show vault statistics with optional JSON output (chunks, files, tags, vec status) |
 
 ## Global Options
 
@@ -96,7 +96,7 @@ notes_dir = "/home/name/Documents/Personal"
 notes_dir = "/home/name/Documents/Work"
 ```
 
-When `vault_default` is set and no `--vault` flag is given, `dive`, `chart`, and `scan` operate on only that vault.```
+When `vault_default` is set and no `--vault` flag is given, `search`, `index`, and `watch` operate on only that vault.```
 
 ## Configuration Fields
 
@@ -183,7 +183,7 @@ model = "multilingual-e5-large"
 
 > **Security note:** When using `provider = "api"`, set the API key via the `SHIOTSUCHI_API_KEY` environment variable instead of `api_key` in `config.toml`. The CLI will warn you if the key is stored in the config file.
 
-> **Note on model changes:** If you change the model after indexing, the existing vector embeddings in the database were generated with a different model and will be incompatible. Run `shiotsuchi chart` to re-index all files. A warning is shown at index time when a model change is detected.
+> **Note on model changes:** If you change the model after indexing, the existing vector embeddings in the database were generated with a different model and will be incompatible. Run `shiotsuchi index` to re-index all files. A warning is shown at index time when a model change is detected.
 
 ### `[watcher]` section
 
@@ -245,24 +245,24 @@ Resolution order:
 ## Error Handling
 
 - `main()` returns `Result<(), Box<dyn std::error::Error>>`
-- `dive` checks `db_path.exists()` before opening and shows a helpful message if not found
+- `search` checks `db_path.exists()` before opening and shows a helpful message if not found
 - Config parse errors are logged as warnings (not silently ignored)
 
 ## Outputs
 
 | Command | Output Format |
 |---------|--------------|
-| `chart` | Human-readable progress (indexed/skipped/errors, invalid patterns if any, excluded file count) |
+| `index` | Human-readable progress (indexed/skipped/errors, invalid patterns if any, excluded file count) |
 | `check-ignore` | Human-readable exclusion diagnosis (EXCLUDED / NOT excluded + matching pattern source) |
-| `dive` | Pretty JSON with ANSI-highlighted matched terms (or raw JSON with `--json`) |
+| `search` | Pretty JSON with ANSI-highlighted matched terms (or raw JSON with `--json`) |
 | `doctor` | Human-readable diagnostic with interactive repair prompts (TTY) or read-only checks (non-TTY) |
-| `tide` | Human-readable statistics (or JSON with `--json`) |
+| `stats` | Human-readable statistics (or JSON with `--json`) |
 | `tasks` | Human-readable task list with status markers (`[ ]` / `[x]`) |
-| `scan` | Watcher logs |
-| `log` | Table with columns |
+| `watch` | Watcher logs |
+| `list` | Table with columns |
 | `init` | Human-readable config creation summary |
 | `config detect-noise` | Human-readable exclusion candidate list |
 | `synonym` | Human-readable add/remove/list results |
 | `setup` | Model availability and hash verification output |
-| `dredge` | Re-indexing progress |
+| `prune` | Re-indexing progress |
 | `support` | Build info and dependency version table |

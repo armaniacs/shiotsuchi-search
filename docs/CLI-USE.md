@@ -13,10 +13,10 @@
 shiotsuchi init --notes-dir ~/Notes
 
 # 2. Index your vault
-shiotsuchi chart
+shiotsuchi index
 
 # 3. Search
-shiotsuchi dive "project plan"
+shiotsuchi search "project plan"
 ```
 
 > The `--verbose` flag is available on every command and prints debug-level logging (e.g., per-file processing details, SQL queries). Useful for troubleshooting.
@@ -49,15 +49,15 @@ shiotsuchi init --notes-dir ~/Notes --force --yes
 
 ---
 
-### `chart` — Index a vault
+### `index` — Index a vault
 
 Walks every `.md` file in the vault, tokenizes content using the bundled Vaporetto model, and writes a SQLite index.
 
 ```sh
-shiotsuchi chart --notes-dir ~/Notes
+shiotsuchi index --notes-dir ~/Notes
 ```
 
-Re-running `chart` is safe — it compares file hashes and only updates changed files.
+Re-running `index` is safe — it compares file hashes and only updates changed files.
 
 | Option | Default | Description |
 |--------|---------|-------------|
@@ -106,19 +106,19 @@ shiotsuchi check-ignore "doc/manual.md"
 
 ---
 
-### `dive` — Search notes
+### `search` — Search notes
 
 Searches the index using keyword (FTS5 BM25), vector (semantic), or hybrid mode. Returns matching chunks with file paths, parent headings, and snippets.
 
 ```sh
-shiotsuchi dive "weekly review"
-shiotsuchi dive "Q3 budget" --limit 5
-shiotsuchi dive "プロジェクト計画" --mode vec       # semantic vector search
-shiotsuchi dive "meeting" --mode hybrid --alpha 0.3  # vec-weighted hybrid
-shiotsuchi dive "app dev" --fuzzy                    # case/NFC-normalized search
-shiotsuchi dive "plan" --tag project --since 2026-01-01  # frontmatter filters
-shiotsuchi dive "AWS" --mmr --lambda 0.7             # diversity reranking
-shiotsuchi search "project plan"                     # alias for dive
+shiotsuchi search "weekly review"
+shiotsuchi search "Q3 budget" --limit 5
+shiotsuchi search "プロジェクト計画" --mode vec         # semantic vector search
+shiotsuchi search "meeting" --mode hybrid --alpha 0.3  # vec-weighted hybrid
+shiotsuchi search "app dev" --fuzzy                    # case/NFC-normalized search
+shiotsuchi search "plan" --tag project --since 2026-01-01  # frontmatter filters
+shiotsuchi search "AWS" --mmr --lambda 0.7             # diversity reranking
+shiotsuchi dive "project plan"                         # alias for search
 ```
 
 | Option | Default | Description |
@@ -178,12 +178,12 @@ shiotsuchi delete meeting/notes.md
 
 ---
 
-### `scan` — Watch for changes
+### `watch` — Watch for changes
 
 Monitors the vault directory for file changes and updates the index automatically.
 
 ```sh
-shiotsuchi scan --notes-dir ~/Notes
+shiotsuchi watch --notes-dir ~/Notes
 ```
 
 Keep this running in a terminal or register it as a background service. Rapid edits are debounced before re-indexing.
@@ -196,13 +196,13 @@ Keep this running in a terminal or register it as a background service. Rapid ed
 
 ---
 
-### `tide` — Vault statistics
+### `stats` — Vault statistics
 
 Shows total note count, last indexed time, database size, top 10 tags by frequency, and total character count.
 
 ```sh
-shiotsuchi tide
-shiotsuchi tide --json   # JSON output
+shiotsuchi stats
+shiotsuchi stats --json   # JSON output
 ```
 
 | Option | Default | Description |
@@ -307,12 +307,12 @@ Exclusion candidates in /Users/yourname/Notes:
 
 ---
 
-### `log` — Indexing history
+### `list` — Indexing history
 
 Lists the most recently indexed files with timestamps.
 
 ```sh
-shiotsuchi log
+shiotsuchi list
 ```
 
 | Option | Default | Description |
@@ -468,7 +468,7 @@ notes_dir = "/Users/name/Documents/Work"
 
 ```sh
 # Indexes both vaults
-shiotsuchi chart
+shiotsuchi index
 ```
 
 ### Search
@@ -477,14 +477,14 @@ Search works across all vaults. The MCP handler accepts an optional `vault` para
 
 ```sh
 # Searches all vaults
-shiotsuchi dive "Q3 budget"
+shiotsuchi search "Q3 budget"
 ```
 
 ### Watching
 
 ```sh
 # Watches all configured vaults
-shiotsuchi scan
+shiotsuchi watch
 ```
 
 ### Clean (backup + re-index)
@@ -502,8 +502,8 @@ The CLI builds and maintains the index; the MCP server makes it searchable by an
 
 Typical workflow:
 
-1. **Index** — `shiotsuchi chart` (one-off or scheduled)
-2. **Watch** — `shiotsuchi scan` (keeps the index current as you write)
+1. **Index** — `shiotsuchi index` (one-off or scheduled)
+2. **Watch** — `shiotsuchi watch` (keeps the index current as you write)
 3. **Search via LLM** — `shiotsuchi-mcp` answers tool calls from Claude or another LLM client
 
 The CLI and MCP server share the same SQLite database. WAL mode is enabled so both can access it concurrently without conflict.
@@ -517,9 +517,9 @@ The CLI and MCP server share the same SQLite database. WAL mode is enabled so bo
 | Symptom | Fix |
 |---------|-----|
 | `command not found: shiotsuchi` | Add `~/.local/bin` (or `~/.cargo/bin`) to `PATH`; see [INSTALL.md](INSTALL.md) |
-| `dive` returns no results | Run `shiotsuchi chart` first to build the index |
-| `dive` says index not found | Check `--db-path` matches the path used with `chart` |
-| New notes not appearing | Re-run `chart`, or start `scan` to watch for changes |
+| `search` returns no results | Run `shiotsuchi index` first to build the index |
+| `search` says index not found | Check `--db-path` matches the path used with `index` |
+| New notes not appearing | Re-run `index`, or start `watch` to watch for changes |
 | Config file ignored | Confirm path is `~/.config/shiotsuchi/config.toml`; TOML syntax errors are logged as warnings |
 
 ---

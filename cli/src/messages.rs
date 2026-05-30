@@ -26,7 +26,7 @@ macro_rules! msg_fmt {
 
 pub const CLI_ABOUT: &str = "データの潮流を導く — 日本語対応ノート検索エンジン";
 
-pub const ERR_DB_NOT_FOUND: &str = "データベースが見つかりません。先に `shiotsuchi chart` を実行してボールトをインデックスしてください";
+pub const ERR_DB_NOT_FOUND: &str = "データベースが見つかりません。先に `shiotsuchi index` を実行してボールトをインデックスしてください";
 pub const ERR_PREFIX: &str = "エラー";
 
 // ──────────────────────────────────────────────
@@ -111,7 +111,7 @@ pub const INFO_EMBEDDER_LOADED: &str = "[情報] 埋め込みモデルを読み�
 pub const WARN_EMBEDDER_LOAD: &str = "[警告] 埋め込みモデルを読み込めませんでした: {}";
 pub const INFO_EMBEDDER_SKIPPED: &str = "[情報] 埋め込みモデルが見つかりません — ベクトルインデックスをスキップします。`shiotsuchi setup` を実行してセマンティック検索を有効にしてください";
 pub const WARN_API_KEY_IN_CONFIG: &str = "[警告] config.toml に API キーが記載されています。環境変数 SHIOTSUCHI_API_KEY の使用を推奨します。";
-pub const WARN_MODEL_CHANGED: &str = "[警告] 埋め込みモデルが変更されました。既存のベクトルインデックスとの次元が一致しない可能性があります。\n `shiotsuchi chart` を再実行して全ファイルを再インデックスしてください。";
+pub const WARN_MODEL_CHANGED: &str = "[警告] 埋め込みモデルが変更されました。既存のベクトルインデックスとの次元が一致しない可能性があります。\n `shiotsuchi index` を再実行して全ファイルを再インデックスしてください。";
 pub const INDEX_SUMMARY: &str = "{} ファイルをインデックスしました（{} スキップ、{} エラー、{} 除外）";
 pub const INDEX_PATTERN_WARN: &str = "  {} 個の無効なパターンが exclude_dirs に含まれています";
 
@@ -126,7 +126,7 @@ pub const SCAN_DEBOUNCE_DEPRECATED: &str = "警告: --debounce は無効です�
 // clean.rs — 再インデックス
 // ──────────────────────────────────────────────
 
-pub const CLEAN_DB_NOT_FOUND: &str = "データベースが見つかりません: {}。先に `shiotsuchi chart` を実行してインデックスを作成してください";
+pub const CLEAN_DB_NOT_FOUND: &str = "データベースが見つかりません: {}。先に `shiotsuchi index` を実行してインデックスを作成してください";
 pub const CLEAN_BACKUP_FAILED: &str = "警告: {} のバックアップに失敗しました: {}";
 pub const CLEAN_RENAME_FAILED: &str = "警告: リネームに失敗しました（別デバイス?）、コピーにフォールバックします: {}";
 pub const CLEAN_BACKUP_SAVED: &str = "バックアップを保存しました: {}";
@@ -136,7 +136,7 @@ pub const CLEAN_REINDEXED: &str = "再インデックスしました: {} ファ�
 // dredge.rs — スタイルエントリ削除
 // ──────────────────────────────────────────────
 
-pub const DREDGE_DB_NOT_FOUND: &str = "エラー: データベースが見つかりません。先に `shiotsuchi chart` を実行してください";
+pub const DREDGE_DB_NOT_FOUND: &str = "エラー: データベースが見つかりません。先に `shiotsuchi index` を実行してください";
 pub const DREDGE_NO_STALE: &str = "期限切れのエントリはありません。";
 pub const DREDGE_WOULD_REMOVE: &str = "{} 個の期限切れファイルを削除します:";
 pub const DREDGE_REMOVED: &str = "{} 個の期限切れファイルを削除しました:";
@@ -181,7 +181,7 @@ pub const ERR_INIT_NO_TTY: &str = "対話モードには TTY が必要です。-
 pub const INFO_INIT_AUTO_ACCEPT: &str = "情報: {} 件の除外候補を自動承認します";
 pub const INIT_CONFIG_CREATED: &str = "設定ファイルを作成しました: {}";
 pub const INIT_EXCLUDED_DIRS: &str = "{} 個のディレクト{}をインデックスから除外しました";
-pub const INIT_NEXT_STEP: &str = "次に `shiotsuchi chart` を実行してボールトをインデックスしてください";
+pub const INIT_NEXT_STEP: &str = "次に `shiotsuchi index` を実行してボールトをインデックスしてください";
 pub const INIT_BACKED_UP: &str = "既存の設定をバックアップしました: {}";
 
 // ──────────────────────────────────────────────
@@ -236,7 +236,7 @@ pub const CONFIG_MIGRATE_NEW: &str = "新しい形式を書き込みました: {
 // log.rs — ファイル一覧
 // ──────────────────────────────────────────────
 
-pub const LOG_NO_FILES: &str = "まだインデックスされたファイルはありません。先に `shiotsuchi chart` を実行してください";
+pub const LOG_NO_FILES: &str = "まだインデックスされたファイルはありません。先に `shiotsuchi index` を実行してください";
 pub const LOG_HEADER: &str = "{:<60} パス";
 pub const LOG_TOTAL: &str = "\n合計: {} ファイル";
 
@@ -279,7 +279,7 @@ pub const DOCTOR_DB_REBUILD_PROMPT: &str = "データベースをゼロから再
 pub const DOCTOR_DB_REBUILT: &str = "[OK] データベース: 再構築完了（{} ファイル、{} チャンク）";
 pub const DOCTOR_DB_REBUILD_FAILED: &str = "[!!] データベース: 再構築に失敗しました: {}";
 pub const DOCTOR_DB_OPEN_FAILED: &str = "[!!] データベース: {}（開けませんでした: {}）";
-pub const DOCTOR_DB_NOT_FOUND: &str = "[..] データベース: {}（見つかりません — `shiotsuchi chart` を実行）";
+pub const DOCTOR_DB_NOT_FOUND: &str = "[..] データベース: {}（見つかりません — `shiotsuchi index` を実行）";
 pub const DOCTOR_DB_CREATE_PROMPT: &str = "今すぐボールトをインデックスしますか？";
 pub const DOCTOR_DB_CREATED: &str = "[OK] データベース: 作成完了（{} ファイル、{} チャンク）";
 pub const DOCTOR_DB_INDEX_FAILED: &str = "[!!] データベース: インデックスに失敗しました: {}";

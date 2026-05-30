@@ -68,13 +68,13 @@ make build
   --db-path /tmp/shiotsuchi-test-vault/.db.sqlite3
 ```
 
-- [ ] `chart` completes without error (`Indexed 5 files`)
-- [ ] `dive "project"` returns `meeting.md`
+- [ ] `index` completes without error (`Indexed 5 files`)
+- [ ] `search "project"` returns `meeting.md`
 - [ ] `--json` output is valid JSON
-- [ ] `dive "プロジェクト"` returns `plan.md` (Japanese search works)
-- [ ] `dive "no-match-query"` returns 0 results without error
-- [ ] `tide` shows `total_notes: 5`
-- [ ] `log` shows indexing history (5 notes, ISO8601 timestamps)
+- [ ] `search "プロジェクト"` returns `plan.md` (Japanese search works)
+- [ ] `search "no-match-query"` returns 0 results without error
+- [ ] `stats` shows `total_notes: 5`
+- [ ] `list` shows indexing history (5 notes, ISO8601 timestamps)
 
 ---
 

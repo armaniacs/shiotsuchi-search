@@ -332,7 +332,10 @@ pub fn index_file_with_embedder(
                 {
                     match crate::pdf::extract_text(file_path) {
                         Ok(text) => text,
-                        Err(e) => return IndexResult::Error(format!("PDF extract error: {}", e)),
+                        Err(e) => {
+                            log::warn!("PDF extraction error for {}: {}; falling back to VLM if configured", relative_path, e);
+                            String::new()
+                        }
                     }
                 }
                 #[cfg(not(feature = "pdf"))]
@@ -500,6 +503,9 @@ pub fn extract_tasks(content: &str) -> Vec<(String, bool, usize)> {
         if let Some(rest) = trimmed.strip_prefix("- [ ] ") {
             tasks.push((rest.to_string(), false, line_number + 1));
         } else if let Some(rest) = trimmed.strip_prefix("- [x] ") {
+            tasks.push((rest.to_string(), true, line_number + 1));
+        } else if let Some(rest) = trimmed.strip_prefix("- [X] ") {
+            // GitHub Flavored Markdown treats both [x] and [X] as checked
             tasks.push((rest.to_string(), true, line_number + 1));
         }
     }

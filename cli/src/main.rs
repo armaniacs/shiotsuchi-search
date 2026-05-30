@@ -77,7 +77,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    #[command(about = crate::messages::CHART_ABOUT)]
+    #[command(name = "index", alias = "chart", about = crate::messages::CHART_ABOUT)]
     Chart(commands::chart::ChartArgs),
     #[command(about = crate::messages::CHECK_IGNORE_ABOUT)]
     CheckIgnore(commands::check_ignore::CheckIgnoreArgs),
@@ -94,17 +94,17 @@ enum Commands {
     },
     #[command(about = crate::messages::DELETE_ABOUT)]
     Delete(commands::delete::DeleteArgs),
-    #[command(alias = "search", about = crate::messages::DIVE_ABOUT)]
+    #[command(name = "search", alias = "dive", about = crate::messages::DIVE_ABOUT)]
     Dive(commands::dive::DiveArgs),
     #[command(about = crate::messages::DOCTOR_ABOUT)]
     Doctor(commands::doctor::DoctorArgs),
-    #[command(about = crate::messages::DREDGE_ABOUT)]
+    #[command(name = "prune", alias = "dredge", about = crate::messages::DREDGE_ABOUT)]
     Dredge(commands::dredge::DredgeArgs),
     #[command(about = crate::messages::INIT_ABOUT)]
     Init(commands::init::InitArgs),
-    #[command(about = crate::messages::LOG_ABOUT)]
+    #[command(name = "list", alias = "log", about = crate::messages::LOG_ABOUT)]
     Log,
-    #[command(about = crate::messages::SCAN_ABOUT)]
+    #[command(name = "watch", alias = "scan", about = crate::messages::SCAN_ABOUT)]
     Scan(commands::scan::ScanArgs),
     #[command(about = crate::messages::SETUP_ABOUT)]
     Setup(commands::setup::SetupArgs),
@@ -114,7 +114,7 @@ enum Commands {
     Support(commands::support::SupportArgs),
     #[command(about = crate::messages::TASKS_ABOUT)]
     Tasks(commands::tasks::TasksArgs),
-    #[command(about = crate::messages::TIDE_ABOUT)]
+    #[command(name = "stats", alias = "tide", about = crate::messages::TIDE_ABOUT)]
     Tide(commands::tide::TideArgs),
 }
 
@@ -390,6 +390,90 @@ mod tests {
         // --help on any subcommand should not panic
         let r = Cli::try_parse_from(["shiotsuchi", "dive", "--help"]);
         assert!(r.is_err()); // clap returns error when --help is used
+    }
+
+    // ---------------------------------------------------------------------------
+    // Alias tests (PBI-29: intuitive command aliases)
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn test_alias_index_for_chart() {
+        let cli = parse_cli(&["shiotsuchi", "index"]);
+        assert!(matches!(cli.command, Commands::Chart(_)));
+    }
+
+    #[test]
+    fn test_alias_search_for_dive() {
+        let cli = parse_cli(&["shiotsuchi", "search", "test query"]);
+        assert!(matches!(cli.command, Commands::Dive(_)));
+    }
+
+    #[test]
+    fn test_alias_prune_for_dredge() {
+        let cli = parse_cli(&["shiotsuchi", "prune"]);
+        assert!(matches!(cli.command, Commands::Dredge(_)));
+    }
+
+    #[test]
+    fn test_alias_stats_for_tide() {
+        let cli = parse_cli(&["shiotsuchi", "stats"]);
+        assert!(matches!(cli.command, Commands::Tide(_)));
+    }
+
+    #[test]
+    fn test_alias_watch_for_scan() {
+        let cli = parse_cli(&["shiotsuchi", "watch"]);
+        assert!(matches!(cli.command, Commands::Scan(_)));
+    }
+
+    #[test]
+    fn test_alias_list_for_log() {
+        let cli = parse_cli(&["shiotsuchi", "list"]);
+        assert!(matches!(cli.command, Commands::Log));
+    }
+
+    #[test]
+    fn test_backward_compat_original_names_still_work() {
+        // All ocean-themed original names must still be accepted
+        let cli = parse_cli(&["shiotsuchi", "chart"]);
+        assert!(matches!(cli.command, Commands::Chart(_)));
+
+        let cli = parse_cli(&["shiotsuchi", "dive", "query"]);
+        assert!(matches!(cli.command, Commands::Dive(_)));
+
+        let cli = parse_cli(&["shiotsuchi", "dredge"]);
+        assert!(matches!(cli.command, Commands::Dredge(_)));
+
+        let cli = parse_cli(&["shiotsuchi", "log"]);
+        assert!(matches!(cli.command, Commands::Log));
+
+        let cli = parse_cli(&["shiotsuchi", "scan"]);
+        assert!(matches!(cli.command, Commands::Scan(_)));
+
+        let cli = parse_cli(&["shiotsuchi", "tide"]);
+        assert!(matches!(cli.command, Commands::Tide(_)));
+    }
+
+    #[test]
+    fn test_help_shows_new_primary_names() {
+        let mut cmd =
+            <Cli as clap::CommandFactory>::command().after_help(crate::build_info::help_footer());
+        let help = format!("{}", cmd.render_help());
+        // New standard names should appear as primary commands in --help.
+        // All command descriptions are in Japanese, so ASCII substring matching
+        // against English words ("index", "search", etc.) is precise — they only
+        // match the command labels, not description text.
+        assert!(help.contains("index"), "index should appear as command in help");
+        assert!(help.contains("search"), "search should appear as command in help");
+        assert!(help.contains("prune"), "prune should appear as command in help");
+        assert!(help.contains("stats"), "stats should appear as command in help");
+        assert!(help.contains("watch"), "watch should appear as command in help");
+        assert!(help.contains("list"), "list should appear as command in help");
+        // Old ocean-themed names should NOT appear as standalone commands in help
+        // (they are hidden aliases — backward compatibility is tested separately).
+        assert!(!help.contains("chart\n"), "chart should not appear as separate command");
+        assert!(!help.contains("dredge\n"), "dredge should not appear as separate command");
+        assert!(!help.contains("tide\n"), "tide should not appear as separate command");
     }
 }
 

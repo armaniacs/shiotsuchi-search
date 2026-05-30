@@ -13,10 +13,10 @@
 shiotsuchi init --notes-dir ~/Notes
 
 # 2. vault をインデックス化する
-shiotsuchi chart
+shiotsuchi index
 
 # 3. 検索する
-shiotsuchi dive "プロジェクト計画"
+shiotsuchi search "プロジェクト計画"
 ```
 
 > すべてのコマンドに `--verbose` フラグが利用可能です。デバッグレベルのログ（ファイルごとの処理詳細、SQL クエリなど）を出力します。トラブルシューティング時に便利です。
@@ -49,15 +49,15 @@ shiotsuchi init --notes-dir ~/Notes --force --yes
 
 ---
 
-### `chart` — vault をインデックス化する
+### `index` — vault をインデックス化する
 
 vault 内のすべての `.md` ファイルを走査し、内蔵の Vaporetto モデルでトークナイズして SQLite インデックスを構築します。
 
 ```sh
-shiotsuchi chart --notes-dir ~/Notes
+shiotsuchi index --notes-dir ~/Notes
 ```
 
-`chart` を再実行しても安全です。ファイルハッシュを比較し、変更があったファイルだけを更新します。
+`index` を再実行しても安全です。ファイルハッシュを比較し、変更があったファイルだけを更新します。
 
 | オプション | デフォルト | 説明 |
 |-----------|-----------|------|
@@ -106,19 +106,19 @@ shiotsuchi check-ignore "doc/manual.md"
 
 ---
 
-### `dive` — ノートを検索する
+### `search` — ノートを検索する
 
 全文キーワード検索（FTS5 BM25）、ベクトル検索（セマンティック）、またはハイブリッドモードでインデックスを検索します。検索結果はファイルパス・見出し・スニペットとともに表示されます。
 
 ```sh
-shiotsuchi dive "週次レビュー"
-shiotsuchi dive "Q3 予算" --limit 5
-shiotsuchi dive "プロジェクト計画" --mode vec       # ベクトル検索
-shiotsuchi dive "会議" --mode hybrid --alpha 0.3     # vec 重視ハイブリッド
-shiotsuchi dive "アプリ開発" --fuzzy                  # あいまい検索
-shiotsuchi dive "計画" --tag project --since 2026-01-01  # フロントマターフィルタ
-shiotsuchi dive "AWS" --mmr --lambda 0.7             # 多様化リランキング
-shiotsuchi search "プロジェクト計画"                   # dive のエイリアス
+shiotsuchi search "週次レビュー"
+shiotsuchi search "Q3 予算" --limit 5
+shiotsuchi search "プロジェクト計画" --mode vec         # ベクトル検索
+shiotsuchi search "会議" --mode hybrid --alpha 0.3       # vec 重視ハイブリッド
+shiotsuchi search "アプリ開発" --fuzzy                    # あいまい検索
+shiotsuchi search "計画" --tag project --since 2026-01-01  # フロントマターフィルタ
+shiotsuchi search "AWS" --mmr --lambda 0.7               # 多様化リランキング
+shiotsuchi dive "プロジェクト計画"                       # search のエイリアス（旧名）
 ```
 
 | オプション | デフォルト | 説明 |
@@ -176,12 +176,12 @@ shiotsuchi delete meeting/notes.md
 
 ---
 
-### `scan` — ファイル変更を監視する
+### `watch` — ファイル変更を監視する
 
 vault ディレクトリの変更を監視し、インデックスを自動更新します。
 
 ```sh
-shiotsuchi scan --notes-dir ~/Notes
+shiotsuchi watch --notes-dir ~/Notes
 ```
 
 ターミナルで常駐させるか、バックグラウンドサービスとして登録して使います。連続した編集はデバウンスしてからインデックスを更新します。
@@ -194,13 +194,13 @@ shiotsuchi scan --notes-dir ~/Notes
 
 ---
 
-### `tide` — vault の統計情報を表示する
+### `stats` — vault の統計情報を表示する
 
 ノート総数・最終インデックス日時・DB サイズ・タグ TOP10・総文字数を表示します。
 
 ```sh
-shiotsuchi tide
-shiotsuchi tide --json   # JSON 出力
+shiotsuchi stats
+shiotsuchi stats --json   # JSON 出力
 ```
 
 | オプション | デフォルト | 説明 |
@@ -305,12 +305,12 @@ Exclusion candidates in /Users/yourname/Notes:
 
 ---
 
-### `log` — インデックス履歴を表示する
+### `list` — インデックス履歴を表示する
 
 直近にインデックスされたファイルをタイムスタンプ付きで一覧表示します。
 
 ```sh
-shiotsuchi log
+shiotsuchi list
 ```
 
 | オプション | デフォルト | 説明 |
@@ -456,7 +456,7 @@ model = "multilingual-e5-large"
 
 > **セキュリティ:** `provider = "api"` を使う場合は、API キーを `config.toml` の `api_key` に書くのではなく、`SHIOTSUCHI_API_KEY` 環境変数で設定してください。config にキーが書かれていると CLI が警告を出します。
 
-> **モデル変更について:** インデックス後にモデルを変更すると、既存のベクトル埋め込みが互換性を失います。`shiotsuchi chart` で全ファイルを再インデックスしてください。インデックス時にモデル変更が検出されると警告が表示されます。
+> **モデル変更について:** インデックス後にモデルを変更すると、既存のベクトル埋め込みが互換性を失います。`shiotsuchi index` で全ファイルを再インデックスしてください。インデックス時にモデル変更が検出されると警告が表示されます。
 
 ### 複数 vault の例
 
@@ -500,7 +500,7 @@ notes_dir = "/Users/name/Documents/Work"
 
 ```sh
 # 両方の vault をインデックス化
-shiotsuchi chart
+shiotsuchi index
 ```
 
 ### 検索
@@ -509,14 +509,14 @@ shiotsuchi chart
 
 ```sh
 # 全 vault を検索
-shiotsuchi dive "Q3 予算"
+shiotsuchi search "Q3 予算"
 ```
 
 ### ウォッチャー
 
 ```sh
 # 設定済みの全 vault を監視
-shiotsuchi scan
+shiotsuchi watch
 ```
 
 ### クリーン（バックアップ + 再インデックス）
@@ -534,8 +534,8 @@ CLI がインデックスを構築・管理し、MCP サーバーが LLM から�
 
 典型的なワークフロー:
 
-1. **インデックス作成** — `shiotsuchi chart`（初回または定期実行）
-2. **ウォッチャー起動** — `shiotsuchi scan`（書き込みに追従してインデックスを最新化）
+1. **インデックス作成** — `shiotsuchi index`（初回または定期実行）
+2. **ウォッチャー起動** — `shiotsuchi watch`（書き込みに追従してインデックスを最新化）
 3. **LLM から検索** — `shiotsuchi-mcp` が Claude などのクライアントからのツール呼び出しに応答
 
 CLI と MCP サーバーは同じ SQLite データベースを共有します。WAL モードが有効なため、同時アクセスしても競合しません。
@@ -549,9 +549,9 @@ CLI と MCP サーバーは同じ SQLite データベースを共有します。
 | 症状 | 対処 |
 |------|------|
 | `command not found: shiotsuchi` | `~/.local/bin`（または `~/.cargo/bin`）を `PATH` に追加（[INSTALL.ja.md](INSTALL.ja.md) 参照） |
-| `dive` で結果が返らない | `shiotsuchi chart` でインデックスを作成してから再試行する |
-| `dive` でインデックスが見つからないエラー | `--db-path` が `chart` で指定したパスと一致しているか確認する |
-| 追加したノートが検索されない | `chart` を再実行するか `scan` を起動してウォッチャーを有効にする |
+| `search` で結果が返らない | `shiotsuchi index` でインデックスを作成してから再試行する |
+| `search` でインデックスが見つからないエラー | `--db-path` が `index` で指定したパスと一致しているか確認する |
+| 追加したノートが検索されない | `index` を再実行するか `watch` を起動してウォッチャーを有効にする |
 | 設定ファイルが読み込まれない | パスが `~/.config/shiotsuchi/config.toml` になっているか確認。TOML 構文エラーは警告としてログに出力される |
 
 ---

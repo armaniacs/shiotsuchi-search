@@ -5,6 +5,7 @@
 // return empty results (no-op).
 
 use std::path::Path;
+use std::sync::OnceLock;
 
 use crate::config::VlmConfig;
 
@@ -20,6 +21,19 @@ pub enum VlmError {
     ConversionFailed(String),
     #[error("io error: {0}")]
     Io(String),
+}
+
+/// Global tokio runtime reused across all VLM calls to avoid per-call thread pool setup.
+/// Returns an error if tokio runtime creation fails, preserving the original error-recovery
+/// path so the caller can log a warning and continue gracefully instead of panicking.
+fn tokio_runtime() -> Result<&'static tokio::runtime::Runtime, VlmError> {
+    static RT: OnceLock<Result<tokio::runtime::Runtime, String>> = OnceLock::new();
+    RT.get_or_init(|| {
+        tokio::runtime::Runtime::new()
+            .map_err(|e| format!("failed to create tokio runtime for VLM: {}", e))
+    })
+    .as_ref()
+    .map_err(|msg| VlmError::ConversionFailed(msg.clone()))
 }
 
 /// Extract text from a PDF using VLM, returning Markdown.
@@ -62,9 +76,8 @@ pub fn extract_text_with_vlm(
     let bytes = std::fs::read(file_path)
         .map_err(|e| VlmError::Io(e.to_string()))?;
 
-    // edgequake-pdf2md requires a tokio runtime. We create one if needed.
-    let rt = tokio::runtime::Runtime::new()
-        .map_err(|e| VlmError::ConversionFailed(format!("tokio runtime: {}", e)))?;
+    // Reuse a global tokio runtime instead of creating one per call
+    let rt = tokio_runtime()?;
 
     let result = rt.block_on(async {
         edgequake_pdf2md::convert_from_bytes(&bytes, &config).await

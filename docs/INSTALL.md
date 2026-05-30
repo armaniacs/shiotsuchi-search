@@ -106,7 +106,7 @@ Trade-offs:
 |---------|-------------|------------------------|
 | FTS5 keyword search | Yes | Yes |
 | Vector/semantic search | Yes | No |
-| File watcher (`scan`) | Yes | Yes |
+| File watcher (`watch`) | Yes | Yes |
 | Binary size | Larger (includes ONNX Runtime) | Smaller |
 
 To build the MCP server without semantic search:
@@ -273,10 +273,10 @@ The first path that resolves to an existing file is used:
 
 ```sh
 shiotsuchi setup --check
-shiotsuchi dive --mode hybrid "your query"
+shiotsuchi search --mode hybrid "your query"
 ```
 
-If no model is found, `dive` falls back to FTS (keyword search) automatically. Passing `--mode vec` explicitly returns an error when no model is available.
+If no model is found, `search` falls back to FTS (keyword search) automatically. Passing `--mode vec` explicitly returns an error when no model is available.
 
 ## Troubleshooting
 

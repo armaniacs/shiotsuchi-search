@@ -47,7 +47,7 @@ fn mmr_rerank(
     let n = candidates.len();
 
     // Guard against OOM from huge n×n similarity matrix allocation.
-    const MAX_MMR_CANDIDATES: usize = 10_000;
+    const MAX_MMR_CANDIDATES: usize = 1_000;
     if n > MAX_MMR_CANDIDATES {
         return candidates;
     }
