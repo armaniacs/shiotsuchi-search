@@ -126,17 +126,17 @@ fn show_banner(config_exists: bool, db_exists: bool) {
 /// Run the welcome/guidance screen when no subcommand is given.
 ///
 /// - Non-TTY: prints a brief guidance message and exits with code 0.
-/// - TTY: shows interactive banner and menu (to be implemented in later tasks).
+/// - TTY: shows interactive banner and categorized command menu.
 pub fn run_welcome(
     cfg: &mut ShiotsuchiConfig,
     raw_notes_dir: Option<&Path>,
     raw_db_path: Option<&Path>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let config_path = default_config_path();
+    let db_path = cfg.resolved_db_path();
     let is_tty = std::io::stdin().is_terminal() && std::io::stdout().is_terminal();
 
     if !is_tty {
-        // Non-TTY: show text guidance and exit
         if !config_path.exists() {
             eprintln!("{}", messages::WELCOME_NON_TTY_NO_CONFIG);
         } else {
@@ -145,9 +145,76 @@ pub fn run_welcome(
         return Ok(());
     }
 
-    // TTY path — will be implemented in subsequent tasks
-    eprintln!("TTY mode not yet implemented");
+    // ── TTY: show banner and menu loop ──
+    let mut config_exists = config_path.exists();
+    let mut db_exists = db_path.exists();
+    show_banner(config_exists, db_exists);
+
+    loop {
+        let items = menu_items(config_exists, db_exists);
+        let selection = dialoguer::Select::with_theme(&dialoguer::theme::ColorfulTheme::default())
+            .items(&items)
+            .default(0)
+            .interact()?;
+
+        let choice = MenuChoice::from_index(selection);
+        match choice {
+            MenuChoice::Exit => {
+                println!("{}", messages::WELCOME_EXIT);
+                break;
+            }
+            MenuChoice::Onboarding => {
+                if let Err(e) = run_onboarding(
+                    config_exists, db_exists, cfg, &config_path,
+                    raw_notes_dir, raw_db_path,
+                ) {
+                    eprintln!("⚠️ オンボーディング中にエラーが発生しました: {}", e);
+                }
+                *cfg = ShiotsuchiConfig::load();
+                config_exists = config_path.exists();
+                db_exists = cfg.resolved_db_path().exists();
+                show_banner(config_exists, db_exists);
+            }
+            _ => {
+                if let Err(e) = run_single_command(
+                    choice, cfg, &config_path, raw_notes_dir, raw_db_path,
+                ) {
+                    eprintln!("⚠️ エラー: {}", e);
+                }
+            }
+        }
+    }
+
     Ok(())
+}
+
+// ──────────────────────────────────────────────
+// Command dispatch and onboarding (stubs)
+// ──────────────────────────────────────────────
+
+/// Run the 3-step onboarding wizard: init → index → search.
+/// To be implemented in a subsequent task.
+fn run_onboarding(
+    _config_exists: bool,
+    _db_exists: bool,
+    _cfg: &ShiotsuchiConfig,
+    _config_path: &Path,
+    _raw_notes_dir: Option<&Path>,
+    _raw_db_path: Option<&Path>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    todo!("onboarding wizard")
+}
+
+/// Execute a single menu command (non-onboarding).
+/// To be implemented in a subsequent task.
+fn run_single_command(
+    _choice: MenuChoice,
+    _cfg: &ShiotsuchiConfig,
+    _config_path: &Path,
+    _raw_notes_dir: Option<&Path>,
+    _raw_db_path: Option<&Path>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    todo!("single command dispatch")
 }
 
 #[cfg(test)]
@@ -199,6 +266,13 @@ mod tests {
         assert!(items_cfg_no[0].contains("オンボーディング"));
         assert!(items_db_no[0].contains("オンボーディング"));
         assert!(items_all[0].contains("オンボーディング"));
+    }
+
+    #[test]
+    fn test_run_welcome_non_tty_path_still_works() {
+        let mut cfg = ShiotsuchiConfig::default();
+        let result = run_welcome(&mut cfg, None, None);
+        assert!(result.is_ok());
     }
 
     #[test]
