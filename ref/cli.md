@@ -3,6 +3,10 @@
 Binary name: `shiotsuchi`
 Crate path: `cli/`
 
+## Interactive mode
+
+Running `shiotsuchi` without a subcommand opens an interactive welcome screen with an onboarding wizard and categorized command menu. See `docs/CLI-USE.md` for details.
+
 ## Commands
 
 | Command | Args | Description |

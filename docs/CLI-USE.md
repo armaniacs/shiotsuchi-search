@@ -6,6 +6,32 @@
 
 ---
 
+## Interactive welcome screen
+
+Running `shiotsuchi` without any subcommand opens an interactive welcome screen:
+
+```sh
+shiotsuchi
+```
+
+This shows:
+
+- **A welcome banner** with a quick-start guide (init → index → search)
+- **An onboarding wizard** that walks you through setup step by step
+- **A categorized command menu** so you can run commands without remembering their names
+
+The welcome screen adapts to your setup:
+
+| State | Behavior |
+|-------|----------|
+| First run (no config) | Shows "🚀 Start onboarding" — guides you through init → index → search |
+| Config exists, no index | Shows "⚡ Continue onboarding" — skips config, starts at index → search |
+| Config + index exist | Shows "🚀 Quick onboarding" — re-index + search experience |
+
+Select a menu item with the arrow keys and press Enter. The `init`, `index`, and `search` commands offer to walk you through the next step after they complete.
+
+> In non-TTY environments (pipes, CI), running `shiotsuchi` without a subcommand prints a guidance message instead of the interactive menu.
+
 ## Quick start
 
 ```sh
