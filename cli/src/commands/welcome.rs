@@ -190,8 +190,29 @@ pub fn run_welcome(
 }
 
 // ──────────────────────────────────────────────
-// Command dispatch and onboarding (stubs)
+// Command dispatch and onboarding
 // ──────────────────────────────────────────────
+
+/// Build a `DiveArgs` with default search settings.
+/// Shared between `run_onboarding` Step 3 and `run_single_command(Search)`.
+fn build_search_args(query: String) -> commands::dive::DiveArgs {
+    commands::dive::DiveArgs {
+        query,
+        json: false,
+        limit: 20,
+        format: commands::dive::OutputFormat::Table,
+        mode: commands::dive::CliSearchMode::Hybrid,
+        model_path: None,
+        vault: None,
+        tag: None,
+        since: None,
+        fuzzy: false,
+        alpha: None,
+        mmr: false,
+        lambda: 0.5,
+        threshold: None,
+    }
+}
 
 /// Run the 3-step onboarding wizard: init → index → search.
 /// Each step shows a pre-flight summary and asks for confirmation.
@@ -249,6 +270,12 @@ fn run_onboarding(
             .unwrap_or_else(|| ".".to_string());
         println!("  ボールト: {}", vault_display);
 
+        // Check if API-based embedder is configured → add cost warning
+        if let shiotsuchi_core::config::EmbedderConfig::Api { endpoint, ..} = &cfg.embedder {
+            println!("  ⚠️  埋め込みに外部 API を使用します: {}", endpoint);
+            println!("  💰  チャンク単位で課金が発生する可能性があります。");
+        }
+
         if !Confirm::with_theme(&ColorfulTheme::default())
             .with_prompt("この内容でインデックスを実行しますか？")
             .default(true)
@@ -266,6 +293,10 @@ fn run_onboarding(
         println!("✅ Step 2/3 完了: ノートのインデックスが完了しました");
     } else {
         println!("\n⚡ Step 2/3: ノートを再インデックスします（すでにデータベースが存在します）");
+        if let shiotsuchi_core::config::EmbedderConfig::Api { endpoint, ..} = &cfg.embedder {
+            println!("  ⚠️  埋め込みに外部 API を使用します: {}", endpoint);
+            println!("  💰  チャンク単位で課金が発生する可能性があります。");
+        }
         if !Confirm::with_theme(&ColorfulTheme::default())
             .with_prompt("データベースが存在します。再インデックスしますか？")
             .default(false)
@@ -298,23 +329,7 @@ fn run_onboarding(
         .interact_text()?;
 
     let db_path = cfg.resolved_db_path();
-    use commands::dive::DiveArgs;
-    let args = DiveArgs {
-        query,
-        json: false,
-        limit: 20,
-        format: commands::dive::OutputFormat::Table,
-        mode: commands::dive::CliSearchMode::Hybrid,
-        model_path: None,
-        vault: None,
-        tag: None,
-        since: None,
-        fuzzy: false,
-        alpha: None,
-        mmr: false,
-        lambda: 0.5,
-        threshold: None,
-    };
+    let args = build_search_args(query);
     let start = std::time::Instant::now();
     let results = commands::dive::run_dive(
         &args, &db_path, &cfg.resolved_vaults(),
@@ -414,23 +429,7 @@ fn run_single_command(
                 .interact_text()?;
 
             let start = std::time::Instant::now();
-            use commands::dive::DiveArgs;
-            let args = DiveArgs {
-                query,
-                json: false,
-                limit: 20,
-                format: commands::dive::OutputFormat::Table,
-                mode: commands::dive::CliSearchMode::Hybrid,
-                model_path: None,
-                vault: None,
-                tag: None,
-                since: None,
-                fuzzy: false,
-                alpha: None,
-                mmr: false,
-                lambda: 0.5,
-                threshold: None,
-            };
+            let args = build_search_args(query);
             let results = commands::dive::run_dive(
                 &args, &db_path, &cfg.resolved_vaults(),
                 &cfg.indexing.user_dictionary, &cfg.synonyms,
@@ -513,5 +512,34 @@ mod tests {
         assert!(items.iter().any(|i| i.contains("stats")));
         assert!(items.iter().any(|i| i.contains("doctor")));
         assert!(items.iter().any(|i| i.contains("exit")));
+    }
+
+    // ── build_search_args ────────────────────────────────────────
+
+    #[test]
+    fn test_build_search_args_produces_expected_defaults() {
+        let query = "project plan".to_string();
+        let args = super::build_search_args(query.clone());
+        assert_eq!(args.query, query);
+        assert!(!args.json);
+        assert_eq!(args.limit, 20);
+        assert!(matches!(args.format, crate::commands::dive::OutputFormat::Table));
+        assert!(matches!(args.mode, crate::commands::dive::CliSearchMode::Hybrid));
+        assert!(args.model_path.is_none());
+        assert!(args.vault.is_none());
+        assert!(args.tag.is_none());
+        assert!(args.since.is_none());
+        assert!(!args.fuzzy);
+        assert!(args.alpha.is_none());
+        assert!(!args.mmr);
+        assert_eq!(args.lambda, 0.5);
+        assert!(args.threshold.is_none());
+    }
+
+    #[test]
+    fn test_build_search_args_accepts_japanese_query() {
+        let query = "日本語クエリ".to_string();
+        let args = super::build_search_args(query.clone());
+        assert_eq!(args.query, query);
     }
 }

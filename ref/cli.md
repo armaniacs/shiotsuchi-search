@@ -12,7 +12,7 @@ Running `shiotsuchi` without a subcommand opens an interactive welcome screen wi
 | Command | Args | Description |
 |---------|------|-------------|
 | `index` (alias: `chart`) | `[--notes-dir]` `[--db-path]` `[--vault]` | Index/re-index all Markdown files in all configured vaults. Reports indexed/skipped/error/excluded counts. |
-| `search` (alias: `dive`) | `[--notes-dir]` `[--db-path]` `[--limit]` `[--mode]` `[--json]` `[--json-pretty]` `[--fuzzy]` `[--alpha]` `[--tag]` `[--since]` `[--vault]` `[--mmr]` `[--lambda]` `[--threshold]` `[--model-path]` | Search notes. `--mode`: `fts` (default), `vec`, `hybrid`. Old name: `dive`. |
+| `search` (alias: `dive`) | `[--notes-dir]` `[--db-path]` `[--limit]` `[--mode]` `[--json]` `[--json-pretty]` `[--fuzzy]` `[--alpha]` `[--tag]` `[--since]` `[--vault]` `[--mmr]` `[--lambda]` `[--threshold]` `[--model-path]` | Search notes. `--mode`: `fts`, `vec`, `hybrid` (default; falls back to `fts` if no embedding model). Old name: `dive`. |
 | `prune` (alias: `dredge`) | `[--notes-dir]` `[--db-path]` | Extract and index chunks from existing notes without re-embedding content. Migrates pre-v0.3.3 vaults to chunked schema. |
 | `watch` (alias: `scan`) | `[--notes-dir]` `[--db-path]` `[--vault]` | Watch all configured vaults for file changes and auto-re-index |
 | `list` (alias: `log`) | `[--db-path]` | Show indexing history |
