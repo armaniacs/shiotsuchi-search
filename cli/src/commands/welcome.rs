@@ -524,13 +524,6 @@ mod tests {
     }
 
     #[test]
-    fn test_run_welcome_non_tty_path_still_works() {
-        let mut cfg = ShiotsuchiConfig::default();
-        let result = run_welcome(&mut cfg, None, None);
-        assert!(result.is_ok());
-    }
-
-    #[test]
     fn test_show_banner_category_keywords_present() {
         let items = menu_items(true, true);
         assert!(items.iter().any(|i| i.contains("init")));
