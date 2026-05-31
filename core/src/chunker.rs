@@ -247,24 +247,24 @@ fn split_on_blank_lines(text: &str) -> Vec<String> {
 fn split_code_math_segments(content: &str) -> Vec<(String, bool)> {
     let mut segments: Vec<(String, bool)> = Vec::new();
     let mut regular = String::new();
-    let chars: Vec<char> = content.chars().collect();
+    let chars: Vec<(usize, char)> = content.char_indices().collect();
     let mut i = 0;
 
     while i < chars.len() {
-        let remaining: String = chars[i..].iter().collect();
+        let remaining: String = chars[i..].iter().map(|&(_, c)| c).collect();
 
         // Fenced code block (``` or ~~~) — must be at start of line
         let is_fence = (remaining.starts_with("```") || remaining.starts_with("~~~"))
-            && (i == 0 || chars[i - 1] == '\n');
+            && (i == 0 || chars[i - 1].1 == '\n');
         if is_fence {
             if !regular.is_empty() {
                 split_inline_segments(&mut segments, regular.clone());
                 regular.clear();
             }
-            let fence_char = chars[i];
+            let fence_char = chars[i].1;
             let mut j = i + 3;
             // skip rest of opening line
-            while j < chars.len() && chars[j] != '\n' {
+            while j < chars.len() && chars[j].1 != '\n' {
                 j += 1;
             }
             if j < chars.len() {
@@ -273,18 +273,18 @@ fn split_code_math_segments(content: &str) -> Vec<(String, bool)> {
             // look for closing fence (same char, 3+ times, at start of line)
             let mut found = false;
             while j + 2 < chars.len() {
-                if chars[j] == fence_char
-                    && chars[j + 1] == fence_char
-                    && chars[j + 2] == fence_char
-                    && (j == i + 3 || chars[j - 1] == '\n')
+                if chars[j].1 == fence_char
+                    && chars[j + 1].1 == fence_char
+                    && chars[j + 2].1 == fence_char
+                    && (j == i + 3 || chars[j - 1].1 == '\n')
                 {
                     let mut k = j + 3;
-                    while k < chars.len() && chars[k] != '\n' {
+                    while k < chars.len() && chars[k].1 != '\n' {
                         k += 1;
                     }
-                    segments.push((content[i..k].to_string(), true));
+                    segments.push((content[chars[i].0..chars[k].0].to_string(), true));
                     i = k;
-                    if i < chars.len() && chars[i] == '\n' {
+                    if i < chars.len() && chars[i].1 == '\n' {
                         i += 1;
                     }
                     found = true;
@@ -293,35 +293,35 @@ fn split_code_math_segments(content: &str) -> Vec<(String, bool)> {
                 j += 1;
             }
             if !found {
-                segments.push((content[i..].to_string(), true));
+                segments.push((content[chars[i].0..].to_string(), true));
                 break;
             }
             continue;
         }
 
         // Display math block ($$...$$)
-        if chars[i] == '$' && i + 1 < chars.len() && chars[i + 1] == '$' {
+        if chars[i].1 == '$' && i + 1 < chars.len() && chars[i + 1].1 == '$' {
             if !regular.is_empty() {
                 split_inline_segments(&mut segments, regular.clone());
                 regular.clear();
             }
             let mut j = i + 2;
             while j + 1 < chars.len() {
-                if chars[j] == '$' && chars[j + 1] == '$' {
-                    segments.push((content[i..j + 2].to_string(), true));
+                if chars[j].1 == '$' && chars[j + 1].1 == '$' {
+                    segments.push((content[chars[i].0..chars[j].0 + 2].to_string(), true));
                     i = j + 2;
                     break;
                 }
                 j += 1;
             }
             if j + 1 >= chars.len() {
-                segments.push((content[i..].to_string(), true));
+                segments.push((content[chars[i].0..].to_string(), true));
                 break;
             }
             continue;
         }
 
-        regular.push(chars[i]);
+        regular.push(chars[i].1);
         i += 1;
     }
 
@@ -844,8 +844,52 @@ mod tests {
             "content after block should be inside same chunk");
     }
 
-    #[test]
-    fn test_normalize_fullwidth_in_tokenized_content() {
+// ── split_code_math_segments UTF-8 safety ──────────────────────
+
+#[test]
+fn test_code_fence_after_multibyte_text_does_not_panic() {
+    let content = "日本語の説明\n```\ncode block\n```\n";
+    let segments = split_code_math_segments(content);
+    // prefix + fenced code + trailing newline
+    assert!(segments.len() >= 2, "should have at least prefix + code");
+    assert!(!segments[0].1, "prefix before fence should be regular");
+    let code_seg = segments.iter().find(|(_, is_code)| *is_code);
+    assert!(code_seg.is_some(), "fenced code should be marked as code");
+    assert!(code_seg.unwrap().0.contains("code block"));
+}
+
+#[test]
+fn test_display_math_after_multibyte_text_does_not_panic() {
+    let content = "日本語の説明$$\na + b\n$$\n";
+    let segments = split_code_math_segments(content);
+    let math_seg = segments.iter().find(|(_, is_code)| *is_code);
+    assert!(math_seg.is_some(), "math block should be marked as code/math");
+    assert!(math_seg.unwrap().0.contains("a + b"));
+}
+
+#[test]
+fn test_tilde_fence_after_multibyte_text() {
+    let content = "日本語\n~~~\ncode\n~~~\n";
+    let segments = split_code_math_segments(content);
+    let code_seg = segments.iter().find(|(_, is_code)| *is_code);
+    assert!(code_seg.is_some(), "tilde fence should be code");
+}
+
+#[test]
+fn test_multibyte_unclosed_fence_does_not_panic() {
+    let content = "日本語\n```\nnever closed";
+    let segments = split_code_math_segments(content);
+    // prefix + unclosed code block
+    assert_eq!(segments.len(), 2, "prefix + unclosed code block");
+    assert!(!segments[0].1, "prefix should be regular");
+    let code_seg = segments.iter().find(|(_, is_code)| *is_code);
+    assert!(code_seg.is_some(), "unclosed fence content should be code");
+}
+
+// ── normalize tests ──────────────────────────────────────────
+
+#[test]
+fn test_normalize_fullwidth_in_tokenized_content() {
         let md = "# Fullwidth\n\nＡＢＣテスト";
         let tok = crate::require_tokenizer!(Default::default());
         let chunks = split_into_chunks(md, &tok, "test.md", "default", &[]);
