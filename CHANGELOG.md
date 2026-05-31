@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (PBI-18)
+
+- **Backlink / PageRank scoring**: Search results are now boosted based on how many other notes link to them — "hub notes" that are referenced from many places rank higher.
+  - DB migration v9: `note_links` table captures `[[wikilink]]` relationships with vault-scoped source/target tracking; `backlink_count` column on `file_cache` stores per-file inbound link count
+  - Obsidian `[[Note Name]]` / `[[Note Name|display text]]` wikilinks are extracted during indexing. Supports `[[Note#heading]]` and `[[Note^blockref]]` anchors (strips anchor, counts file reference). Case-insensitive resolution with shortest-path tiebreaking for ambiguous file names
+  - `backlink_scoring` toggle (default `true`) in `[indexing]` config section — when disabled, neither backlinks are tracked nor scoring is applied
+  - FTS and Vec modes: `score -= backlink_count × 0.05` (lower = more relevant). Hybrid mode: `score += backlink_count × 0.05` (higher = more relevant). Results are re-sorted after adjustment
+  - Vault-scoped backlinks: links from vault A never inflate backlink counts in vault B
+  - Batch backlink recount at end of `index_directory` (O(N) instead of per-file O(N²))
+  - Watcher (incremental indexing) updates backlinks on modify/create/rename/remove events
+  - `cleanup_deleted` cleans up outgoing `note_links` for removed files, preventing count inflation
+  - `replace_note_links()` wraps DELETE + INSERT in an atomic SQLite transaction for crash safety
+  - New index `idx_note_links_target` on `(target_path, vault_name)` for efficient recount queries
+  - MCP search respects user's `backlink_scoring` config setting via `McpConfig`
+  - 24 new tests: wikilink extraction (7), wikilink resolution (5), backlink indexing integration (2), note_links CRUD (5), backlink count update (3), search score adjustment (4)
+
 ## [0.4.14] - 2026-05-31
 
 ### Added (PBI-30)
