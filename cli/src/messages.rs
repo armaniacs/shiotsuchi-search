@@ -331,7 +331,18 @@ pub const WELCOME_EXIT: &str = "またのお越しをお待ちしています。
 pub const WELCOME_NON_TTY_NO_CONFIG: &str = "\
 設定ファイルが見つかりません。
 `shiotsuchi init` を実行して設定ファイルを作成してください。";
+#[allow(dead_code)]
 pub const WELCOME_NON_TTY_HINT: &str = "サブコマンドを指定するか、`shiotsuchi --help` で使い方を確認してください。";
+pub const WELCOME_NON_TTY_COMMAND_LIST: &str = "\
+利用可能なコマンド:
+  init    設定ファイルを作成・編集する
+  index   ノートをインデックスする
+  search  ノートを検索する
+  watch   ファイル変更を監視する
+  stats   統計情報を表示する
+  doctor  環境の状態を診断する
+
+詳細は `shiotsuchi --help` を参照してください。";
 
 #[cfg(test)]
 mod tests {
@@ -343,5 +354,6 @@ mod tests {
         assert!(!WELCOME_EXIT.is_empty());
         assert!(!WELCOME_NON_TTY_HINT.is_empty());
         assert!(!WELCOME_NON_TTY_NO_CONFIG.is_empty());
+        assert!(!WELCOME_NON_TTY_COMMAND_LIST.is_empty());
     }
 }

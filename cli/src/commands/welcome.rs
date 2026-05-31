@@ -140,9 +140,8 @@ pub fn run_welcome(
     if !is_tty {
         if !config_path.exists() {
             eprintln!("{}", messages::WELCOME_NON_TTY_NO_CONFIG);
-        } else {
-            println!("{}", messages::WELCOME_NON_TTY_HINT);
         }
+        println!("{}", messages::WELCOME_NON_TTY_COMMAND_LIST);
         return Ok(());
     }
 
