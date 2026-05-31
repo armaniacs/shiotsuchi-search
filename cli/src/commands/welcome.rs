@@ -135,6 +135,31 @@ fn show_banner(config_exists: bool, db_exists: bool) {
     println!();
 }
 
+/// Draw a box with dynamic width to accommodate the completion message content.
+fn print_completion_box() {
+    let lines = [
+        "         🎉 オンボーディング完了！            ",
+        "                                              ",
+        "  これで shiotsuchi-search を使い始める準備が   ",
+        "  整いました。                                ",
+        "                                              ",
+        "  メニューからさらに操作を選べます:            ",
+        "    search  ノートを検索する                   ",
+        "    index   再インデックスする                  ",
+        "    stats   統計情報を表示する                 ",
+        "    ...                                       ",
+    ];
+    let inner_w = lines.iter().map(|l| l.len()).max().unwrap_or(46);
+    println!();
+    println!("╔{}╗", "═".repeat(inner_w));
+    for line in &lines {
+        let pad = inner_w.saturating_sub(line.len());
+        println!("║{}{}║", line, " ".repeat(pad));
+    }
+    println!("╚{}╝", "═".repeat(inner_w));
+    println!();
+}
+
 /// Run the welcome/guidance screen when no subcommand is given.
 ///
 /// - Non-TTY: prints a brief guidance message and exits with code 0.
@@ -354,21 +379,9 @@ fn run_onboarding(
     )?;
     commands::dive::print_results(&results, &args.query, &args.format, start.elapsed());
 
-    // ── Completion screen ──
-    println!();
-    println!("╔══════════════════════════════════════════════╗");
-    println!("║         🎉 オンボーディング完了！            ║");
-    println!("║                                              ║");
-    println!("║  これで shiotsuchi-search を使い始める準備が   ║");
-    println!("║  整いました。                                ║");
-    println!("║                                              ║");
-    println!("║  メニューからさらに操作を選べます:            ║");
-    println!("║    search  ノートを検索する                   ║");
-    println!("║    index   再インデックスする                  ║");
-    println!("║    stats   統計情報を表示する                 ║");
-    println!("║    ...                                       ║");
-    println!("╚══════════════════════════════════════════════╝");
-    println!();
+    // ── Completion screen (dynamic box width) ──
+    print_completion_box();
+
 
     Ok(())
 }
