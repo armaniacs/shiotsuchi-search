@@ -51,20 +51,18 @@ to_ms() {
 run_timed() {
     local label="$1"
     shift
+    local output_file="${TIMING_LOG}.${label//\//_}.txt"
     echo "─── $label ───"
     echo "[$(date '+%H:%M:%S')] Starting: $label"
 
     local start_ms
-    start_ms=$(awk 'BEGIN{srand(); print srand() * 1000}')
-    # macOS: use perl for ms precision
     if [[ "$(uname)" == "Darwin" ]]; then
         start_ms=$(perl -MTime::HiRes -e 'printf "%d\n", Time::HiRes::time() * 1000')
     fi
 
-    # Run test, capture stdout/stderr, get timing
-    local output
-    output=$("$@" 2>&1) || true
-    local exit_code=$?
+    # Run test, tee to output file for real-time display + later parsing
+    "$@" 2>&1 | tee "$output_file" || true
+    local exit_code=${PIPESTATUS[0]}
 
     local end_ms
     if [[ "$(uname)" == "Darwin" ]]; then
@@ -77,24 +75,32 @@ run_timed() {
 
     echo "[$(date '+%H:%M:%S')] Completed: $label (${elapsed_sec}s)"
 
-    # Check result
-    local passed
-    passed=$(echo "$output" | grep -c 'test result: ok' || true)
-    local failed
-    failed=$(echo "$output" | grep -c 'test result: FAILED' || true)
+    # Parse result from output file
+    local passed=0
+    local failed=0
+    if grep -q 'test result: FAILED' "$output_file" 2>/dev/null; then
+        failed=1
+    fi
+    if grep -q 'test result: ok' "$output_file" 2>/dev/null; then
+        passed=1
+    fi
 
     if [ "$failed" -gt 0 ]; then
         echo "  ❌ FAILED after ${elapsed_sec}s"
-        echo "$output" | grep -E "FAILED|panicked" || true
-        echo "::group::Full output"
-        echo "$output"
-        echo "::endgroup::"
+        grep -E "FAILED|panicked" "$output_file" || true
     else
         echo "  ✅ Passed in ${elapsed_sec}s"
     fi
 
-    # Log timing
-    echo "$elapsed_sec|$elapsed_ms|$label|passed=$passed,failed=$failed,exit=$exit_code" >> "$TIMING_LOG"
+    # Log timing (save the original command for --retry-slow)
+    local total_sec
+    total_sec=$(grep -oE 'finished in [0-9]+(\.[0-9]+)?(ms|µs|s)' "$output_file" 2>/dev/null | head -1 | sed 's/finished in //' || echo "${elapsed_sec}s")
+    local cmd_log
+    cmd_log="$*"
+    echo "$elapsed_sec|$elapsed_ms|$label|passed=$passed,failed=$failed,exit=$exit_code|test_time=$total_sec|cmd=$cmd_log" >> "$TIMING_LOG"
+
+    # Cleanup
+    rm -f "$output_file"
 
     return $exit_code
 }
@@ -223,23 +229,16 @@ if [ "$MODE" = "--retry-slow" ]; then
     echo "╔══════════════════════════════════════╗"
     echo "║  Retrying slow tests                 ║"
     echo "╚══════════════════════════════════════╝"
-    if [ -f "$SLOW_LOG" ]; then
-        while IFS='|' read -r sec label ratio; do
-            echo "─── Retry: $label (was ${sec}s, ${ratio}x avg) ───"
-            # Extract crate and test name from label
-            case "$label" in
-                "shiotsuchi (CLI)")         SHIOTSUCHI_MODEL_PATH="$MODEL_PATH" run_timed "(retry) $label" cargo test -p shiotsuchi ;;
-                "shiotsuchi-mcp (no model)") run_timed "(retry) $label" cargo test -p shiotsuchi-mcp ;;
-                "shiotsuchi-core (with model)") SHIOTSUCHI_MODEL_PATH="$MODEL_PATH" run_timed "(retry) $label" cargo test -p shiotsuchi-core ;;
-                chart*) SHIOTSUCHI_MODEL_PATH="$MODEL_PATH" run_timed "(retry) $label" cargo test -p shiotsuchi -- chart::tests::"$(echo "$label" | sed 's/.*:://')" ;;
-                clean*) SHIOTSUCHI_MODEL_PATH="$MODEL_PATH" run_timed "(retry) $label" cargo test -p shiotsuchi -- clean::tests::"$(echo "$label" | sed 's/.*:://')" ;;
-                doctor*) SHIOTSUCHI_MODEL_PATH="$MODEL_PATH" run_timed "(retry) $label" cargo test -p shiotsuchi -- doctor::tests::"$(echo "$label" | sed 's/.*:://')" ;;
-                mcp*) SHIOTSUCHI_MODEL_PATH="$MODEL_PATH" run_timed "(retry) $label" cargo test -p shiotsuchi-mcp -- handler::tests::"$(echo "$label" | sed 's/.*:://')" ;;
-                *) echo "  ⚠️  Unknown test label: $label" ;;
-            esac
-        done < "$SLOW_LOG"
+    if [ -f "${TIMING_LOG}.bak" ]; then
+        while IFS='|' read -r elapsed_ms label rest; do
+            _cmd=""
+            _cmd=$(echo "$rest" | grep -o 'cmd=.*' | sed 's/cmd=//')
+            _sec=$(awk "BEGIN { printf \"%.1f\", $elapsed_ms / 1000 }")
+            echo "─── Retry: $label (was ${_sec}s) ───"
+            SHIOTSUCHI_MODEL_PATH="$MODEL_PATH" run_timed "(retry) $label" $_cmd
+        done < "${TIMING_LOG}.bak"
     else
-        echo "  No slow test log found. Run tests first."
+        echo "  No previous test log found. Run tests first."
     fi
 fi
 
