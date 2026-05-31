@@ -331,8 +331,7 @@ pub const WELCOME_EXIT: &str = "またのお越しをお待ちしています。
 pub const WELCOME_NON_TTY_NO_CONFIG: &str = "\
 設定ファイルが見つかりません。
 `shiotsuchi init` を実行して設定ファイルを作成してください。";
-#[allow(dead_code)]
-pub const WELCOME_NON_TTY_HINT: &str = "サブコマンドを指定するか、`shiotsuchi --help` で使い方を確認してください。";
+// 非TTY時は WELCOME_NON_TTY_COMMAND_LIST を使用（WELCOME_NON_TTY_HINT は廃止）
 pub const WELCOME_NON_TTY_COMMAND_LIST: &str = "\
 利用可能なコマンド:
   init    設定ファイルを作成・編集する
@@ -417,7 +416,6 @@ mod tests {
     fn test_welcome_constants_are_non_empty() {
         assert!(!WELCOME_TAGLINE.is_empty());
         assert!(!WELCOME_EXIT.is_empty());
-        assert!(!WELCOME_NON_TTY_HINT.is_empty());
         assert!(!WELCOME_NON_TTY_NO_CONFIG.is_empty());
         assert!(!WELCOME_NON_TTY_COMMAND_LIST.is_empty());
     }

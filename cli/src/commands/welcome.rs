@@ -16,6 +16,9 @@ use dialoguer::theme::{ColorfulTheme, SimpleTheme};
 
 /// Select the dialoguer theme based on the NO_COLOR environment variable.
 /// Respects https://no-color.org/ — when set, use SimpleTheme (no ANSI colors).
+/// Maximum length for search queries typed in the interactive menu.
+const MAX_SEARCH_QUERY_LENGTH: usize = 200;
+
 fn dialoguer_theme() -> Box<dyn dialoguer::theme::Theme> {
     if std::env::var("NO_COLOR").is_ok() {
         Box::new(SimpleTheme)
@@ -361,8 +364,8 @@ fn run_onboarding(
     let query: String = dialoguer::Input::with_theme(&*dialoguer_theme())
         .with_prompt(messages::WELCOME_STEP3_QUERY_PROMPT)
         .validate_with(|input: &String| -> Result<(), &str> {
-            if input.chars().count() > 200 {
-                Err("クエリは200文字以内で入力してください")
+            if input.chars().count() > MAX_SEARCH_QUERY_LENGTH {
+                Err(messages::WELCOME_QUERY_TOO_LONG)
             } else {
                 Ok(())
             }
@@ -455,7 +458,7 @@ fn run_single_command(
             let query: String = dialoguer::Input::with_theme(&*dialoguer_theme())
                 .with_prompt("検索クエリを入力してください")
                 .validate_with(|input: &String| -> Result<(), &str> {
-                if input.chars().count() > 200 {
+                if input.chars().count() > MAX_SEARCH_QUERY_LENGTH {
                     Err(messages::WELCOME_QUERY_TOO_LONG)
                 } else {
                     Ok(())
