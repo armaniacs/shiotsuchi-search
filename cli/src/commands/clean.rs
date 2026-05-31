@@ -342,7 +342,7 @@ mod tests {
 
         if let Err(e) = super::run_clean(&vaults, &db_path, &idx_cfg, &Default::default()) {
             let msg = format!("{}", e);
-            if msg.contains("no model") || msg.contains("NoModel") {
+            if msg.contains("no model") || msg.contains("NoModel") || msg.contains("No such file") {
                 eprintln!("[SKIPPED] clean::test_run_clean_full_flow — Vaporetto model not available");
                 return;
             }

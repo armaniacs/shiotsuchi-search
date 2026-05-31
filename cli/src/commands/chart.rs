@@ -148,7 +148,7 @@ mod tests {
             Err(e) => {
                 // If the model is unavailable, `get_tokenizer()` returns NoModel.
                 let msg = format!("{}", e);
-                if msg.contains("no model") || msg.contains("NoModel") {
+                if msg.contains("no model") || msg.contains("NoModel") || msg.contains("No such file") {
                     eprintln!("[SKIPPED] chart::test_chart_indexes_files — Vaporetto model not available (set SHIOTSUCHI_MODEL_PATH)");
                     return;
                 }

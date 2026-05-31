@@ -30,8 +30,17 @@ build-dev:
 	cargo build
 
 test: $(MODEL_FILE)
+	SHIOTSUCHI_MODEL_PATH=$(CURDIR)/$(MODEL_FILE) $(CURDIR)/scripts/test-timing.sh
+
+test-fast:
+	$(CURDIR)/scripts/test-timing.sh --fast
+
+test-slow:
 	SHIOTSUCHI_MODEL_PATH=$(CURDIR)/$(MODEL_FILE) \
-	  cargo test -p shiotsuchi-core -p shiotsuchi-mcp -p shiotsuchi
+	  $(CURDIR)/scripts/test-timing.sh --slow
+
+test-retry-slow:
+	$(CURDIR)/scripts/test-timing.sh --retry-slow
 
 test-e2e: $(MODEL_FILE)
 	cargo build -p shiotsuchi -p shiotsuchi-mcp

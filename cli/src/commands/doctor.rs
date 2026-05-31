@@ -686,7 +686,7 @@ notes_dir = "/work/notes"
             }
             Err(e) => {
                 let msg = format!("{}", e);
-                if msg.contains("no model") || msg.contains("NoModel") {
+                if msg.contains("no model") || msg.contains("NoModel") || msg.contains("No such file") {
                     eprintln!("[SKIPPED] test_index_vault_creates_db_with_files — Vaporetto model not available");
                     return;
                 }
@@ -715,7 +715,7 @@ notes_dir = "/work/notes"
             Ok(_) => {}
             Err(e) => {
                 let msg = format!("{}", e);
-                if msg.contains("no model") || msg.contains("NoModel") {
+                if msg.contains("no model") || msg.contains("NoModel") || msg.contains("No such file") {
                     eprintln!("[SKIPPED] — Vaporetto model not available");
                     return;
                 }
@@ -738,7 +738,7 @@ notes_dir = "/work/notes"
             }
             Err(e) => {
                 let msg = format!("{}", e);
-                if msg.contains("no model") || msg.contains("NoModel") {
+                if msg.contains("no model") || msg.contains("NoModel") || msg.contains("No such file") {
                     eprintln!("[SKIPPED] — Vaporetto model not available");
                     return;
                 }
