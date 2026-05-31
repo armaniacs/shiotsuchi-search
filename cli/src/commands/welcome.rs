@@ -420,7 +420,7 @@ fn run_single_command(
                     .default(true)
                     .interact()?
                 {
-                    run_onboarding(false, false, cfg, config_path, raw_notes_dir, raw_db_path)?;
+                    run_onboarding(config_path.exists(), false, cfg, config_path, raw_notes_dir, raw_db_path)?;
                 }
                 return Ok(());
             }
