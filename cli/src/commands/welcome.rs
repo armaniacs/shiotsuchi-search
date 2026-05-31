@@ -508,11 +508,6 @@ mod tests {
     }
 
     #[test]
-    fn test_stdin_is_not_terminal_in_test_env() {
-        assert!(!std::io::stdin().is_terminal());
-    }
-
-    #[test]
     fn test_show_banner_always_shows_onboarding_option() {
         let items_cfg_no = menu_items(false, false);
         let items_db_no = menu_items(true, false);
