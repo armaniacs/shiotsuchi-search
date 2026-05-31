@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.15] - 2026-06-01
+
 ### Added (PBI-18)
 
 - **Backlink / PageRank scoring**: Search results are now boosted based on how many other notes link to them — "hub notes" that are referenced from many places rank higher.
