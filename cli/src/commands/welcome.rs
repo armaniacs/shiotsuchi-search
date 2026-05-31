@@ -12,6 +12,17 @@ use std::path::{Path, PathBuf};
 use crate::commands;
 use crate::config::{default_config_path, ShiotsuchiConfig};
 use crate::messages;
+use dialoguer::theme::{ColorfulTheme, SimpleTheme};
+
+/// Select the dialoguer theme based on the NO_COLOR environment variable.
+/// Respects https://no-color.org/ — when set, use SimpleTheme (no ANSI colors).
+fn dialoguer_theme() -> Box<dyn dialoguer::theme::Theme> {
+    if std::env::var("NO_COLOR").is_ok() {
+        Box::new(SimpleTheme)
+    } else {
+        Box::new(ColorfulTheme::default())
+    }
+}
 
 // ──────────────────────────────────────────────
 // Menu definition
@@ -152,7 +163,7 @@ pub fn run_welcome(
 
     loop {
         let items = menu_items(config_exists, db_exists);
-        let selection = dialoguer::Select::with_theme(&dialoguer::theme::ColorfulTheme::default())
+        let selection = dialoguer::Select::with_theme(&*dialoguer_theme())
             .items(&items)
             .default(0)
             .interact()?;
@@ -225,7 +236,6 @@ fn run_onboarding(
     raw_db_path: Option<&Path>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use dialoguer::Confirm;
-    use dialoguer::theme::ColorfulTheme;
 
     // ── Step 1: Config ──
     if !config_exists {
@@ -238,7 +248,7 @@ fn run_onboarding(
         });
         println!("  ノート: {}", notes_dir.display());
 
-        if !Confirm::with_theme(&ColorfulTheme::default())
+        if !Confirm::with_theme(&*dialoguer_theme())
             .with_prompt("この内容で設定ファイルを作成しますか？")
             .default(true)
             .interact()?
@@ -251,7 +261,7 @@ fn run_onboarding(
         commands::init::run_init(&init_args, cfg, config_path, raw_notes_dir, raw_db_path)?;
         println!("✅ Step 1/3 完了: 設定ファイルを作成しました");
 
-        if !Confirm::with_theme(&ColorfulTheme::default())
+        if !Confirm::with_theme(&*dialoguer_theme())
             .with_prompt("Step 2 に進んでノートをインデックスしますか？")
             .default(true)
             .interact()?
@@ -275,7 +285,7 @@ fn run_onboarding(
             println!("  💰  チャンク単位で課金が発生する可能性があります。");
         }
 
-        if !Confirm::with_theme(&ColorfulTheme::default())
+        if !Confirm::with_theme(&*dialoguer_theme())
             .with_prompt("この内容でインデックスを実行しますか？")
             .default(true)
             .interact()?
@@ -296,7 +306,7 @@ fn run_onboarding(
             println!("  ⚠️  埋め込みに外部 API を使用します: {}", endpoint);
             println!("  💰  チャンク単位で課金が発生する可能性があります。");
         }
-        if !Confirm::with_theme(&ColorfulTheme::default())
+        if !Confirm::with_theme(&*dialoguer_theme())
             .with_prompt("データベースが存在します。再インデックスしますか？")
             .default(false)
             .interact()?
@@ -312,7 +322,7 @@ fn run_onboarding(
         }
     }
 
-    if !Confirm::with_theme(&ColorfulTheme::default())
+    if !Confirm::with_theme(&*dialoguer_theme())
         .with_prompt("Step 3 に進んで検索を体験しますか？")
         .default(true)
         .interact()?
@@ -323,7 +333,7 @@ fn run_onboarding(
 
     // ── Step 3: Search ──
     println!("\n🔍 Step 3/3: ノートを検索してみましょう");
-    let query: String = dialoguer::Input::with_theme(&ColorfulTheme::default())
+    let query: String = dialoguer::Input::with_theme(&*dialoguer_theme())
         .with_prompt("検索クエリを入力してください")
         .validate_with(|input: &String| -> Result<(), &str> {
             if input.chars().count() > 200 {
@@ -373,7 +383,6 @@ fn run_single_command(
     raw_db_path: Option<&Path>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use dialoguer::Confirm;
-    use dialoguer::theme::ColorfulTheme;
 
     match choice {
         MenuChoice::Stats => {
@@ -390,7 +399,7 @@ fn run_single_command(
         MenuChoice::Init => {
             let init_args = commands::init::InitArgs { force: false, yes: false };
             commands::init::run_init(&init_args, cfg, config_path, raw_notes_dir, raw_db_path)?;
-            if Confirm::with_theme(&ColorfulTheme::default())
+            if Confirm::with_theme(&*dialoguer_theme())
                 .with_prompt("✅ 設定ファイルを作成しました。オンボーディングを続けて index → search まで完了しませんか？")
                 .default(true)
                 .interact()?
@@ -409,7 +418,7 @@ fn run_single_command(
                 &cfg.resolved_vaults(), &cfg.resolved_db_path(),
                 &cfg.indexing, &cfg.embedder, &cfg.vlm,
             )?;
-            if Confirm::with_theme(&ColorfulTheme::default())
+            if Confirm::with_theme(&*dialoguer_theme())
                 .with_prompt("✅ インデックスが完了しました。続けて search で検索してみませんか？")
                 .default(true)
                 .interact()?
@@ -421,7 +430,7 @@ fn run_single_command(
             let db_path = cfg.resolved_db_path();
             if !db_path.exists() {
                 eprintln!("{}", crate::messages::ERR_DB_NOT_FOUND);
-                if Confirm::with_theme(&ColorfulTheme::default())
+                if Confirm::with_theme(&*dialoguer_theme())
                     .with_prompt("オンボーディングを開始して index → search まで進めますか？")
                     .default(true)
                     .interact()?
@@ -430,7 +439,7 @@ fn run_single_command(
                 }
                 return Ok(());
             }
-            let query: String = dialoguer::Input::with_theme(&ColorfulTheme::default())
+            let query: String = dialoguer::Input::with_theme(&*dialoguer_theme())
                 .with_prompt("検索クエリを入力してください")
                 .validate_with(|input: &String| -> Result<(), &str> {
                 if input.chars().count() > 200 {
