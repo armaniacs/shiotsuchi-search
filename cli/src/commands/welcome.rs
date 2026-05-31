@@ -94,19 +94,19 @@ fn show_banner(config_exists: bool, db_exists: bool) {
     println!("║{}║", " ".repeat(inner_w));
 
     if !config_exists {
-        println!("║  🔰 はじめての方へ                         ║");
-        println!("║     この画面では以下の3ステップを            ║");
-        println!("║     一緒に進められます                      ║");
-        println!("║     ① 設定ファイルを作る                    ║");
-        println!("║     ② ノートをインデックスする               ║");
-        println!("║     ③ 検索してみる                          ║");
+        println!("{}", messages::WELCOME_BANNER_FIRST_TIME_1);
+        println!("{}", messages::WELCOME_BANNER_FIRST_TIME_2);
+        println!("{}", messages::WELCOME_BANNER_FIRST_TIME_3);
+        println!("{}", messages::WELCOME_BANNER_FIRST_TIME_4);
+        println!("{}", messages::WELCOME_BANNER_FIRST_TIME_5);
+        println!("{}", messages::WELCOME_BANNER_FIRST_TIME_6);
     } else if !db_exists {
-        println!("║  ⚡ オンボーディングの続きから始めましょう    ║");
-        println!("║     ② ノートをインデックスする               ║");
-        println!("║     ③ 検索してみる                          ║");
+        println!("{}", messages::WELCOME_BANNER_CONTINUE_1);
+        println!("{}", messages::WELCOME_BANNER_CONTINUE_2);
+        println!("{}", messages::WELCOME_BANNER_CONTINUE_3);
     } else {
-        println!("║  🔰 はじめての方も: 「🚀 クイック            ║");
-        println!("║     オンボーディング」で使い方を体験できます  ║");
+        println!("{}", messages::WELCOME_BANNER_READY_1);
+        println!("{}", messages::WELCOME_BANNER_READY_2);
     }
 
     println!("║{}║", " ".repeat(inner_w));
@@ -114,24 +114,24 @@ fn show_banner(config_exists: bool, db_exists: bool) {
     println!();
 
     // Category listing (informational, not selectable — Select menu follows)
-    println!("実行する操作を選んでください (上下キー:移動, Enter:決定):");
+    println!("{}", messages::WELCOME_MENU_PROMPT);
     println!();
-    println!("  🚀 オンボーディング  (init → index → search を一緒に完了)");
+    println!("{}", messages::WELCOME_MENU_ONBOARDING);
     println!();
-    println!("  ── セットアップ ──");
-    println!("  init     設定ファイルを作成・編集する");
-    println!("  setup    埋め込みモデルをインストールする");
+    println!("{}", messages::WELCOME_MENU_CAT_SETUP);
+    println!("{}", messages::WELCOME_MENU_INIT);
+    println!("{}", messages::WELCOME_MENU_SETUP);
     println!();
-    println!("  ── 検索・操作 ──");
-    println!("  search   ノートを検索する");
-    println!("  index    ノートをインデックスする");
+    println!("{}", messages::WELCOME_MENU_CAT_SEARCH);
+    println!("{}", messages::WELCOME_MENU_SEARCH);
+    println!("{}", messages::WELCOME_MENU_INDEX);
     println!();
-    println!("  ── 情報・メンテナンス ──");
-    println!("  stats    統計情報を表示する");
-    println!("  doctor   環境の状態を診断する");
+    println!("{}", messages::WELCOME_MENU_CAT_INFO);
+    println!("{}", messages::WELCOME_MENU_STATS);
+    println!("{}", messages::WELCOME_MENU_DOCTOR);
     println!();
-    println!("  ── 終了 ──");
-    println!("  exit     終了する");
+    println!("{}", messages::WELCOME_MENU_CAT_EXIT);
+    println!("{}", messages::WELCOME_MENU_EXIT_LABEL);
     println!();
 }
 
@@ -264,7 +264,7 @@ fn run_onboarding(
 
     // ── Step 1: Config ──
     if !config_exists {
-        println!("\n🔰 Step 1/3: 設定ファイルを作成します");
+        println!("{}", messages::WELCOME_STEP1_TITLE);
         println!("  作成先: {}", config_path.display());
         let notes_dir = raw_notes_dir.map(|p| p.to_path_buf()).unwrap_or_else(|| {
             cfg.resolved_vaults().first()
@@ -274,31 +274,31 @@ fn run_onboarding(
         println!("  ノート: {}", notes_dir.display());
 
         if !Confirm::with_theme(&*dialoguer_theme())
-            .with_prompt("この内容で設定ファイルを作成しますか？")
+            .with_prompt(messages::WELCOME_STEP1_CONFIRM)
             .default(true)
             .interact()?
         {
-            println!("オンボーディングを中断しました。メニューからいつでも再開できます。");
+            println!("{}", messages::WELCOME_ABORT);
             return Ok(());
         }
 
         let init_args = commands::init::InitArgs { force: false, yes: false };
         commands::init::run_init(&init_args, cfg, config_path, raw_notes_dir, raw_db_path)?;
-        println!("✅ Step 1/3 完了: 設定ファイルを作成しました");
+        println!("{}", messages::WELCOME_STEP1_DONE);
 
         if !Confirm::with_theme(&*dialoguer_theme())
-            .with_prompt("Step 2 に進んでノートをインデックスしますか？")
+            .with_prompt(messages::WELCOME_STEP2_CONFIRM)
             .default(true)
             .interact()?
         {
-            println!("オンボーディングを中断しました。メニューからいつでも再開できます。");
+            println!("{}", messages::WELCOME_ABORT);
             return Ok(());
         }
     }
 
     // ── Step 2: Index ──
     if !db_exists {
-        println!("\n⚡ Step 2/3: ノートをインデックスします");
+        println!("{}", messages::WELCOME_STEP2_TITLE);
         let vault_display = cfg.resolved_vaults().first()
             .map(|(_, d)| d.display().to_string())
             .unwrap_or_else(|| ".".to_string());
@@ -307,15 +307,15 @@ fn run_onboarding(
         // Check if API-based embedder is configured → add cost warning
         if let shiotsuchi_core::config::EmbedderConfig::Api { endpoint, ..} = &cfg.embedder {
             println!("  ⚠️  埋め込みに外部 API を使用します: {}", endpoint);
-            println!("  💰  チャンク単位で課金が発生する可能性があります。");
+            println!("{}", messages::WELCOME_STEP2_API_COST);
         }
 
         if !Confirm::with_theme(&*dialoguer_theme())
-            .with_prompt("この内容でインデックスを実行しますか？")
+            .with_prompt(messages::WELCOME_STEP2_CONFIRM_EXEC)
             .default(true)
             .interact()?
         {
-            println!("オンボーディングを中断しました。メニューからいつでも再開できます。");
+            println!("{}", messages::WELCOME_ABORT);
             return Ok(());
         }
 
@@ -324,15 +324,15 @@ fn run_onboarding(
             &cfg.resolved_vaults(), &cfg.resolved_db_path(),
             &cfg.indexing, &cfg.embedder, &cfg.vlm,
         )?;
-        println!("✅ Step 2/3 完了: ノートのインデックスが完了しました");
+        println!("{}", messages::WELCOME_STEP2_DONE);
     } else {
-        println!("\n⚡ Step 2/3: ノートを再インデックスします（すでにデータベースが存在します）");
+        println!("{}", messages::WELCOME_STEP2_REINDEX_TITLE);
         if let shiotsuchi_core::config::EmbedderConfig::Api { endpoint, ..} = &cfg.embedder {
             println!("  ⚠️  埋め込みに外部 API を使用します: {}", endpoint);
-            println!("  💰  チャンク単位で課金が発生する可能性があります。");
+            println!("{}", messages::WELCOME_STEP2_API_COST);
         }
         if !Confirm::with_theme(&*dialoguer_theme())
-            .with_prompt("データベースが存在します。再インデックスしますか？")
+            .with_prompt(messages::WELCOME_STEP2_REINDEX_CONFIRM)
             .default(false)
             .interact()?
         {
@@ -343,23 +343,23 @@ fn run_onboarding(
                 &cfg.resolved_vaults(), &cfg.resolved_db_path(),
                 &cfg.indexing, &cfg.embedder, &cfg.vlm,
             )?;
-            println!("✅ Step 2/3 完了: ノートの再インデックスが完了しました");
+            println!("{}", messages::WELCOME_STEP2_REINDEX_DONE);
         }
     }
 
     if !Confirm::with_theme(&*dialoguer_theme())
-        .with_prompt("Step 3 に進んで検索を体験しますか？")
+        .with_prompt(messages::WELCOME_STEP3_CONFIRM)
         .default(true)
         .interact()?
     {
-        println!("オンボーディングを中断しました。メニューからいつでも検索できます。");
+        println!("{}", messages::WELCOME_ABORT);
         return Ok(());
     }
 
     // ── Step 3: Search ──
-    println!("\n🔍 Step 3/3: ノートを検索してみましょう");
+    println!("{}", messages::WELCOME_STEP3_TITLE);
     let query: String = dialoguer::Input::with_theme(&*dialoguer_theme())
-        .with_prompt("検索クエリを入力してください")
+        .with_prompt(messages::WELCOME_STEP3_QUERY_PROMPT)
         .validate_with(|input: &String| -> Result<(), &str> {
             if input.chars().count() > 200 {
                 Err("クエリは200文字以内で入力してください")
@@ -407,13 +407,13 @@ fn run_single_command(
                 cfg, &cfg.resolved_db_path(),
                 &cfg.resolved_vaults(), &cfg.indexing, &cfg.vlm,
             )?;
-            println!("✅ 診断が完了しました。問題があれば表示されたメッセージに従ってください");
+            println!("{}", messages::WELCOME_DOCTOR_DONE);
         }
         MenuChoice::Init => {
             let init_args = commands::init::InitArgs { force: false, yes: false };
             commands::init::run_init(&init_args, cfg, config_path, raw_notes_dir, raw_db_path)?;
             if Confirm::with_theme(&*dialoguer_theme())
-                .with_prompt("✅ 設定ファイルを作成しました。オンボーディングを続けて index → search まで完了しませんか？")
+                .with_prompt(messages::WELCOME_NEXT_ONBOARD_INIT)
                 .default(true)
                 .interact()?
             {
@@ -423,7 +423,7 @@ fn run_single_command(
         MenuChoice::Setup => {
             let setup_args = commands::setup::SetupArgs { check: false };
             commands::setup::run_setup(&setup_args)?;
-            println!("✅ モデルのセットアップが完了しました。次に index を実行してベクトルインデックスを有効にしてください");
+            println!("{}", messages::WELCOME_SETUP_DONE);
         }
         MenuChoice::Index => {
             commands::chart::run_chart(
@@ -432,7 +432,7 @@ fn run_single_command(
                 &cfg.indexing, &cfg.embedder, &cfg.vlm,
             )?;
             if Confirm::with_theme(&*dialoguer_theme())
-                .with_prompt("✅ インデックスが完了しました。続けて search で検索してみませんか？")
+                .with_prompt(messages::WELCOME_NEXT_ONBOARD_INDEX)
                 .default(true)
                 .interact()?
             {
@@ -444,7 +444,7 @@ fn run_single_command(
             if !db_path.exists() {
                 eprintln!("{}", crate::messages::ERR_DB_NOT_FOUND);
                 if Confirm::with_theme(&*dialoguer_theme())
-                    .with_prompt("オンボーディングを開始して index → search まで進めますか？")
+                    .with_prompt(messages::WELCOME_NEXT_ONBOARD_SEARCH)
                     .default(true)
                     .interact()?
                 {
@@ -456,7 +456,7 @@ fn run_single_command(
                 .with_prompt("検索クエリを入力してください")
                 .validate_with(|input: &String| -> Result<(), &str> {
                 if input.chars().count() > 200 {
-                    Err("クエリは200文字以内で入力してください")
+                    Err(messages::WELCOME_QUERY_TOO_LONG)
                 } else {
                     Ok(())
                 }

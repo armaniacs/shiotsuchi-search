@@ -344,6 +344,71 @@ pub const WELCOME_NON_TTY_COMMAND_LIST: &str = "\
 
 詳細は `shiotsuchi --help` を参照してください。";
 
+// ──────────────────────────────────────────────
+// welcome.rs — バナー表示
+// ──────────────────────────────────────────────
+
+pub const WELCOME_BANNER_FIRST_TIME_1: &str = "║  🔰 はじめての方へ                         ║";
+pub const WELCOME_BANNER_FIRST_TIME_2: &str = "║     この画面では以下の3ステップを            ║";
+pub const WELCOME_BANNER_FIRST_TIME_3: &str = "║     一緒に進められます                      ║";
+pub const WELCOME_BANNER_FIRST_TIME_4: &str = "║     ① 設定ファイルを作る                    ║";
+pub const WELCOME_BANNER_FIRST_TIME_5: &str = "║     ② ノートをインデックスする               ║";
+pub const WELCOME_BANNER_FIRST_TIME_6: &str = "║     ③ 検索してみる                          ║";
+pub const WELCOME_BANNER_CONTINUE_1: &str = "║  ⚡ オンボーディングの続きから始めましょう    ║";
+pub const WELCOME_BANNER_CONTINUE_2: &str = "║     ② ノートをインデックスする               ║";
+pub const WELCOME_BANNER_CONTINUE_3: &str = "║     ③ 検索してみる                          ║";
+pub const WELCOME_BANNER_READY_1: &str = "║  🔰 はじめての方も: 「🚀 クイック            ║";
+pub const WELCOME_BANNER_READY_2: &str = "║     オンボーディング」で使い方を体験できます  ║";
+pub const WELCOME_MENU_PROMPT: &str = "実行する操作を選んでください (上下キー:移動, Enter:決定):";
+pub const WELCOME_MENU_ONBOARDING: &str = "  🚀 オンボーディング  (init → index → search を一緒に完了)";
+pub const WELCOME_MENU_CAT_SETUP: &str = "  ── セットアップ ──";
+pub const WELCOME_MENU_INIT: &str = "  init     設定ファイルを作成・編集する";
+pub const WELCOME_MENU_SETUP: &str = "  setup    埋め込みモデルをインストールする";
+pub const WELCOME_MENU_CAT_SEARCH: &str = "  ── 検索・操作 ──";
+pub const WELCOME_MENU_SEARCH: &str = "  search   ノートを検索する";
+pub const WELCOME_MENU_INDEX: &str = "  index    ノートをインデックスする";
+pub const WELCOME_MENU_CAT_INFO: &str = "  ── 情報・メンテナンス ──";
+pub const WELCOME_MENU_STATS: &str = "  stats    統計情報を表示する";
+pub const WELCOME_MENU_DOCTOR: &str = "  doctor   環境の状態を診断する";
+pub const WELCOME_MENU_CAT_EXIT: &str = "  ── 終了 ──";
+pub const WELCOME_MENU_EXIT_LABEL: &str = "  exit     終了する";
+
+// ──────────────────────────────────────────────
+// welcome.rs — オンボーディングフロー
+// ──────────────────────────────────────────────
+
+pub const WELCOME_STEP1_TITLE: &str = "\n🔰 Step 1/3: 設定ファイルを作成します";
+pub const WELCOME_STEP1_CONFIRM: &str = "この内容で設定ファイルを作成しますか？";
+pub const WELCOME_STEP1_DONE: &str = "✅ Step 1/3 完了: 設定ファイルを作成しました";
+pub const WELCOME_STEP2_CONFIRM: &str = "Step 2 に進んでノートをインデックスしますか？";
+pub const WELCOME_STEP2_TITLE: &str = "\n⚡ Step 2/3: ノートをインデックスします";
+pub const WELCOME_STEP2_API_COST: &str = "  💰  チャンク単位で課金が発生する可能性があります。";
+pub const WELCOME_STEP2_CONFIRM_EXEC: &str = "この内容でインデックスを実行しますか？";
+pub const WELCOME_STEP2_DONE: &str = "✅ Step 2/3 完了: ノートのインデックスが完了しました";
+pub const WELCOME_STEP2_REINDEX_TITLE: &str = "\n⚡ Step 2/3: ノートを再インデックスします（すでにデータベースが存在します）";
+pub const WELCOME_STEP2_REINDEX_CONFIRM: &str = "データベースが存在します。再インデックスしますか？";
+pub const WELCOME_STEP2_REINDEX_DONE: &str = "✅ Step 2/3 完了: ノートの再インデックスが完了しました";
+pub const WELCOME_STEP3_CONFIRM: &str = "Step 3 に進んで検索を体験しますか？";
+pub const WELCOME_STEP3_TITLE: &str = "\n🔍 Step 3/3: ノートを検索してみましょう";
+pub const WELCOME_STEP3_QUERY_PROMPT: &str = "検索クエリを入力してください";
+pub const WELCOME_ABORT: &str = "オンボーディングを中断しました。メニューからいつでも再開できます。";
+
+// ──────────────────────────────────────────────
+// welcome.rs — コマンド実行結果のメッセージ
+// ──────────────────────────────────────────────
+
+pub const WELCOME_DOCTOR_DONE: &str = "✅ 診断が完了しました。問題があれば表示されたメッセージに従ってください";
+pub const WELCOME_SETUP_DONE: &str = "✅ モデルのセットアップが完了しました。次に index を実行してベクトルインデックスを有効にしてください";
+pub const WELCOME_NEXT_ONBOARD_INIT: &str = "✅ 設定ファイルを作成しました。オンボーディングを続けて index → search まで完了しませんか？";
+pub const WELCOME_NEXT_ONBOARD_INDEX: &str = "✅ インデックスが完了しました。続けて search で検索してみませんか？";
+pub const WELCOME_NEXT_ONBOARD_SEARCH: &str = "オンボーディングを開始して index → search まで進めますか？";
+
+// ──────────────────────────────────────────────
+// welcome.rs — クエリバリデーション
+// ──────────────────────────────────────────────
+
+pub const WELCOME_QUERY_TOO_LONG: &str = "クエリは200文字以内で入力してください";
+
 #[cfg(test)]
 mod tests {
     use super::*;
