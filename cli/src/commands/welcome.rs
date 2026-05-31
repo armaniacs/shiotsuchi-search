@@ -325,6 +325,13 @@ fn run_onboarding(
     println!("\n🔍 Step 3/3: ノートを検索してみましょう");
     let query: String = dialoguer::Input::with_theme(&ColorfulTheme::default())
         .with_prompt("検索クエリを入力してください")
+        .validate_with(|input: &String| -> Result<(), &str> {
+            if input.chars().count() > 200 {
+                Err("クエリは200文字以内で入力してください")
+            } else {
+                Ok(())
+            }
+        })
         .interact_text()?;
 
     let db_path = cfg.resolved_db_path();
@@ -425,7 +432,14 @@ fn run_single_command(
             }
             let query: String = dialoguer::Input::with_theme(&ColorfulTheme::default())
                 .with_prompt("検索クエリを入力してください")
-                .interact_text()?;
+                .validate_with(|input: &String| -> Result<(), &str> {
+                if input.chars().count() > 200 {
+                    Err("クエリは200文字以内で入力してください")
+                } else {
+                    Ok(())
+                }
+            })
+            .interact_text()?;
 
             let start = std::time::Instant::now();
             let args = build_search_args(query);
