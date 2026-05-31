@@ -184,10 +184,11 @@ if [ "$MODE" = "--fast" ] || [ "$MODE" = "all" ]; then
     echo "╔══════════════════════════════════════╗"
     echo "║  Fast tests (no model required)      ║"
     echo "╚══════════════════════════════════════╝"
-    # Unset model path to keep fast tests fast
+    # Unset model path to keep fast tests fast (no recompilation)
     _saved_model=""
     if [ -n "${SHIOTSUCHI_MODEL_PATH+x}" ]; then _saved_model="$SHIOTSUCHI_MODEL_PATH"; fi
     unset SHIOTSUCHI_MODEL_PATH
+    run_timed "shiotsuchi-core" cargo test -p shiotsuchi-core
     run_timed "shiotsuchi (CLI)" cargo test -p shiotsuchi
     run_timed "shiotsuchi-mcp" cargo test -p shiotsuchi-mcp
     if [ -n "$_saved_model" ]; then SHIOTSUCHI_MODEL_PATH="$_saved_model"; fi
@@ -199,11 +200,7 @@ if [ "$MODE" = "--slow" ] || [ "$MODE" = "all" ]; then
     echo "║  Slow tests (model-dependent)        ║"
     echo "╚══════════════════════════════════════╝"
 
-    # Core tests with model
-    SHIOTSUCHI_MODEL_PATH="$MODEL_PATH" \
-        run_timed "shiotsuchi-core (with model)" cargo test -p shiotsuchi-core
-
-    # Individual slow model-dependent tests
+    # Individual slow model-dependent tests only (no cargo test -p to avoid recompilation)
     SHIOTSUCHI_MODEL_PATH="$MODEL_PATH" \
         run_timed "chart::test_chart_indexes_files" cargo test -p shiotsuchi -- chart::tests::test_chart_indexes_files
 
