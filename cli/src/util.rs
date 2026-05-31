@@ -1,5 +1,15 @@
 use std::path::Path;
 
+/// Select the dialoguer theme based on the NO_COLOR environment variable.
+/// Respects https://no-color.org/ — when set, use SimpleTheme (no ANSI colors).
+pub fn dialoguer_theme() -> Box<dyn dialoguer::theme::Theme> {
+    if std::env::var("NO_COLOR").is_ok() {
+        Box::new(dialoguer::theme::SimpleTheme)
+    } else {
+        Box::new(dialoguer::theme::ColorfulTheme::default())
+    }
+}
+
 /// Set the parent directory of `path` to `0o700` permissions on Unix.
 ///
 /// Creates the parent if it doesn't exist. Safe to call on any platform:

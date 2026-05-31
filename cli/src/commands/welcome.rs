@@ -12,20 +12,10 @@ use std::path::{Path, PathBuf};
 use crate::commands;
 use crate::config::{default_config_path, ShiotsuchiConfig};
 use crate::messages;
-use dialoguer::theme::{ColorfulTheme, SimpleTheme};
+use crate::util::dialoguer_theme;
 
-/// Select the dialoguer theme based on the NO_COLOR environment variable.
-/// Respects https://no-color.org/ — when set, use SimpleTheme (no ANSI colors).
 /// Maximum length for search queries typed in the interactive menu.
 const MAX_SEARCH_QUERY_LENGTH: usize = 200;
-
-fn dialoguer_theme() -> Box<dyn dialoguer::theme::Theme> {
-    if std::env::var("NO_COLOR").is_ok() {
-        Box::new(SimpleTheme)
-    } else {
-        Box::new(ColorfulTheme::default())
-    }
-}
 
 // ──────────────────────────────────────────────
 // Menu definition

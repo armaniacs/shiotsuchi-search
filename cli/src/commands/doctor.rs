@@ -2,7 +2,7 @@ use crate::config::{IndexingConfig, ShiotsuchiConfig};
 use crate::messages;
 use crate::msg_fmt;
 use clap::Args;
-use dialoguer::{theme::ColorfulTheme, Confirm};
+use dialoguer::Confirm;
 use shiotsuchi_core::{
     db::NoteDatabase,
     embedder::{resolve_model_path, Embedder},
@@ -31,7 +31,7 @@ fn is_tty() -> bool {
 /// Returns an error in non-TTY environments (caller should check `is_tty()`
 /// first).
 fn ask(prompt: &str) -> Result<bool, Box<dyn std::error::Error>> {
-    Ok(Confirm::with_theme(&ColorfulTheme::default())
+    Ok(Confirm::with_theme(&*crate::util::dialoguer_theme())
         .with_prompt(prompt)
         .default(false)
         .interact()?)

@@ -3,7 +3,8 @@ use crate::config::ShiotsuchiConfig;
 use crate::messages;
 use crate::msg_fmt;
 use clap::Args;
-use dialoguer::{theme::ColorfulTheme, Confirm, MultiSelect};
+use crate::util::dialoguer_theme;
+use dialoguer::{Confirm, MultiSelect};
 use std::path::{Path, PathBuf};
 
 #[derive(Args, Debug)]
@@ -193,7 +194,7 @@ fn select_exclusions_interactive(
 
     // Stage 1: bulk confirm known patterns.
     let bulk_exclude_known = if !known_indices.is_empty() {
-        Confirm::with_theme(&ColorfulTheme::default())
+        Confirm::with_theme(&*dialoguer_theme())
             .with_prompt("Exclude common build/output directories?")
             .default(true)
             .interact()?
@@ -225,7 +226,7 @@ fn select_exclusions_interactive(
         .collect();
 
     // Stage 2: multi-select.
-    let selections = MultiSelect::with_theme(&ColorfulTheme::default())
+    let selections = MultiSelect::with_theme(&*dialoguer_theme())
         .items(&display_items)
         .defaults(&defaults)
         .interact()?;
