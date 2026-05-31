@@ -193,7 +193,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let _vault_filter = args.vault.as_deref().or(cfg.vault_default.as_deref());
             // CLI --threshold overrides config semantic_threshold
             let effective_threshold = args.threshold.or(cfg.semantic_threshold);
-            match commands::dive::run_dive(&args, &db_path, &resolved_vaults, &cfg.indexing.user_dictionary, &cfg.synonyms, args.fuzzy, Some(effective_alpha), args.mmr, args.lambda, effective_threshold) {
+            match commands::dive::run_dive(&args, &db_path, &resolved_vaults, &cfg.indexing.user_dictionary, &cfg.synonyms, args.fuzzy, Some(effective_alpha), args.mmr, args.lambda, effective_threshold, cfg.indexing.backlink_scoring) {
                 Ok(results) => {
                     let elapsed = start.elapsed();
                     let fmt = args.effective_format();

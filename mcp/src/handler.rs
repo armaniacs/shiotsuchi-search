@@ -76,6 +76,7 @@ pub fn call_tool(
     args: &Value,
     vaults: &[(String, PathBuf)],
     db_path: &Path,
+    backlink_scoring: bool,
 ) -> Result<Value, Box<dyn std::error::Error>> {
     match name {
         "search_local_notes" => {
@@ -141,7 +142,7 @@ pub fn call_tool(
                     "content": [{"type": "text", "text": "Full-text search requires a tokenizer model. Run 'shiotsuchi setup' to configure one, or set SHIOTSUCHI_MODEL_PATH."}]
                 })),
             };
-            let results = search(&db, &tokenizer, &query, limit, mode, None, min_score, vault_filter, None, None, &[], &HashMap::new(), false, None, false, 0.5)?;
+            let results = search(&db, &tokenizer, &query, limit, mode, None, min_score, vault_filter, None, None, &[], &HashMap::new(), false, None, false, 0.5, backlink_scoring)?;
 
             let markdown = format_results_markdown(&results, &query);
             Ok(json!({
@@ -231,7 +232,7 @@ mod tests {
         let db_path = temp.path().join("test.db");
         shiotsuchi_core::db::NoteDatabase::open(&db_path).unwrap();
         let args = serde_json::json!({"query": "test", "mode": "fts"});
-        let result = call_tool("search_local_notes", &args, &vaults, &db_path);
+        let result = call_tool("search_local_notes", &args, &vaults, &db_path, true);
         assert!(result.is_err());
         let msg = format!("{}", result.unwrap_err());
         assert!(
@@ -248,7 +249,7 @@ mod tests {
         let db_path = temp.path().join("test.db");
         shiotsuchi_core::db::NoteDatabase::open(&db_path).unwrap();
         let args = serde_json::json!({"query": "test", "mode": "fts", "vault": "hobby"});
-        let result = call_tool("search_local_notes", &args, &vaults, &db_path);
+        let result = call_tool("search_local_notes", &args, &vaults, &db_path, true);
         assert!(result.is_ok());
         let resp = result.unwrap();
         assert_eq!(resp["isError"], true);
@@ -263,7 +264,7 @@ mod tests {
         let vaults = vec![("default".to_string(), temp.path().to_path_buf())];
         let Some(db_path) = setup_db(&temp) else { return; };
         let args = serde_json::json!({"query": "Rust programming", "mode": "fts"});
-        let result = call_tool("search_local_notes", &args, &vaults, &db_path);
+        let result = call_tool("search_local_notes", &args, &vaults, &db_path, true);
         assert!(result.is_ok(), "search_local_notes failed: {:?}", result.err());
         let text = result.unwrap()["content"][0]["text"].as_str().unwrap().to_string();
         assert!(text.contains("### RETRIEVED CONTEXT ###"),
@@ -279,7 +280,7 @@ mod tests {
         let db_path = temp.path().join("test.db");
         shiotsuchi_core::db::NoteDatabase::open(&db_path).unwrap();
         let args = serde_json::json!({"query": "Rust", "mode": "vec"});
-        let result = call_tool("search_local_notes", &args, &vaults, &db_path).unwrap();
+        let result = call_tool("search_local_notes", &args, &vaults, &db_path, true).unwrap();
         let text = result["content"][0]["text"].as_str().unwrap();
         assert!(text.contains("fts") || text.contains("model") || text.contains("setup"),
             "Expected guidance message, got: {}", text);
@@ -290,7 +291,7 @@ mod tests {
         let temp = TempDir::new().unwrap();
         let vaults = vec![("default".to_string(), temp.path().to_path_buf())];
         let Some(db_path) = setup_db(&temp) else { return; };
-        let result = call_tool("index_status", &serde_json::json!({}), &vaults, &db_path).unwrap();
+        let result = call_tool("index_status", &serde_json::json!({}), &vaults, &db_path, true).unwrap();
         let text = result["content"][0]["text"].as_str().unwrap();
         assert!(text.contains("Total chunks"), "Expected 'Total chunks' in output, got: {}", text);
         assert!(text.contains("Indexed files"), "Expected 'Indexed files' in output, got: {}", text);
@@ -319,7 +320,7 @@ mod tests {
 
         let middle_id = ids[ids.len() / 2];
         let args = serde_json::json!({"chunk_id": middle_id, "window": 1});
-        let result = call_tool("get_surrounding_context", &args, &vaults, &db_path);
+        let result = call_tool("get_surrounding_context", &args, &vaults, &db_path, true);
         assert!(result.is_ok(), "get_surrounding_context failed: {:?}", result.err());
         let text = result.unwrap()["content"][0]["text"].as_str().unwrap().to_string();
         assert!(text.contains("### Context around chunk"),
@@ -332,7 +333,7 @@ mod tests {
         let temp = TempDir::new().unwrap();
         let vaults = vec![("default".to_string(), temp.path().to_path_buf())];
         let db_path = temp.path().join("nonexistent.db");
-        let result = call_tool("nonexistent_tool", &serde_json::json!({}), &vaults, &db_path);
+        let result = call_tool("nonexistent_tool", &serde_json::json!({}), &vaults, &db_path, true);
         assert!(result.is_err());
     }
 
@@ -344,7 +345,7 @@ mod tests {
         shiotsuchi_core::db::NoteDatabase::open(&db_path).unwrap();
         let long_query = "x".repeat(501);
         let args = serde_json::json!({"query": long_query, "mode": "fts"});
-        let result = call_tool("search_local_notes", &args, &vaults, &db_path).unwrap();
+        let result = call_tool("search_local_notes", &args, &vaults, &db_path, true).unwrap();
         let text = result["content"][0]["text"].as_str().unwrap();
         assert!(text.contains("max 500"), "expected max length error, got: {}", text);
     }

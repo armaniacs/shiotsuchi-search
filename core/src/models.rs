@@ -162,6 +162,9 @@ pub struct IndexConfig {
     pub vlm_provider: String,
     pub vlm_model: String,
     pub vlm_max_pages_per_doc: Option<usize>,
+    /// Whether to apply backlink count scoring boost to search results.
+    /// When true, files with more backlinks get a score boost.
+    pub backlink_scoring: bool,
 }
 
 impl IndexConfig {
@@ -195,6 +198,7 @@ impl Default for IndexConfig {
             vlm_provider: "openai".to_string(),
             vlm_model: "gpt-4.1-nano".to_string(),
             vlm_max_pages_per_doc: None,
+            backlink_scoring: true,
         }
     }
 }

@@ -369,6 +369,7 @@ fn run_onboarding(
         &args, &db_path, &cfg.resolved_vaults(),
         &cfg.indexing.user_dictionary, &cfg.synonyms,
         args.fuzzy, args.alpha, args.mmr, args.lambda, args.threshold,
+        cfg.indexing.backlink_scoring,
     )?;
     commands::dive::print_results(&results, &args.query, &args.format, start.elapsed());
 
@@ -462,6 +463,7 @@ fn run_single_command(
                 &args, &db_path, &cfg.resolved_vaults(),
                 &cfg.indexing.user_dictionary, &cfg.synonyms,
                 args.fuzzy, args.alpha, args.mmr, args.lambda, args.threshold,
+                cfg.indexing.backlink_scoring,
             )?;
             commands::dive::print_results(&results, &args.query, &args.format, start.elapsed());
         }

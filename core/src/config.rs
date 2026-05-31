@@ -173,9 +173,18 @@ pub struct IndexingConfig {
     /// Default: true.
     #[serde(default = "default_enable_pdf_extraction")]
     pub enable_pdf_extraction: bool,
+    /// Whether to apply backlink count scoring boost to search results.
+    /// When true, files with more backlinks get a score boost in search results.
+    /// Default: true.
+    #[serde(default = "default_backlink_scoring")]
+    pub backlink_scoring: bool,
 }
 
 fn default_enable_pdf_extraction() -> bool {
+    true
+}
+
+fn default_backlink_scoring() -> bool {
     true
 }
 
@@ -189,6 +198,7 @@ impl Default for IndexingConfig {
             dynamic_threshold: 5,
             user_dictionary: vec![],
             enable_pdf_extraction: true,
+            backlink_scoring: true,
         }
     }
 }
@@ -481,5 +491,31 @@ mod tests {
         ";
         let config: ShiotsuchiConfig = toml::from_str(toml).unwrap();
         assert!(config.indexing.enable_pdf_extraction, "omitted field should default to true");
+    }
+
+    #[test]
+    fn test_backlink_scoring_default_is_true() {
+        let cfg = IndexingConfig::default();
+        assert!(cfg.backlink_scoring, "backlink_scoring should default to true");
+    }
+
+    #[test]
+    fn test_backlink_scoring_deserialize_false() {
+        let toml = r#"
+            [indexing]
+            backlink_scoring = false
+        "#;
+        let config: ShiotsuchiConfig = toml::from_str(toml).unwrap();
+        assert!(!config.indexing.backlink_scoring);
+    }
+
+    #[test]
+    fn test_backlink_scoring_omitted_is_true() {
+        let toml = r"
+            [indexing]
+            include_extensions = ['md']
+        ";
+        let config: ShiotsuchiConfig = toml::from_str(toml).unwrap();
+        assert!(config.indexing.backlink_scoring, "omitted backlink_scoring should default to true");
     }
 }

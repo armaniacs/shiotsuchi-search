@@ -114,6 +114,7 @@ pub fn run_dive(
     mmr: bool,
     lambda: f64,
     threshold: Option<f64>,
+    backlink_scoring: bool,
 ) -> Result<Vec<ChunkSearchResult>, Box<dyn std::error::Error>> {
     if args.query.trim().is_empty() {
         return Ok(vec![]);
@@ -173,6 +174,7 @@ pub fn run_dive(
         alpha,
         mmr,
         lambda,
+        backlink_scoring,
     )?;
     Ok(results)
 }
@@ -302,7 +304,7 @@ mod tests {
             lambda: 0.5,
             threshold: None,
         };
-        let output = run_dive(&args, &db_file, &[("default".to_string(), temp.path().to_path_buf())], &[], &HashMap::new(), false, None, false, 0.5, None).unwrap();
+        let output = run_dive(&args, &db_file, &[("default".to_string(), temp.path().to_path_buf())], &[], &HashMap::new(), false, None, false, 0.5, None, false).unwrap();
         assert!(!output.is_empty());
         assert!(output[0].file_path.contains("note"));
     }
@@ -329,7 +331,7 @@ mod tests {
             lambda: 0.5,
             threshold: None,
         };
-        let output = run_dive(&args, &db_file, &vaults, &[], &HashMap::new(), false, None, false, 0.5, None).unwrap();
+        let output = run_dive(&args, &db_file, &vaults, &[], &HashMap::new(), false, None, false, 0.5, None, false).unwrap();
         assert!(output.is_empty());
     }
 
@@ -489,7 +491,7 @@ mod tests {
             lambda: 0.5,
             threshold: None,
         };
-        let result = run_dive(&args, &db_file, &vaults, &[], &HashMap::new(), false, None, false, 0.5, None);
+        let result = run_dive(&args, &db_file, &vaults, &[], &HashMap::new(), false, None, false, 0.5, None, false);
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(err.contains("hobby"));
@@ -535,7 +537,7 @@ mod tests {
             threshold: None,
         };
         let vaults: Vec<(String, PathBuf)> = vec![];
-        let result = run_dive(&args, &db_file, &vaults, &[], &HashMap::new(), false, None, false, 0.5, None);
+        let result = run_dive(&args, &db_file, &vaults, &[], &HashMap::new(), false, None, false, 0.5, None, false);
         assert!(result.is_err());
     }
 }

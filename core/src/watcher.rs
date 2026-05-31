@@ -159,6 +159,8 @@ impl VaultWatcher {
                     if let Ok(rel) = path.strip_prefix(&notes_dir) {
                         let rel_str = rel.to_string_lossy();
                         let db = self.db.lock().expect("watcher mutex poisoned");
+                        // Retrieve cached vault paths for wikilink resolution
+                        let vault_paths = db.list_cached_paths(vault_name).unwrap_or_default();
                         if let IndexResult::Error(e) = index_file_with_embedder(
                             &db,
                             &self.tokenizer,
@@ -167,6 +169,7 @@ impl VaultWatcher {
                             vault_name,
                             &rel_str,
                             &self.config,
+                            &vault_paths,
                         ) {
                             log::warn!("watcher: failed to index {}: {}", rel_str, e);
                         }
@@ -191,6 +194,13 @@ impl VaultWatcher {
                                 rel_str,
                                 e
                             );
+                        }
+                        // Clean up outgoing note_links to avoid backlink count inflation
+                        let _ = db.delete_note_links_for_source(&rel_str, vault_name);
+                        if self.config.backlink_scoring {
+                            if let Err(e) = db.update_backlink_counts_for_vault(vault_name) {
+                                log::warn!("watcher: failed to update backlink counts: {}", e);
+                            }
                         }
                     }
                 }
@@ -222,6 +232,7 @@ impl VaultWatcher {
                     if self.is_path_in_notes_dir(new, &notes_dir) {
                         if let Ok(new_rel) = new.strip_prefix(&notes_dir) {
                             let db = self.db.lock().expect("watcher mutex poisoned");
+                            let vault_paths = db.list_cached_paths(vault_name).unwrap_or_default();
                             if let IndexResult::Error(e) = index_file_with_embedder(
                                 &db,
                                 &self.tokenizer,
@@ -230,6 +241,7 @@ impl VaultWatcher {
                                 vault_name,
                                 &new_rel.to_string_lossy(),
                                 &self.config,
+                                &vault_paths,
                             ) {
                                 log::warn!(
                                     "watcher: failed to index new path {}: {}",
@@ -420,7 +432,7 @@ mod tests {
         {
             let db = db.lock().unwrap();
             let _ = index_file_with_embedder(
-                &db, &tokenizer, None, &src_path, "default", "old_name.md", &config,
+                &db, &tokenizer, None, &src_path, "default", "old_name.md", &config, &[],
             );
         }
         assert_eq!(db.lock().unwrap().stats().unwrap().total_files, 1);
@@ -521,7 +533,7 @@ mod tests {
         {
             let db = db.lock().unwrap();
             let _ = index_file_with_embedder(
-                &db, &tokenizer, None, &src_path, "default", "to_delete.md", &config,
+                &db, &tokenizer, None, &src_path, "default", "to_delete.md", &config, &[],
             );
         }
         assert_eq!(db.lock().unwrap().stats().unwrap().total_files, 1);
@@ -575,7 +587,7 @@ mod tests {
         {
             let db = db.lock().unwrap();
             let _ = index_file_with_embedder(
-                &db, &tokenizer, None, &src_path, "default", "update.md", &config,
+                &db, &tokenizer, None, &src_path, "default", "update.md", &config, &[],
             );
         }
         assert_eq!(db.lock().unwrap().stats().unwrap().total_files, 1);

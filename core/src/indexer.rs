@@ -7,7 +7,7 @@ use crate::{
 };
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use sha2::{Digest, Sha256};
-use std::{fs, path::Path, time::SystemTime};
+use std::{fs, path::{Path, PathBuf}, time::SystemTime};
 use walkdir::WalkDir;
 
 /// Optional progress callback for index_directory.
@@ -138,6 +138,57 @@ fn file_mtime(path: &Path) -> i64 {
         .unwrap_or(0)
 }
 
+/// Extract Obsidian wikilinks from Markdown content.
+/// Supports `[[Note Name]]`, `[[Note Name|display text]]`, `[[Note#heading]]`,
+/// and `[[Note^blockref]]` formats.
+/// Returns the raw link target names (file portion only, without `#` or `^` anchors).
+fn extract_wikilinks(content: &str) -> Vec<String> {
+    let mut results = Vec::new();
+    let bytes = content.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'[' && i + 1 < bytes.len() && bytes[i + 1] == b'[' {
+            // Found opening [[
+            let after = &content[i + 2..];
+            if let Some(end) = after.find("]]") {
+                let inner = &after[..end];
+                // Split by | to get the link name (before the pipe)
+                let mut link_name = inner.split('|').next().unwrap_or(inner).trim();
+                // Strip #heading and ^block-reference anchors (common Obsidian patterns)
+                if let Some(anchor_pos) = link_name.find('#') {
+                    link_name = link_name[..anchor_pos].trim();
+                } else if let Some(anchor_pos) = link_name.find('^') {
+                    link_name = link_name[..anchor_pos].trim();
+                }
+                if !link_name.is_empty() {
+                    results.push(link_name.to_string());
+                }
+                i += 2 + end + 2;
+                continue;
+            }
+            i += 2;
+            continue;
+        }
+        i += 1;
+    }
+    results
+}
+
+/// Resolve a wikilink target name to a file path within a vault.
+/// Finds files ending with `{target_name}.md` (case-insensitive) and prefers
+/// the shortest path (Obsidian convention for ambiguous file names).
+fn resolve_wikilink(target_name: &str, vault_paths: &[String]) -> Option<String> {
+    let target_lower = target_name.to_lowercase();
+    let target_file_lower = format!("{}.md", target_lower);
+    vault_paths.iter()
+        .filter(|p| {
+            let p_lower = p.to_lowercase();
+            p_lower.ends_with(&target_file_lower)
+        })
+        .min_by_key(|p| p.len())
+        .cloned()
+}
+
 /// Index a single file using FTS-only mode (no embedding).
 /// If the file hash matches the cached hash, it is skipped.
 /// This is a convenience wrapper around `index_file_with_embedder` with `embedder=None`.
@@ -149,7 +200,10 @@ pub fn index_file(
     relative_path: &str,
     config: &IndexConfig,
 ) -> IndexResult {
-    index_file_with_embedder(db, tokenizer, None, file_path, vault_name, relative_path, config)
+    // index_file is a convenience wrapper that does not provide vault_paths.
+    // Backlink tracking is handled by index_directory and watcher which call
+    // index_file_with_embedder with vault_paths.
+    index_file_with_embedder(db, tokenizer, None, file_path, vault_name, relative_path, config, &[])
 }
 
 /// Walk `vault_dir`, chunk and index all Markdown files.
@@ -196,6 +250,9 @@ pub fn index_directory(
             None
         };
 
+        // Build the list of indexable file paths for this vault.
+        // The same filtering logic applies as in the old per-entry loop.
+        let mut vault_paths: Vec<(String, PathBuf)> = Vec::new();
         for entry in WalkDir::new(notes_dir)
             .follow_links(config.follow_links)
             .into_iter()
@@ -253,26 +310,41 @@ pub fn index_directory(
                 let is_excluded = exclude_globset.is_match(rel_str.as_ref());
                 if is_excluded {
                     vault_excluded += 1;
-                    log::debug!(
-                        "Excluded {} (matched exclude pattern)",
-                        rel_str
-                    );
+                    log::debug!("Excluded {} (matched exclude pattern)", rel_str);
                 }
                 !is_excluded
             })
         {
+            let path = entry.path();
+            let relative = path.strip_prefix(notes_dir).unwrap_or(path);
+            let rel_str = relative.to_string_lossy().replace('\\', "/");
+            vault_paths.push((rel_str, path.to_path_buf()));
+        }
+
+        // Extract just the relative paths for wikilink resolution
+        let vault_file_paths: Vec<String> = vault_paths.iter().map(|(rel, _)| rel.clone()).collect();
+
+        for (rel_str, full_path) in &vault_paths {
             global_count += 1;
             if let Some(ref cb) = progress {
                 cb(global_count, None);
             }
-            let path = entry.path();
-            let relative = path.strip_prefix(notes_dir).unwrap_or(path);
-            let rel_str = relative.to_string_lossy().replace('\\', "/");
             let result = index_file_with_embedder(
-                db, tokenizer, embedder, path, vault_name, &rel_str, config,
+                db, tokenizer, embedder, full_path, vault_name, rel_str, config, &vault_file_paths,
             );
-            all_results.push((vault_name.clone(), rel_str, result));
+            all_results.push((vault_name.clone(), rel_str.to_string(), result));
         }
+
+        // Batch backlink recount: run once per vault after all files are indexed,
+        // instead of once per file (which would be O(N²)).
+        if config.backlink_scoring && !vault_file_paths.is_empty() {
+            if let Err(e) = db.update_backlink_counts_for_vault(vault_name) {
+                log::warn!("Failed to update backlink counts for vault {}: {}", vault_name, e);
+            } else {
+                log::debug!("Updated backlink counts for vault {}", vault_name);
+            }
+        }
+
         total_excluded += vault_excluded;
     }
 
@@ -284,12 +356,22 @@ pub fn cleanup_deleted(db: &NoteDatabase, config: &IndexConfig) -> Result<Vec<St
     let mut removed = Vec::new();
     for (vault_name, notes_dir) in &config.vaults {
         let cached_paths = db.list_cached_paths(vault_name)?;
+        let mut vault_removed = false;
         for path in cached_paths {
             let full_path = notes_dir.join(&path);
             if !full_path.exists() {
                 db.delete_chunks_for_file(vault_name, &path)?;
                 db.delete_file_cache(vault_name, &path)?;
+                // Clean up outgoing note_links to avoid inflating backlink counts
+                let _ = db.delete_note_links_for_source(&path, vault_name);
                 removed.push(path);
+                vault_removed = true;
+            }
+        }
+        // Recalculate backlink counts if any files were removed
+        if vault_removed && config.backlink_scoring {
+            if let Err(e) = db.update_backlink_counts_for_vault(vault_name) {
+                log::warn!("Failed to update backlink counts after cleanup: {}", e);
             }
         }
     }
@@ -297,6 +379,8 @@ pub fn cleanup_deleted(db: &NoteDatabase, config: &IndexConfig) -> Result<Vec<St
 }
 
 /// Index a single file with optional embedder (for watcher use).
+/// `vault_paths` is the list of all relative file paths in the vault, used for
+/// resolving wikilinks. Pass an empty slice if backlink scoring is not needed.
 pub fn index_file_with_embedder(
     db: &NoteDatabase,
     tokenizer: &JapaneseTokenizer,
@@ -305,6 +389,7 @@ pub fn index_file_with_embedder(
     vault_name: &str,
     relative_path: &str,
     config: &IndexConfig,
+    vault_paths: &[String],
 ) -> IndexResult {
     let mtime = file_mtime(file_path);
     let file_size = std::fs::metadata(file_path)
@@ -441,6 +526,23 @@ pub fn index_file_with_embedder(
     } else {
         if let Err(e) = db.delete_tasks_for_file(vault_name, relative_path) {
             log::warn!("Failed to clean up tasks for {}: {}", relative_path, e);
+        }
+    }
+
+    // Handle backlinks: extract wikilinks and update note_links.
+    // Backlink_count is recalculated in batch after indexing (see index_directory).
+    // replace_note_links wraps delete+insert in an atomic transaction.
+    if !vault_paths.is_empty() && config.backlink_scoring {
+        let link_names = extract_wikilinks(&content);
+        let resolved: Vec<String> = if !link_names.is_empty() {
+            link_names.iter()
+                .filter_map(|name| resolve_wikilink(name, vault_paths))
+                .collect()
+        } else {
+            Vec::new()
+        };
+        if let Err(e) = db.replace_note_links(relative_path, vault_name, &resolved) {
+            log::warn!("Failed to update note_links for {}: {}", relative_path, e);
         }
     }
 
@@ -1357,7 +1459,7 @@ mod tests {
         let hits = search(
             &db, &tokenizer, "Hello", 10, SearchMode::Fts,
             None, None, Some("default"), None, None,
-            &[], &HashMap::new(), false, None, false, 0.5,
+            &[], &HashMap::new(), false, None, false, 0.5, false,
         ).unwrap();
         assert!(
             !hits.is_empty(),
@@ -1386,5 +1488,195 @@ mod tests {
             index_directory(&db, &tokenizer, &config, None, None).unwrap();
         assert_eq!(results.len(), 1, "PDF should be indexed");
         assert_eq!(results[0].2, IndexResult::Inserted, "should be Inserted, not Error");
+    }
+
+    // ── Wikilink extraction ─────────────────────────────────────
+
+    #[test]
+    fn test_extract_wikilinks_basic() {
+        let content = "Link to [[Note Name]] here";
+        let links = extract_wikilinks(content);
+        assert_eq!(links, vec!["Note Name"]);
+    }
+
+    #[test]
+    fn test_extract_wikilinks_with_pipe() {
+        let content = "Link to [[Note Name|display text]] here";
+        let links = extract_wikilinks(content);
+        assert_eq!(links, vec!["Note Name"]);
+    }
+
+    #[test]
+    fn test_extract_wikilinks_multiple() {
+        let content = "[[Note A]] and [[Note B|alias]] and [[Note C]]";
+        let links = extract_wikilinks(content);
+        assert_eq!(links, vec!["Note A", "Note B", "Note C"]);
+    }
+
+    #[test]
+    fn test_extract_wikilinks_none() {
+        let content = "No wikilinks here";
+        let links = extract_wikilinks(content);
+        assert!(links.is_empty());
+    }
+
+    #[test]
+    fn test_extract_wikilinks_empty_content() {
+        let links = extract_wikilinks("");
+        assert!(links.is_empty());
+    }
+
+    #[test]
+    fn test_extract_wikilinks_trimmed() {
+        let content = "[[  Spaced Name  ]]";
+        let links = extract_wikilinks(content);
+        assert_eq!(links, vec!["Spaced Name"]);
+    }
+
+    #[test]
+    fn test_extract_wikilinks_with_unicode() {
+        let content = "[[日本語ノート]] and [[プロジェクト計画|Project Plan]]";
+        let links = extract_wikilinks(content);
+        assert_eq!(links, vec!["日本語ノート", "プロジェクト計画"]);
+    }
+
+    // ── Wikilink resolution ─────────────────────────────────────
+
+    #[test]
+    fn test_resolve_wikilink_exact_match() {
+        let paths = vec!["note.md".to_string(), "other.md".to_string()];
+        let result = resolve_wikilink("note", &paths);
+        assert_eq!(result, Some("note.md".to_string()));
+    }
+
+    #[test]
+    fn test_resolve_wikilink_no_match() {
+        let paths = vec!["note.md".to_string()];
+        let result = resolve_wikilink("missing", &paths);
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_resolve_wikilink_ambiguous_prefers_shortest() {
+        let paths = vec![
+            "long/path/note.md".to_string(),
+            "note.md".to_string(),
+            "other/note.md".to_string(),
+        ];
+        let result = resolve_wikilink("note", &paths);
+        assert_eq!(result, Some("note.md".to_string()));
+    }
+
+    #[test]
+    fn test_resolve_wikilink_subdir_prefers_shorter() {
+        let paths = vec![
+            "subdir/note.md".to_string(),
+            "very/long/path/note.md".to_string(),
+        ];
+        let result = resolve_wikilink("note", &paths);
+        assert_eq!(result, Some("subdir/note.md".to_string()));
+    }
+
+    #[test]
+    fn test_resolve_wikilink_extension_is_stripped_in_link() {
+        let paths = vec!["project.md".to_string()];
+        // In wikilinks, the name is without .md extension
+        let result = resolve_wikilink("project", &paths);
+        assert_eq!(result, Some("project.md".to_string()));
+    }
+
+    // ── Backlink indexing integration ───────────────────────────
+
+    #[test]
+    fn test_index_directory_updates_backlinks() {
+        let tokenizer = crate::require_tokenizer!(Default::default());
+        let temp = TempDir::new().unwrap();
+        let vault = temp.path().join("vault");
+        fs::create_dir(&vault).unwrap();
+
+        // Create a hub note and two notes that link to it
+        fs::write(vault.join("hub.md"), "# Hub Note\n\nMain content here.").unwrap();
+        fs::write(vault.join("note_a.md"), "# Note A\n\nSee [[Hub Note]] for details.").unwrap();
+        fs::write(vault.join("note_b.md"), "# Note B\n\nRelated to [[Hub Note]] and [[Note A]].").unwrap();
+
+        let db = NoteDatabase::open_in_memory().unwrap();
+        let config = IndexConfig {
+            vaults: vec![("default".to_string(), vault.clone())],
+            backlink_scoring: true,
+            ..Default::default()
+        };
+
+        let (results, _invalid, _excluded) = index_directory(&db, &tokenizer, &config, None, None).unwrap();
+        assert_eq!(results.len(), 3);
+
+        // Check that hub.md has backlink_count = 2
+        let count: i64 = db.write_conn.borrow().query_row(
+            "SELECT backlink_count FROM file_cache WHERE vault_name = 'default' AND path = 'hub.md'",
+            [],
+            |r| r.get(0),
+        ).unwrap();
+        assert_eq!(count, 2, "hub.md should have 2 backlinks");
+
+        // Check that note_a.md has backlink_count = 1
+        let count_a: i64 = db.write_conn.borrow().query_row(
+            "SELECT backlink_count FROM file_cache WHERE vault_name = 'default' AND path = 'note_a.md'",
+            [],
+            |r| r.get(0),
+        ).unwrap();
+        assert_eq!(count_a, 1, "note_a.md should have 1 backlink");
+
+        // note_b.md should have 0 backlinks (no one links to it)
+        let count_b: i64 = db.write_conn.borrow().query_row(
+            "SELECT backlink_count FROM file_cache WHERE vault_name = 'default' AND path = 'note_b.md'",
+            [],
+            |r| r.get(0),
+        ).unwrap();
+        assert_eq!(count_b, 0, "note_b.md should have 0 backlinks");
+    }
+
+    #[test]
+    fn test_index_directory_backlinks_vault_scoped() {
+        let tokenizer = crate::require_tokenizer!(Default::default());
+        let temp = TempDir::new().unwrap();
+        let vault_a = temp.path().join("vault_a");
+        let vault_b = temp.path().join("vault_b");
+        fs::create_dir_all(&vault_a).unwrap();
+        fs::create_dir_all(&vault_b).unwrap();
+
+        // Vault A: hub_a linked by one note
+        fs::write(vault_a.join("hub.md"), "# Hub A").unwrap();
+        fs::write(vault_a.join("note.md"), "See [[hub]] for info.").unwrap();
+
+        // Vault B: hub_b also linked by one note (same filename, different vault)
+        fs::write(vault_b.join("hub.md"), "# Hub B").unwrap();
+        fs::write(vault_b.join("other.md"), "See [[hub]] for info.").unwrap();
+
+        let db = NoteDatabase::open_in_memory().unwrap();
+        let config = IndexConfig {
+            vaults: vec![
+                ("vault_a".to_string(), vault_a.clone()),
+                ("vault_b".to_string(), vault_b.clone()),
+            ],
+            backlink_scoring: true,
+            ..Default::default()
+        };
+
+        let (results, _invalid, _excluded) = index_directory(&db, &tokenizer, &config, None, None).unwrap();
+        assert_eq!(results.len(), 4);
+
+        // Each vault's hub should have backlink_count = 1 (scoped to their vault)
+        let count_a: i64 = db.write_conn.borrow().query_row(
+            "SELECT backlink_count FROM file_cache WHERE vault_name = 'vault_a' AND path = 'hub.md'",
+            [],
+            |r| r.get(0),
+        ).unwrap();
+        assert_eq!(count_a, 1, "hub.md in vault_a should have 1 backlink");
+
+        let count_b: i64 = db.write_conn.borrow().query_row(
+            "SELECT backlink_count FROM file_cache WHERE vault_name = 'vault_b' AND path = 'hub.md'",
+            [],
+            |r| r.get(0),
+        ).unwrap();
+        assert_eq!(count_b, 1, "hub.md in vault_b should have 1 backlink");
     }
 }

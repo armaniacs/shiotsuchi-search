@@ -283,6 +283,34 @@ impl NoteDatabase {
             conn.execute_batch("PRAGMA user_version = 8")?;
         }
 
+        if version < 9 {
+            // v8→v9: add note_links table and backlink_count column to file_cache
+            conn.execute_batch("
+                CREATE TABLE IF NOT EXISTS note_links (
+                    source_path TEXT NOT NULL,
+                    target_path TEXT NOT NULL,
+                    vault_name  TEXT NOT NULL,
+                    PRIMARY KEY (source_path, target_path, vault_name)
+                )
+            ")?;
+            // Index for efficient backlink count queries (WHERE target_path=? AND vault_name=?)
+            conn.execute_batch("
+                CREATE INDEX IF NOT EXISTS idx_note_links_target
+                ON note_links(target_path, vault_name)
+            ")?;
+            let fc_cols: Vec<String> = {
+                let mut stmt = conn.prepare("PRAGMA table_info(file_cache)")?;
+                let rows = stmt.query_map([], |r| r.get::<_, String>(1))?;
+                rows.collect::<Result<Vec<_>, _>>()?
+            };
+            if !fc_cols.iter().any(|c| c == "backlink_count") {
+                conn.execute_batch(
+                    "ALTER TABLE file_cache ADD COLUMN backlink_count INTEGER NOT NULL DEFAULT 0",
+                )?;
+            }
+            conn.execute_batch("PRAGMA user_version = 9")?;
+        }
+
         Ok(())
     }
 
@@ -746,6 +774,104 @@ impl NoteDatabase {
         let mut stmt = conn.prepare("SELECT path FROM file_cache WHERE vault_name = ?1")?;
         let rows = stmt.query_map(params![vault_name], |r| r.get(0))?;
         rows.collect::<SqliteResult<Vec<_>>>().map_err(DbError::Sqlite)
+    }
+
+    /// Insert note_links for a source file within a transaction.
+    /// The caller is responsible for deleting old links first.
+    pub fn insert_note_links(
+        &self,
+        source_path: &str,
+        vault_name: &str,
+        targets: &[String],
+    ) -> Result<(), DbError> {
+        let conn = self.write_conn.borrow();
+        for target in targets {
+            conn.execute(
+                "INSERT OR IGNORE INTO note_links (source_path, target_path, vault_name) VALUES (?1, ?2, ?3)",
+                params![source_path, target, vault_name],
+            )?;
+        }
+        Ok(())
+    }
+
+    /// Delete all note_links originating from a given source file in a vault.
+    pub fn delete_note_links_for_source(
+        &self,
+        source_path: &str,
+        vault_name: &str,
+    ) -> Result<(), DbError> {
+        self.write_conn.borrow().execute(
+            "DELETE FROM note_links WHERE source_path = ?1 AND vault_name = ?2",
+            params![source_path, vault_name],
+        )?;
+        Ok(())
+    }
+
+    /// Atomically replace all note_links for a source file: delete old links and insert new ones
+    /// in a single transaction. This avoids the crash-consistency gap between separate delete+insert.
+    pub fn replace_note_links(
+        &self,
+        source_path: &str,
+        vault_name: &str,
+        targets: &[String],
+    ) -> Result<(), DbError> {
+        let mut conn = self.write_conn.borrow_mut();
+        let tx = conn.transaction()?;
+        tx.execute(
+            "DELETE FROM note_links WHERE source_path = ?1 AND vault_name = ?2",
+            params![source_path, vault_name],
+        )?;
+        for target in targets {
+            tx.execute(
+                "INSERT OR IGNORE INTO note_links (source_path, target_path, vault_name) VALUES (?1, ?2, ?3)",
+                params![source_path, target, vault_name],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Recalculate backlink_count for all files in a vault based on note_links.
+    pub fn update_backlink_counts_for_vault(&self, vault_name: &str) -> Result<(), DbError> {
+        let conn = self.write_conn.borrow();
+        conn.execute(
+            "UPDATE file_cache SET backlink_count = (
+                SELECT COUNT(*) FROM note_links
+                WHERE target_path = file_cache.path AND vault_name = file_cache.vault_name
+            ) WHERE vault_name = ?1",
+            params![vault_name],
+        )?;
+        Ok(())
+    }
+
+    /// Get backlink_count for a set of chunk IDs. Returns a map of chunk_id -> backlink_count.
+    pub fn get_backlink_counts_for_chunks(
+        &self,
+        chunk_ids: &[i64],
+    ) -> Result<std::collections::HashMap<i64, i64>, DbError> {
+        if chunk_ids.is_empty() {
+            return Ok(std::collections::HashMap::new());
+        }
+        let conn = self.write_conn.borrow();
+        let placeholders: String = chunk_ids.iter().enumerate()
+            .map(|(i, _)| format!("?{}", i + 1))
+            .collect::<Vec<_>>()
+            .join(",");
+        let sql = format!(
+            "SELECT c.id, fc.backlink_count FROM chunks c \
+             JOIN file_cache fc ON fc.vault_name = c.vault_name AND fc.path = c.file_path \
+             WHERE c.id IN ({})",
+            placeholders
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let params_vec: Vec<&dyn rusqlite::ToSql> = chunk_ids.iter()
+            .map(|id| id as &dyn rusqlite::ToSql)
+            .collect();
+        let rows = stmt.query_map(params_vec.as_slice(), |r| {
+            Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?))
+        })?;
+        rows.collect::<rusqlite::Result<std::collections::HashMap<i64, i64>>>()
+            .map_err(DbError::Sqlite)
     }
 
     /// Execute WAL checkpoint(TRUNCATE) to flush all WAL data into the main .db file.
@@ -1519,5 +1645,212 @@ mod tests {
 
         assert!(db_path.parent().unwrap().exists(), "open() should create parent directories");
         assert!(db_path.exists(), "DB file should exist after open");
+    }
+
+    // ── Backlink / note_links tests ──────────────────────────────────
+
+    #[test]
+    fn test_migration_v9_creates_note_links_table() {
+        let db = NoteDatabase::open_in_memory().unwrap();
+        let conn = db.write_conn.borrow();
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='note_links'",
+            [],
+            |r| r.get(0),
+        ).unwrap();
+        assert_eq!(count, 1, "note_links table should exist after v9 migration");
+    }
+
+    #[test]
+    fn test_migration_v9_adds_backlink_count_column() {
+        let db = NoteDatabase::open_in_memory().unwrap();
+        let cols: Vec<String> = {
+            let conn = db.write_conn.borrow();
+            let mut stmt = conn.prepare("PRAGMA table_info(file_cache)").unwrap();
+            let rows = stmt.query_map([], |r| r.get::<_, String>(1)).unwrap();
+            rows.collect::<Result<Vec<_>, _>>().unwrap()
+        };
+        assert!(cols.iter().any(|c| c == "backlink_count"), "file_cache should have backlink_count column");
+    }
+
+    #[test]
+    fn test_insert_and_delete_note_links() {
+        let db = NoteDatabase::open_in_memory().unwrap();
+
+        // No links initially
+        let conn = db.write_conn.borrow();
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM note_links WHERE source_path = 'a.md' AND vault_name = 'default'",
+            [],
+            |r| r.get(0),
+        ).unwrap();
+        assert_eq!(count, 0);
+
+        // Insert links
+        db.insert_note_links("a.md", "default", &["b.md".to_string(), "c.md".to_string()]).unwrap();
+
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM note_links WHERE source_path = 'a.md' AND vault_name = 'default'",
+            [],
+            |r| r.get(0),
+        ).unwrap();
+        assert_eq!(count, 2);
+
+        // Delete links
+        db.delete_note_links_for_source("a.md", "default").unwrap();
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM note_links WHERE source_path = 'a.md' AND vault_name = 'default'",
+            [],
+            |r| r.get(0),
+        ).unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn test_note_links_respect_vault_scope() {
+        let db = NoteDatabase::open_in_memory().unwrap();
+
+        db.insert_note_links("a.md", "vault1", &["b.md".to_string()]).unwrap();
+        db.insert_note_links("c.md", "vault2", &["b.md".to_string()]).unwrap();
+
+        let conn = db.write_conn.borrow();
+        // vault1's link to b.md
+        let count_v1: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM note_links WHERE target_path = 'b.md' AND vault_name = 'vault1'",
+            [],
+            |r| r.get(0),
+        ).unwrap();
+        assert_eq!(count_v1, 1);
+
+        // vault2's link to b.md (separate)
+        let count_v2: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM note_links WHERE target_path = 'b.md' AND vault_name = 'vault2'",
+            [],
+            |r| r.get(0),
+        ).unwrap();
+        assert_eq!(count_v2, 1);
+
+        // Delete only vault1 links
+        db.delete_note_links_for_source("a.md", "vault1").unwrap();
+        let remaining: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM note_links WHERE target_path = 'b.md'",
+            [],
+            |r| r.get(0),
+        ).unwrap();
+        assert_eq!(remaining, 1, "vault2 link should remain after vault1 delete");
+    }
+
+    #[test]
+    fn test_update_backlink_counts() {
+        let db = NoteDatabase::open_in_memory().unwrap();
+
+        // Set up file_cache entries
+        db.upsert_file_cache("default", "hub.md", "hash1", 1000, "none", 100).unwrap();
+        db.upsert_file_cache("default", "a.md", "hash2", 1000, "none", 100).unwrap();
+        db.upsert_file_cache("default", "b.md", "hash3", 1000, "none", 100).unwrap();
+
+        // Insert note_links: a.md -> hub.md, b.md -> hub.md
+        db.insert_note_links("a.md", "default", &["hub.md".to_string()]).unwrap();
+        db.insert_note_links("b.md", "default", &["hub.md".to_string()]).unwrap();
+
+        // Update backlink counts
+        db.update_backlink_counts_for_vault("default").unwrap();
+
+        let conn = db.write_conn.borrow();
+        let hub_count: i64 = conn.query_row(
+            "SELECT backlink_count FROM file_cache WHERE path = 'hub.md'",
+            [],
+            |r| r.get(0),
+        ).unwrap();
+        assert_eq!(hub_count, 2);
+
+        let a_count: i64 = conn.query_row(
+            "SELECT backlink_count FROM file_cache WHERE path = 'a.md'",
+            [],
+            |r| r.get(0),
+        ).unwrap();
+        assert_eq!(a_count, 0);
+
+        // Add another link to hub.md
+        db.insert_note_links("c.md", "default", &["hub.md".to_string()]).unwrap();
+        db.update_backlink_counts_for_vault("default").unwrap();
+        let hub_count2: i64 = conn.query_row(
+            "SELECT backlink_count FROM file_cache WHERE path = 'hub.md'",
+            [],
+            |r| r.get(0),
+        ).unwrap();
+        assert_eq!(hub_count2, 3, "adding another link should update count");
+    }
+
+    #[test]
+    fn test_backlink_counts_vault_scoped() {
+        let db = NoteDatabase::open_in_memory().unwrap();
+
+        db.upsert_file_cache("v1", "hub.md", "h1", 1000, "none", 100).unwrap();
+        db.upsert_file_cache("v2", "hub.md", "h2", 1000, "none", 100).unwrap();
+
+        db.insert_note_links("a.md", "v1", &["hub.md".to_string()]).unwrap();
+        db.insert_note_links("b.md", "v2", &["hub.md".to_string()]).unwrap();
+
+        db.update_backlink_counts_for_vault("v1").unwrap();
+        db.update_backlink_counts_for_vault("v2").unwrap();
+
+        let conn = db.write_conn.borrow();
+        let v1_count: i64 = conn.query_row(
+            "SELECT backlink_count FROM file_cache WHERE vault_name = 'v1' AND path = 'hub.md'",
+            [],
+            |r| r.get(0),
+        ).unwrap();
+        assert_eq!(v1_count, 1, "v1 hub should have 1 backlink from vault v1");
+
+        let v2_count: i64 = conn.query_row(
+            "SELECT backlink_count FROM file_cache WHERE vault_name = 'v2' AND path = 'hub.md'",
+            [],
+            |r| r.get(0),
+        ).unwrap();
+        assert_eq!(v2_count, 1, "v2 hub should have 1 backlink from vault v2");
+    }
+
+    #[test]
+    fn test_get_backlink_counts_for_chunks() {
+        let db = NoteDatabase::open_in_memory().unwrap();
+
+        // Insert file cache entries
+        db.upsert_file_cache("default", "hub.md", "h1", 1000, "none", 100).unwrap();
+        db.upsert_file_cache("default", "leaf.md", "h2", 1000, "none", 100).unwrap();
+
+        // Insert chunks
+        let chunks = vec![
+            Chunk {
+                id: None, file_path: "hub.md".into(), chunk_index: 0,
+                parent_header: None, content: "hub".into(),
+                tokenized_content: "hub".into(), vault_name: "default".to_string(),
+                tags: String::new(), frontmatter_date: String::new(),
+                title: String::new(), emphasized_text: String::new(),
+            },
+            Chunk {
+                id: None, file_path: "leaf.md".into(), chunk_index: 0,
+                parent_header: None, content: "leaf".into(),
+                tokenized_content: "leaf".into(), vault_name: "default".to_string(),
+                tags: String::new(), frontmatter_date: String::new(),
+                title: String::new(), emphasized_text: String::new(),
+            },
+        ];
+        let ids = db.insert_chunks(&chunks).unwrap();
+
+        // Set backlink_count directly for testing
+        db.write_conn.borrow().execute(
+            "UPDATE file_cache SET backlink_count = 5 WHERE path = 'hub.md'",
+            [],
+        ).unwrap();
+        db.write_conn.borrow().execute(
+            "UPDATE file_cache SET backlink_count = 0 WHERE path = 'leaf.md'",
+            [],
+        ).unwrap();
+
+        let map = db.get_backlink_counts_for_chunks(&ids).unwrap();
+        assert_eq!(map.len(), 2);
+        assert_eq!(map.get(&ids[0]), Some(&5), "hub.md should have backlink_count=5");
+        assert_eq!(map.get(&ids[1]), Some(&0), "leaf.md should have backlink_count=0");
     }
 }
