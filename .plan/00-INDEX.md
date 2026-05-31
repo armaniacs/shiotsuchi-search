@@ -28,6 +28,16 @@
 | `2026-04-29-shiotsuchi-search-design.md` | コア設計仕様書（DB/Tokenizer/Indexer/Search/Watcher 設計） |
 | `2026-05-19-post-v0.4.0-improvements.md` | v0.4.0 リリース後改善提案（clean command/進捗最適化等） |
 | `2026-05-19-v0.4.x-improvements.md` | v0.4.x リリース後改善提案（clean/rebuild/multi-vault 設計） |
+| `2026-05-31-29-feat-intuitive-command-aliases.md` | PBI-29: CLI コマンドに標準名エイリアス追加（v0.4.13） |
+| `2026-05-31-30-feat-interactive-welcome.md` | PBI-30: Interactive welcome screen + onboarding wizard（v0.4.14） |
+| `2026-05-31-31-fix-onboarding-config-exists.md` | PBI-31: Search→onboarding の config_exists ハードコード修正 |
+| `2026-05-31-32-fix-welcome-no-color-support.md` | PBI-32: ウェルカムメニュー NO_COLOR 対応 |
+| `2026-05-31-33-fix-non-tty-command-list.md` | PBI-33: 非TTY時にコマンド一覧表示 |
+| `2026-05-31-34-fix-search-query-max-length.md` | PBI-34: 検索クエリ200文字バリデーション |
+| `2026-05-31-35-fix-onboarding-completion-box-width.md` | PBI-35: 完了画面ボックス幅動的計算 |
+| `2026-05-31-36-refactor-messages-to-constants.md` | PBI-36: 文字列を messages.rs に定数抽出 |
+| `2026-05-31-0923-review-interactive-welcome.md` | Checking Team v1 レビューレポート（PBI-30） |
+| `2026-05-31-1125-review-pbi31-36.md` | Checking Team v2 レビューレポート（PBI-31〜36） |
 | `2026-04-29-shiotsuchi-search-phase1-core.md` | Phase1 コアライブラリ実装計画（Tasks 1-9完了・TDD全遵守） |
 | `2026-04-29-shiotsuchi-search-phase2-cli.md` | Phase2 CLI実装計画（Tasks 1-7完了・TDD全遵守） |
 | `2026-04-29-shiotsuchi-search-phase4-mcp.md` | Phase4 MCPサーバー実装計画（Tasks 1-5完了） |
