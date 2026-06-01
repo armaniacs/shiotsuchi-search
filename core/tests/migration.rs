@@ -51,16 +51,16 @@ fn migrate_v1_to_v2_drops_old_tables_and_creates_new() {
     assert_eq!(chunks_exists, 1, "chunks table should exist");
 
     let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
-    assert_eq!(version, 9);
+    assert_eq!(version, 10);
 }
 
 #[test]
-fn open_fresh_db_has_version_9() {
+fn open_fresh_db_has_version_10() {
     let temp = TempDir::new().unwrap();
     let db = NoteDatabase::open(temp.path().join("fresh.db")).unwrap();
     let version: i64 = db.write_conn.borrow()
         .query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
-    assert_eq!(version, 9);
+    assert_eq!(version, 10);
 }
 
 #[test]
@@ -103,9 +103,9 @@ fn migrate_is_idempotent_when_interrupted() {
 
     let conn = db.write_conn.borrow();
 
-    // Version should now be 9
+    // Version should now be 10
     let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
-    assert_eq!(version, 9, "migration should upgrade to version 9");
+    assert_eq!(version, 10, "migration should upgrade to version 10");
 
     // All expected tables exist
     drop(conn);
@@ -113,5 +113,5 @@ fn migrate_is_idempotent_when_interrupted() {
     let db2 = NoteDatabase::open(&db_path).unwrap();
     let version2: i64 = db2.write_conn.borrow()
         .query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
-    assert_eq!(version2, 9, "second open should remain at version 9");
+    assert_eq!(version2, 10, "second open should remain at version 10");
 }
