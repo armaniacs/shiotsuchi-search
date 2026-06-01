@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.16] - 2026-06-02
+
 ### Added (PBI-28)
 
 - **VLM-based PDF markdown extraction** (`vlm` feature): Scanned PDFs and image-only PDFs can now be converted to searchable Markdown via Vision Language Models (OpenAI, Anthropic, Gemini, Ollama).
@@ -19,6 +21,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - mtime-based caching: VLM is only called once per PDF; unchanged files are skipped on re-index
   - Graceful degradation: missing API key → skip with warning; VLM failure → keep empty, continue indexing
   - 3 new tests: feature compile verification, mtime cache skip, not-compiled build verification
+
+### Added (Checking Team fixes)
+
+- **`tag_counts` table for O(1) tag stats**: Migration v10 adds a `tag_counts` table (WITHOUT ROWID, PK on `(tag, vault_name)`) maintained incrementally during `reindex_file`. `tag_stats()` now reads from this table (O(K) on tag type count) instead of scanning all chunks (O(N))
+- **`char_count` column for O(1) total chars**: Migration v10 adds `char_count` to `file_cache`. `stats()` now reads `SUM(char_count) FROM file_cache` instead of `SUM(LENGTH(content)) FROM chunks`
+- **`delete_file_fully()`**: New atomic method on `NoteDatabase` that removes tag_counts, chunks, FTS/vec, tasks, file_cache, and note_links in a single SQLite transaction. Used by `cleanup_deleted`, watcher remove/rename, and CLI `delete` command
+- **`build_path_map()`**: O(1) wikilink resolution via `HashMap<String, String>` (lowercase stem → shortest path), built once per vault in `index_directory`
+- **MCP `get_surrounding_context` vault auth check**: Validates chunk's vault_name against configured vaults before returning surrounding context
+- **MCP rate limiter sliding window**: Replaced fixed-second boundary rate limiter with sliding-window `VecDeque<Instant>` to prevent burst violations
+- **MCP error path leak fix**: `canonicalize()` error messages no longer expose internal filesystem paths
+- **`upsert_file_cache` char_count parameter**: Method now requires explicit `char_count` to prevent accidental zero values
+
+### Changed
+
+- **`ReindexParams` struct**: `reindex_file()` now takes a `&ReindexParams` struct instead of 10 positional arguments
+- **`IndexParams` struct**: `index_file_with_embedder()` now takes a `&IndexParams` struct instead of 8 positional arguments
+- **pdfium-render 0.8 unification**: Core dependency downgraded from v0.9 to v0.8 to match `pdfium-auto` and `edgequake-pdf2md`, eliminating duplicate binary
+- **`create_schema` updated**: Schema now generates the final v10 layout directly (including tasks, note_links, tag_counts, emphasized_text, backlink_count, char_count)
+- **Migration v8→v9, v9→v10 wrapped in transactions**: Multi-statement migration blocks now use `BEGIN TRANSACTION`/`COMMIT`
+- **`and_query()` deprecated**: `JapaneseTokenizer::and_query()` marked `#[deprecated]` — use `collect_tokens()` + `expand_synonyms()` instead
+- **Search score boost direction fixed**: Title and emphasized text boosts are now sign-aware for FTS/Vec modes (handles negative BM25 scores correctly)
+- **Search re-sort after score boost**: Results are now re-sorted after title/emphasized text score adjustments
+
+### Fixed
+
+- **Watcher/CLI `delete` tag_counts inconsistency**: Remove, rename, and CLI delete events now properly decrement `tag_counts` via `delete_file_fully()`
+- **Tag comma fragmentation warning**: `chunker.rs` now warns when a tag contains a comma (would be split on reindex)
+- **`decrement_tag_count` zero-count cleanup**: Rows that reach `count = 0` are deleted to prevent dead-row accumulation
+
+### Testing
+
+- `deny.toml` added for supply chain monitoring via `cargo-deny`
+- Migration v10 test updated (`open_fresh_db_has_version_10`)
+- 4 new tag_counts integration tests (tag reflect, removal, empty ignored, char_count)
+- 2 new tag consistency tests (count > 0 guard, decrement cleanup)
+- 3 new VLM tests (feature compile, mtime cache, not-compiled build)
+- **Total**: 563 tests passing across core, CLI, and MCP
+
+### Documentation
+
+- All 9 `docs/` files updated: MCP tool names, `[vlm]` config sections, Feature tables, schema v10, fuzzy FAQ
+- `ref/core.md`: Schema v10, all methods, models table, migrations table updated
+- `ref/architecture.md`: New modules, feature flags, 4 new design decisions
+- `ref/cli.md`: `[vlm]` config section, synonym/tasks table formatting fix
 
 ## [0.4.15] - 2026-06-01
 
