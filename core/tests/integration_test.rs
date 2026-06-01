@@ -67,3 +67,22 @@ fn test_snippet_extraction() {
     let snippet = extract_snippet(text, "keyword", 3, 1000);
     assert!(snippet.contains("keyword"));
 }
+
+/// vlm feature 有効ビルドでのみ実行されるテスト。
+/// vlm が default に含まれない場合、このテスト関数はコンパイルされない。
+#[cfg(feature = "vlm")]
+#[test]
+fn test_vlm_feature_is_compiled_and_not_compiled_stub_is_absent() {
+    use shiotsuchi_core::config::VlmConfig;
+    use shiotsuchi_core::vlm::{extract_text_with_vlm, VlmError};
+
+    let config = VlmConfig { enabled: false, ..Default::default() };
+    let path = std::path::Path::new("/nonexistent/dummy.pdf");
+    let result = extract_text_with_vlm(path, &config);
+    // enabled=false なら Ok(None) が返ること（NotCompiled エラーではない）
+    assert!(
+        matches!(result, Ok(None)),
+        "vlm feature enabled + config.enabled=false should return Ok(None), got: {:?}",
+        result
+    );
+}

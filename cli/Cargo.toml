@@ -35,7 +35,7 @@ walkdir = "2"
 tempfile = "3"
 
 [features]
-default = ["semantic", "pdf"]
+default = ["semantic", "pdf", "vlm"]
 semantic = ["shiotsuchi-core/semantic"]
 pdf = ["shiotsuchi-core/pdf"]
 vlm = ["shiotsuchi-core/vlm"]
