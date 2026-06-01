@@ -18,6 +18,8 @@ allow = [
     "BSD-3-Clause",
     "ISC",
     "Zlib",
+    # Used by unicode-ident, proc-macro2, and similar proc-macro crates.
+    # Unicode-3.0 is a permissive license compatible with MIT/Apache-2.0.
     "Unicode-3.0",
     "CC0-1.0",
 ]

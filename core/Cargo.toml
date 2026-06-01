@@ -35,6 +35,8 @@ tokenizers = { version = "0.23", default-features = false, features = ["onig"], 
 thiserror = "2"
 # ONNX Runtime binaries are downloaded at build time via the `download-binaries` feature.
 # For production, set ORT_LIB_LOCATION env var to use system-installed ONNX Runtime instead.
+# NOTE: RC version — required for ONNX Runtime 2.0 API (rc.12 is the latest pre-release).
+# Upgrade trigger: when ort 2.0.0 stable is published, pin to that version.
 ort = { version = "2.0.0-rc.12", default-features = false, features = ["std", "download-binaries", "tls-rustls"], optional = true }
 ureq = { version = "3", optional = true }
 # Version pinned to 0.8 to match pdfium-auto and edgequake-pdf2md.
@@ -43,6 +45,9 @@ pdfium-render = { version = "0.8", default-features = false, optional = true }
 pdfium-auto = { version = "0.3", features = ["bundled"], optional = true }
 edgequake-pdf2md = { version = "0.9", default-features = false, features = ["bundled"], optional = true }
 indicatif = "0.17"
+# NOTE: RC version — required for the `RecommendedWatcher` API changes in v9.
+# Upgrade trigger: when notify 9.0 stable is published, pin to that version.
+# e2e still uses notify v6 (6.1.1) — both versions coexist during migration.
 notify = { version = "9.0.0-rc.4", optional = true }
 log = "0.4"
 dirs = "6"

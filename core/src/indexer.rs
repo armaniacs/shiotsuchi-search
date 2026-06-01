@@ -2,7 +2,7 @@ use crate::{
     chunker::split_into_chunks,
     db::{DbError, NoteDatabase},
     embedder::Embedder,
-    models::{IndexConfig, Task},
+    models::{IndexConfig, IndexParams, ReindexParams, Task},
     tokenizer::JapaneseTokenizer,
 };
 use globset::{Glob, GlobSet, GlobSetBuilder};
@@ -211,7 +211,7 @@ pub fn index_file(
     // Backlink tracking is handled by index_directory and watcher which call
     // index_file_with_embedder with vault_paths.
     let empty_map = std::collections::HashMap::new();
-    index_file_with_embedder(db, tokenizer, None, file_path, vault_name, relative_path, config, &empty_map)
+    index_file_with_embedder(&IndexParams { db, tokenizer, embedder: None, file_path, vault_name, relative_path, config, path_map: &empty_map })
 }
 
 /// Walk `vault_dir`, chunk and index all Markdown files.
@@ -340,9 +340,9 @@ pub fn index_directory(
             if let Some(ref cb) = progress {
                 cb(global_count, None);
             }
-            let result = index_file_with_embedder(
-                db, tokenizer, embedder, full_path, vault_name, rel_str, config, &path_map,
-            );
+            let result = index_file_with_embedder(&IndexParams {
+                db, tokenizer, embedder, file_path: full_path, vault_name, relative_path: rel_str, config, path_map: &path_map,
+            });
             all_results.push((vault_name.clone(), rel_str.to_string(), result));
         }
 
@@ -394,16 +394,8 @@ pub fn cleanup_deleted(db: &NoteDatabase, config: &IndexConfig) -> Result<Vec<St
 /// resolving wikilinks. Pass an empty slice if backlink scoring is not needed.
 /// `path_map` is a pre-built HashMap of lowercase stem → shortest path for O(1)
 /// wikilink resolution; build with `build_path_map()`. Pass an empty map if not needed.
-pub fn index_file_with_embedder(
-    db: &NoteDatabase,
-    tokenizer: &JapaneseTokenizer,
-    embedder: Option<&Embedder>,
-    file_path: &Path,
-    vault_name: &str,
-    relative_path: &str,
-    config: &IndexConfig,
-    path_map: &std::collections::HashMap<String, String>,
-) -> IndexResult {
+pub fn index_file_with_embedder(p: &IndexParams<'_>) -> IndexResult {
+    let IndexParams { db, tokenizer, embedder, file_path, vault_name, relative_path, config, path_map } = p;
     let mtime = file_mtime(file_path);
     let file_size = std::fs::metadata(file_path)
         .map(|m| m.len() as i64)
@@ -539,18 +531,18 @@ pub fn index_file_with_embedder(
         Vec::new()
     };
 
-    if let Err(e) = db.reindex_file(
+    if let Err(e) = db.reindex_file(&ReindexParams {
         vault_name,
         relative_path,
-        &hash,
+        hash: &hash,
         mtime,
         model_id,
-        &chunks,
-        &embeddings,
+        chunks: &chunks,
+        embeddings: &embeddings,
         file_size,
-        &task_records,
-        &note_link_targets,
-    ) {
+        tasks: &task_records,
+        note_link_targets: &note_link_targets,
+    }) {
         return IndexResult::Error(e.to_string());
     }
 

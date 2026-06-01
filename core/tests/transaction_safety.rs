@@ -28,7 +28,7 @@ fn test_insert_chunks_and_lookup() {
     let ids = db.insert_chunks(&chunks).unwrap();
     assert_eq!(ids.len(), 1);
 
-    db.upsert_file_cache("default", "note1.md", "hash1", 1_000, "none", 0).unwrap();
+    db.upsert_file_cache("default", "note1.md", "hash1", 1_000, "none", 0, 0).unwrap();
 
     let cached = db.cached_hash("default", "note1.md").unwrap();
     assert_eq!(cached, Some("hash1".to_string()));
@@ -80,9 +80,9 @@ fn test_delete_chunks_atomic() {
     }];
 
     db.insert_chunks(&chunks_a).unwrap();
-    db.upsert_file_cache("default", "a.md", "hash_a", 1, "none", 0).unwrap();
+    db.upsert_file_cache("default", "a.md", "hash_a", 1, "none", 0, 0).unwrap();
     db.insert_chunks(&chunks_b).unwrap();
-    db.upsert_file_cache("default", "b.md", "hash_b", 2, "none", 0).unwrap();
+    db.upsert_file_cache("default", "b.md", "hash_b", 2, "none", 0, 0).unwrap();
 
     assert_eq!(db.stats().unwrap().total_files, 2);
 

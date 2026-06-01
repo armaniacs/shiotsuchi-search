@@ -106,6 +106,35 @@ pub struct VaultStats {
     pub top_tags: Vec<(String, usize)>,
 }
 
+/// Parameters for `NoteDatabase::reindex_file()`.
+/// Groups the 10 positional arguments into a single struct to improve
+/// readability and prevent argument-order mistakes at the single call site.
+pub struct ReindexParams<'a> {
+    pub vault_name: &'a str,
+    pub relative_path: &'a str,
+    pub hash: &'a str,
+    pub mtime: i64,
+    pub model_id: &'a str,
+    pub chunks: &'a [Chunk],
+    pub embeddings: &'a [Option<Vec<f32>>],
+    pub file_size: i64,
+    pub tasks: &'a [Task],
+    pub note_link_targets: &'a [String],
+}
+
+/// Parameters for `index_file_with_embedder()`.
+/// Groups positional arguments to improve readability at the 4+ call sites.
+pub struct IndexParams<'a> {
+    pub db: &'a crate::db::NoteDatabase,
+    pub tokenizer: &'a crate::tokenizer::JapaneseTokenizer,
+    pub embedder: Option<&'a crate::embedder::Embedder>,
+    pub file_path: &'a std::path::Path,
+    pub vault_name: &'a str,
+    pub relative_path: &'a str,
+    pub config: &'a IndexConfig,
+    pub path_map: &'a std::collections::HashMap<String, String>,
+}
+
 /// Configuration for search result display.
 #[derive(Debug, Clone)]
 pub struct SearchConfig {
