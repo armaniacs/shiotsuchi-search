@@ -107,6 +107,8 @@ cargo install --path cli --no-default-features
 | FTS5 キーワード検索 | 〇 | 〇 |
 | ベクトル/セマンティック検索 | 〇 | ✗ |
 | ファイル監視（scan） | 〇 | 〇 |
+| PDF テキスト抽出（`pdf`） | 〇 | ✗ |
+| VLM ベース PDF Markdown 抽出（`vlm`） | ✗ | ✗ |
 | バイナリサイズ | 大（ONNX Runtime 含む） | 小 |
 
 MCP サーバーの軽量ビルド:
@@ -180,6 +182,11 @@ exclude_dirs         = ["node_modules"]
 
 [watcher]
 enabled = true
+
+[vlm]
+enabled = true
+provider = "openai"
+model = "gpt-4.1-nano"
 ```
 
 ### ファイル変更の自動監視

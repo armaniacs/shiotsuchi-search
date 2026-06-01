@@ -107,6 +107,8 @@ Trade-offs:
 | FTS5 keyword search | Yes | Yes |
 | Vector/semantic search | Yes | No |
 | File watcher (`watch`) | Yes | Yes |
+| PDF text extraction (`pdf`) | Yes | No |
+| VLM-based PDF markdown extraction (`vlm`) | No | No |
 | Binary size | Larger (includes ONNX Runtime) | Smaller |
 
 To build the MCP server without semantic search:
@@ -180,6 +182,16 @@ exclude_dirs         = ["node_modules"]
 
 [watcher]
 enabled = true
+
+[embedder]
+provider = "api"
+endpoint = "https://api.openai.com/v1/embeddings"
+model = "text-embedding-3-small"
+
+[vlm]
+enabled = true
+provider = "openai"
+model = "gpt-4.1-nano"
 ```
 
 ### Watch for changes

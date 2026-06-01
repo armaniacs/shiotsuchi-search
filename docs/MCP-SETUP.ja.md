@@ -11,7 +11,7 @@ shiotsuchi-search は MCP（Model Context Protocol）サーバー (`shiotsuchi-m
 | 用語 | 意味 |
 |------|------|
 | **vault** | Markdown ファイルを格納したディレクトリ（Obsidian のノートフォルダなど） |
-| **インデックス** | `shiotsuchi chart` で構築する SQLite データベース |
+| **インデックス** | `shiotsuchi index` で構築する SQLite データベース |
 | **MCP サーバー** | `shiotsuchi-mcp` — LLM のツール呼び出しに応答する stdio プロセス |
 
 MCP サーバー 1 プロセス = vault 1 つです。複数の vault を検索するには、vault ごとに 1 プロセスを起動してクライアントに登録します。
@@ -23,13 +23,13 @@ MCP サーバー 1 プロセス = vault 1 つです。複数の vault を検索�
 MCP サーバーがクエリに応答するには、事前にインデックスを作成する必要があります。
 
 ```sh
-shiotsuchi chart --notes-dir ~/Personal
+shiotsuchi index --notes-dir ~/Personal
 ```
 
 2 つ目の vault:
 
 ```sh
-shiotsuchi chart --notes-dir ~/Work
+shiotsuchi index --notes-dir ~/Work
 ```
 
 インデックス（SQLite DB）のデフォルト保存先は `~/.cache/shiotsuchi/db.sqlite3` です。vault ごとに別の DB パスを使いたい場合は、後述の設定ファイルで指定します。
@@ -59,8 +59,8 @@ db_path   = "/Users/yourname/.cache/shiotsuchi/work.db"
 それぞれの DB パスを指定して再インデックス:
 
 ```sh
-shiotsuchi chart --notes-dir ~/Personal --db-path ~/.cache/shiotsuchi/personal.db
-shiotsuchi chart --notes-dir ~/Work     --db-path ~/.cache/shiotsuchi/work.db
+shiotsuchi index --notes-dir ~/Personal --db-path ~/.cache/shiotsuchi/personal.db
+shiotsuchi index --notes-dir ~/Work     --db-path ~/.cache/shiotsuchi/work.db
 ```
 
 `--config` を省略した場合は `~/.config/shiotsuchi/config.toml` を参照し、それも存在しない場合はビルトインのデフォルト値を使います。
@@ -124,28 +124,29 @@ shiotsuchi-mcp --config ~/.config/shiotsuchi/personal.toml
 
 | ツール | 説明 |
 |--------|------|
-| `search_vault` | キーワードやフレーズでノートを検索。パス・スニペット・スコアを返す |
-| `read_full_note` | vault 内の相対パスで指定したノートの全文を取得 |
-| `vault_status` | インデックスの統計情報（ノート数・最終更新日時・DB サイズ）を取得 |
+| `search_local_notes` | FTS/Vec/Hybrid モードで設定された vault 内のノートを検索 |
+| `get_surrounding_context` | 指定した chunk ID の周辺チャンクをコンテキストとして取得 |
+| `index_status` | vault の統計情報（ファイル数・チャンク数・vec 状態）を表示 |
+| `rebuild_index` | vault のフル再インデックスを実行 |
 
 ### 使用例
 
 ```
 ユーザー: Work の Q3 予算について書いたメモを教えて
-→ LLM が shiotsuchi-work で search_vault(query: "Q3 予算") を呼び出す
-→ LLM が read_full_note(path: "finance/q3-review.md") でノート全文を取得する
+→ LLM が shiotsuchi-work で search_local_notes(query: "Q3 予算") を呼び出す
+→ LLM が get_surrounding_context(chunk_id: 42, window: 2) でコンテキストを取得する
 ```
 
 ```
 ユーザー: Personal の写真に関する最近のメモを要約して
-→ LLM が shiotsuchi-personal で search_vault(query: "写真") を呼び出す
+→ LLM が shiotsuchi-personal で search_local_notes(query: "写真") を呼び出す
 ```
 
 ---
 
 ## インデックスを最新に保つ
 
-ノートを追加・編集したあとは `shiotsuchi chart` を再実行するか、ウォッチャーで継続的に更新します。
+ノートを追加・編集したあとは `shiotsuchi index` を再実行するか、ウォッチャーで継続的に更新します。
 
 ```sh
 shiotsuchi scan --notes-dir ~/Personal --db-path ~/.cache/shiotsuchi/personal.db
@@ -158,11 +159,11 @@ shiotsuchi scan --notes-dir ~/Work     --db-path ~/.cache/shiotsuchi/work.db
 
 | 症状 | 対処 |
 |------|------|
-| LLM が「結果なし」と返す | `shiotsuchi chart` でインデックスを（再）作成する |
+| LLM が「結果なし」と返す | `shiotsuchi index` でインデックスを（再）作成する |
 | `shiotsuchi-mcp: command not found` | バイナリが `PATH` に含まれているか確認（[INSTALL.ja.md](INSTALL.ja.md) 参照） |
 | 起動時に設定ファイルのパースエラー | TOML の構文を確認。`notes_dir` と `db_path` は絶対パスで記述する |
 | 違う vault が検索される | 各 `mcpServers` エントリの `--config` パスを確認する |
-| 追加したノートが検索されない | `shiotsuchi chart` を再実行するか `shiotsuchi scan` を起動する |
+| 追加したノートが検索されない | `shiotsuchi index` を再実行するか `shiotsuchi scan` を起動する |
 
 ---
 

@@ -100,30 +100,47 @@ FTS5 はカスタムトークナイザを C 拡張としてロードできます
 
 ## データベーススキーマ
 
-Shiotsuchi Search は **2テーブル構成** を採用しています：
+Shiotsuchi Search は **3テーブル構成** を採用しています：
 
 ```sql
--- 全文検索用 FTS5 仮想テーブル
-CREATE VIRTUAL TABLE notes_fts USING fts5(
-    path UNINDEXED,        -- 保存のみ（検索対象外）
-    title,                 -- 検索対象（タイトル）
-    body,                  -- 検索対象（トークン化された本文）
+-- FTS5 仮想テーブル（外部コンテンツ → chunks）
+CREATE VIRTUAL TABLE fts_chunks USING fts5(
+    tokenized_content,
+    content='chunks',
+    content_rowid='id',
     tokenize='unicode61 remove_diacritics 0'
 );
 
--- メタデータ管理テーブル
-CREATE TABLE notes_meta (
-    path TEXT PRIMARY KEY,
-    hash TEXT NOT NULL,          -- SHA-256（変更検知用）
-    mtime INTEGER NOT NULL,      -- ファイルの更新時刻
-    indexed_at INTEGER NOT NULL, -- インデックス実行時刻
-    title TEXT                   -- 抽出されたタイトル
+-- チャンク本体ストレージ
+CREATE TABLE chunks (
+    id INTEGER PRIMARY KEY,
+    file_path TEXT,
+    chunk_index INTEGER,
+    parent_header TEXT,
+    content TEXT,
+    tokenized_content TEXT,
+    vault_name TEXT,
+    tags TEXT,
+    frontmatter_date TEXT,
+    title TEXT,
+    emphasized_text TEXT
 );
 
-CREATE INDEX idx_notes_meta_hash ON notes_meta(hash);
+-- インクリメンタルインデックスキャッシュ
+CREATE TABLE file_cache (
+    vault_name TEXT,
+    path TEXT,
+    hash TEXT,
+    mtime INTEGER,
+    model_id TEXT,
+    file_size INTEGER DEFAULT 0,
+    backlink_count INTEGER DEFAULT 0,
+    char_count INTEGER DEFAULT 0,
+    PRIMARY KEY (vault_name, path)
+);
 ```
 
-**なぜ2テーブルなのか？** FTS5 の仮想テーブルは内部インデックスにコンテンツを冗長に保持します。メタデータを `notes_meta` に分離することでデータの重複を避け、ハッシュベースのルックアップも FTS インデックスを介さず効率的に行えます。
+**なぜ3テーブルなのか？** `chunks` テーブルにコンテンツをチャンク単位で格納し、`fts_chunks` は `content='chunks'`（外部コンテンツモード）として冗長な保存を回避します。`file_cache` はファイルごとのハッシュとメタデータを追跡し、インクリメンタルインデックスを実現します。
 
 ---
 
@@ -186,10 +203,9 @@ conn.execute_batch("PRAGMA journal_mode=wal;")?;
 
 SQLite の標準機能でも `LIKE` 句や `GLOB` 句によるパターンマッチは可能ですが、全文インデックスは提供しません。FTS5 は `CREATE VIRTUAL TABLE ... USING fts5` で転置インデックスを構築し、BM25 によるランキングや高速な AND/OR 検索を実現します。
 
-### FTS5 は曖昧検索（ファジー検索）に対応していますか？
+### FTS5は曖昧検索に対応していますか？
 
-いいえ。FTS5 は前方一致（`"word"*`）、フレーズ検索（`"exact phrase"`）、NEAR 検索（`NEAR(word1 word2, 10)`）に対応していますが、編集距離に基づく曖昧検索はサポートしていません。
-3.38.0 以降では `editdist3` オプションが利用できますが、本プロジェクトでは現在使用していません。
+FTS5自体は編集距離ベースの曖昧検索をサポートしていませんが、shiotsuchiはアプリケーションレベルで `--fuzzy` フラグによるUnicode NFKC正規化とASCII小文字化による曖昧検索を提供しています。
 
 ### FTS5 のインデックスは別ファイルに保存されますか？
 
@@ -204,12 +220,12 @@ sqlite3 ~/.cache/shiotsuchi/db.sqlite3
 ```
 
 ```sql
--- インデックス済みノート一覧
-SELECT path, title FROM notes_meta ORDER BY indexed_at DESC LIMIT 10;
+-- インデックス済みチャンク一覧
+SELECT file_path, title FROM chunks ORDER BY rowid DESC LIMIT 10;
 
 -- 直接検索
-SELECT path, title, rank FROM notes_fts
-WHERE notes_fts MATCH '"検索" AND "エンジン"'
+SELECT file_path, title, rank FROM fts_chunks
+WHERE fts_chunks MATCH '"検索" AND "エンジン"'
 ORDER BY rank;
 ```
 

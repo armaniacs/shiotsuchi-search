@@ -440,6 +440,26 @@ hybrid_alpha       = 0.5   # ブレンド比率 (0.0=vecのみ, 1.0=FTSのみ)
 semantic_threshold = 0.75  # 最小スコア閾値
 ```
 
+### `[vlm]` セクション
+
+スキャン済みPDFやテキスト抽出が空になるPDFに対するVLMベースの抽出を制御します。`vlm` Cargo feature フラグとAPIキー環境変数が必要です。
+
+| フィールド | 型 | デフォルト | 説明 |
+|-----------|------|---------|------|
+| `enabled` | bool | `false` | VLM抽出を有効にする |
+| `provider` | string | `"openai"` | VLMプロバイダー: `openai`, `anthropic`, `bedrock`, `gemini`, `ollama` |
+| `model` | string | `"gpt-4.1-nano"` | ビジョンモデル名 |
+| `max_pages_per_doc` | int | — | 1ドキュメントあたりの最大ページ数（省略時は無制限） |
+
+**設定例:**
+
+```toml
+[vlm]
+enabled = true
+provider = "openai"
+model = "gpt-4.1-nano"
+```
+
 ### 旧形式（v0.4.0 未満、読み取り互換あり）
 
 ```toml

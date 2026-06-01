@@ -167,7 +167,7 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 Restart Claude Desktop, then verify:
 
-- [ ] "Search my notes for project" → `search_vault` is called, results returned
+- [ ] "Search my notes for project" → `search_local_notes` is called, results returned
 - [ ] "Search my notes for プロジェクト" → Japanese search returns `plan.md`
-- [ ] "Read the content of meeting.md" → `read_full_note` is called, content returned
-- [ ] "Show vault statistics" → `vault_status` returns note count and last indexed time
+- [ ] "Show context around chunk 42" → `get_surrounding_context` is called, context returned
+- [ ] "Show vault statistics" → `index_status` returns file count, chunk count, and vec status

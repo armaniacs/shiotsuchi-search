@@ -100,30 +100,47 @@ FTS5 supports loading custom tokenizers as C extensions. However, distributing a
 
 ## Database Schema
 
-Shiotsuchi Search uses a **two-table design**:
+Shiotsuchi Search uses a **three-table design**:
 
 ```sql
--- FTS5 virtual table for full-text search
-CREATE VIRTUAL TABLE notes_fts USING fts5(
-    path UNINDEXED,        -- stored but not searchable
-    title,                 -- searchable (title field)
-    body,                  -- searchable (tokenized content)
+-- FTS5 virtual table (external content → chunks)
+CREATE VIRTUAL TABLE fts_chunks USING fts5(
+    tokenized_content,
+    content='chunks',
+    content_rowid='id',
     tokenize='unicode61 remove_diacritics 0'
 );
 
--- Metadata tracking table
-CREATE TABLE notes_meta (
-    path TEXT PRIMARY KEY,
-    hash TEXT NOT NULL,          -- SHA-256 for change detection
-    mtime INTEGER NOT NULL,      -- file modification time
-    indexed_at INTEGER NOT NULL, -- when it was last indexed
-    title TEXT                   -- extracted title (frontmatter or filename)
+-- Main chunk storage
+CREATE TABLE chunks (
+    id INTEGER PRIMARY KEY,
+    file_path TEXT,
+    chunk_index INTEGER,
+    parent_header TEXT,
+    content TEXT,
+    tokenized_content TEXT,
+    vault_name TEXT,
+    tags TEXT,
+    frontmatter_date TEXT,
+    title TEXT,
+    emphasized_text TEXT
 );
 
-CREATE INDEX idx_notes_meta_hash ON notes_meta(hash);
+-- Incremental index cache
+CREATE TABLE file_cache (
+    vault_name TEXT,
+    path TEXT,
+    hash TEXT,
+    mtime INTEGER,
+    model_id TEXT,
+    file_size INTEGER DEFAULT 0,
+    backlink_count INTEGER DEFAULT 0,
+    char_count INTEGER DEFAULT 0,
+    PRIMARY KEY (vault_name, path)
+);
 ```
 
-**Why two tables?** FTS5 virtual tables store content redundantly in its internal index. Separating metadata (`notes_meta`) avoids duplicating data and allows efficient hash-based lookups without touching the FTS index.
+**Why three tables?** The `chunks` table stores the actual content, split into manageable pieces. `fts_chunks` is an FTS5 virtual table with `content='chunks'` (external content mode) to avoid redundant storage. `file_cache` tracks per-file hashes and metadata for incremental indexing.
 
 ---
 
@@ -188,7 +205,7 @@ FTS5 is a module *for* SQLite. Plain SQLite supports basic `LIKE` and `GLOB` pat
 
 ### Does FTS5 support fuzzy search?
 
-No. FTS5 supports prefix queries (`"word"*`), phrase queries (`"exact phrase"`), and NEAR queries (`NEAR(word1 word2, 10)`), but not fuzzy/Levenshtein matching. For typo tolerance, consider using FTS5's `editdist3` or handling fuzzy logic at the application layer.
+FTS5 itself does not support fuzzy/edit-distance search. However, shiotsuchi supports fuzzy matching at the application level via `--fuzzy` flag, which applies Unicode NFKC normalization and ASCII lowercasing before tokenization.
 
 ### Is the FTS5 index stored separately from the database?
 
@@ -205,12 +222,12 @@ sqlite3 ~/.cache/shiotsuchi/db.sqlite3
 Then run queries like:
 
 ```sql
--- See indexed notes
-SELECT path, title FROM notes_meta ORDER BY indexed_at DESC LIMIT 10;
+-- See indexed chunks
+SELECT file_path, title FROM chunks ORDER BY rowid DESC LIMIT 10;
 
 -- Search directly
-SELECT path, title, rank FROM notes_fts
-WHERE notes_fts MATCH '"検索" AND "エンジン"'
+SELECT file_path, title, rank FROM fts_chunks
+WHERE fts_chunks MATCH '"検索" AND "エンジン"'
 ORDER BY rank;
 ```
 

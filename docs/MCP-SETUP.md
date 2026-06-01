@@ -11,7 +11,7 @@ shiotsuchi-search exposes a Model Context Protocol (MCP) server (`shiotsuchi-mcp
 | Term | Meaning |
 |------|---------|
 | **vault** | A directory of Markdown files (e.g. an Obsidian vault) |
-| **index** | The SQLite database built by `shiotsuchi chart` |
+| **index** | The SQLite database built by `shiotsuchi index` |
 | **MCP server** | `shiotsuchi-mcp` — the stdio process that answers LLM tool calls |
 
 One MCP server process = one vault. To search multiple vaults, run one process per vault and register each in your client.
@@ -23,13 +23,13 @@ One MCP server process = one vault. To search multiple vaults, run one process p
 Before the MCP server can answer queries, the vault must be indexed:
 
 ```sh
-shiotsuchi chart --notes-dir ~/Personal
+shiotsuchi index --notes-dir ~/Personal
 ```
 
 For a second vault:
 
 ```sh
-shiotsuchi chart --notes-dir ~/Work
+shiotsuchi index --notes-dir ~/Work
 ```
 
 Each run writes a SQLite database. The default location is `~/.cache/shiotsuchi/db.sqlite3`. Use a config file (see below) to set a separate path per vault.
@@ -59,8 +59,8 @@ db_path   = "/Users/yourname/.cache/shiotsuchi/work.db"
 Re-index with the matching db_path:
 
 ```sh
-shiotsuchi chart --notes-dir ~/Personal --db-path ~/.cache/shiotsuchi/personal.db
-shiotsuchi chart --notes-dir ~/Work     --db-path ~/.cache/shiotsuchi/work.db
+shiotsuchi index --notes-dir ~/Personal --db-path ~/.cache/shiotsuchi/personal.db
+shiotsuchi index --notes-dir ~/Work     --db-path ~/.cache/shiotsuchi/work.db
 ```
 
 If `--config` is omitted, `shiotsuchi-mcp` falls back to `~/.config/shiotsuchi/config.toml`, then to built-in defaults.
@@ -121,28 +121,29 @@ Once connected, the LLM can call three tools per vault:
 
 | Tool | Description |
 |------|-------------|
-| `search_vault` | Search notes by keyword or phrase. Returns paths, snippets, and scores. |
-| `read_full_note` | Read the full Markdown content of a note by its relative path. |
-| `vault_status` | Get indexing statistics: total notes, last indexed time, DB size. |
+| `search_local_notes` | Search notes in configured vaults using FTS/Vec/Hybrid modes. |
+| `get_surrounding_context` | Get surrounding chunks around a specific chunk ID for context. |
+| `index_status` | Show vault statistics including file count, chunk count, vec status. |
+| `rebuild_index` | Trigger a full re-index of a vault. |
 
 ### Example interactions
 
 ```
 User: What did I write about the Q3 budget in my work notes?
-→ LLM calls search_vault(query: "Q3 budget") on shiotsuchi-work
-→ LLM calls read_full_note(path: "finance/q3-review.md") to retrieve the full note
+→ LLM calls search_local_notes(query: "Q3 budget") on shiotsuchi-work
+→ LLM calls get_surrounding_context(chunk_id: 42, window: 2) to retrieve context
 ```
 
 ```
 User: Summarize my recent personal notes on photography.
-→ LLM calls search_vault(query: "photography") on shiotsuchi-personal
+→ LLM calls search_local_notes(query: "photography") on shiotsuchi-personal
 ```
 
 ---
 
 ## Keep the index up to date
 
-Run `shiotsuchi chart` again after adding or editing notes, or use the watcher to update continuously:
+Run `shiotsuchi index` again after adding or editing notes, or use the watcher to update continuously:
 
 ```sh
 shiotsuchi scan --notes-dir ~/Personal --db-path ~/.cache/shiotsuchi/personal.db
@@ -155,11 +156,11 @@ shiotsuchi scan --notes-dir ~/Work     --db-path ~/.cache/shiotsuchi/work.db
 
 | Symptom | Fix |
 |---------|-----|
-| LLM says "no results found" | Run `shiotsuchi chart` to (re-)index the vault |
+| LLM says "no results found" | Run `shiotsuchi index` to (re-)index the vault |
 | `shiotsuchi-mcp: command not found` | Ensure the binary is on `PATH`; see [INSTALL.md](INSTALL.md) |
 | Config parse error in logs | Check TOML syntax; `notes_dir` and `db_path` must be absolute paths |
 | Wrong vault searched | Verify `--config` path passed to each `mcpServers` entry |
-| Notes added but not found | Re-run `shiotsuchi chart` or start `shiotsuchi scan` |
+| Notes added but not found | Re-run `shiotsuchi index` or start `shiotsuchi scan` |
 
 ---
 

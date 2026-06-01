@@ -442,6 +442,26 @@ hybrid_alpha       = 0.5   # blend ratio (0.0=vec only, 1.0=FTS only, default 0.
 semantic_threshold = 0.75  # minimum score threshold
 ```
 
+### `[vlm]` section
+
+Controls VLM-based PDF extraction for scanned PDFs or PDFs where text extraction produces empty results. Requires the `vlm` Cargo feature flag and an API key via environment variable.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | bool | `false` | Enable VLM-based extraction |
+| `provider` | string | `"openai"` | VLM provider: `openai`, `anthropic`, `bedrock`, `gemini`, `ollama` |
+| `model` | string | `"gpt-4.1-nano"` | Vision model name |
+| `max_pages_per_doc` | int | — | Max pages per document (omit for unlimited) |
+
+**Example:**
+
+```toml
+[vlm]
+enabled = true
+provider = "openai"
+model = "gpt-4.1-nano"
+```
+
 ### Old format (pre-v0.3.7, still readable)
 
 ```toml
