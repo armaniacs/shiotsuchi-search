@@ -335,17 +335,11 @@ impl NoteDatabase {
                     PRIMARY KEY (tag, vault_name)
                 ) WITHOUT ROWID
             ")?;
-            // Backfill char_count from existing chunks for upgraded databases.
-            // tag_counts is intentionally NOT backfilled — it will be populated
-            // on the next full re-index (see design spec for rationale).
-            conn.execute_batch(
-                "UPDATE file_cache SET char_count = (
-                    SELECT COALESCE(SUM(LENGTH(content)), 0)
-                    FROM chunks
-                    WHERE chunks.file_path = file_cache.path
-                      AND chunks.vault_name = file_cache.vault_name
-                ) WHERE file_cache.char_count = 0"
-            )?;
+            // NOTE: char_count is intentionally NOT backfilled here. SQLite LENGTH()
+            // returns UTF-8 byte count, not Unicode character count, which would
+            // inflate values for non-ASCII text. char_count is computed correctly
+            // via .chars().count() in reindex_file(), so upgraded databases get
+            // accurate values on the next re-index — same design as tag_counts.
             conn.execute_batch("PRAGMA user_version = 10")?;
             conn.execute_batch("COMMIT")?;
         }
@@ -380,7 +374,7 @@ impl NoteDatabase {
                 title             TEXT NOT NULL DEFAULT '',
                 emphasized_text   TEXT NOT NULL DEFAULT ''
             );
-            CREATE INDEX IF NOT EXISTS idx_chunks_file_path ON chunks(file_path);
+            CREATE INDEX IF NOT EXISTS idx_chunks_file_path ON chunks(vault_name, file_path);
 
             CREATE TABLE IF NOT EXISTS tasks (
                 id          INTEGER PRIMARY KEY,
@@ -532,6 +526,7 @@ impl NoteDatabase {
         tx.execute("DELETE FROM tasks WHERE vault_name = ?1 AND file_path = ?2", params![vault_name, file_path])?;
         tx.execute("DELETE FROM file_cache WHERE vault_name = ?1 AND path = ?2", params![vault_name, file_path])?;
         tx.execute("DELETE FROM note_links WHERE source_path = ?1 AND vault_name = ?2", params![file_path, vault_name])?;
+        tx.execute("DELETE FROM note_links WHERE target_path = ?1 AND vault_name = ?2", params![file_path, vault_name])?;
 
         tx.commit()?;
         Ok(())
@@ -617,6 +612,10 @@ impl NoteDatabase {
                 if !tag.is_empty() {
                     tx.execute(
                         "UPDATE tag_counts SET count = count - 1 WHERE tag = ?1 AND vault_name = ?2 AND count > 0",
+                        params![tag, vault_name],
+                    )?;
+                    tx.execute(
+                        "DELETE FROM tag_counts WHERE tag = ?1 AND vault_name = ?2 AND count = 0",
                         params![tag, vault_name],
                     )?;
                 }

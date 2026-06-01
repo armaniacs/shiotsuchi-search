@@ -170,7 +170,6 @@ impl VaultWatcher {
                             vault_name,
                             &rel_str,
                             &self.config,
-                            &vault_paths,
                             &path_map,
                         ) {
                             log::warn!("watcher: failed to index {}: {}", rel_str, e);
@@ -236,7 +235,6 @@ impl VaultWatcher {
                                 vault_name,
                                 &new_rel.to_string_lossy(),
                                 &self.config,
-                                &vault_paths,
                                 &path_map,
                             ) {
                                 log::warn!(
@@ -429,7 +427,7 @@ mod tests {
             let db = db.lock().unwrap();
             let empty_map = std::collections::HashMap::new();
             let _ = index_file_with_embedder(
-                &db, &tokenizer, None, &src_path, "default", "old_name.md", &config, &[], &empty_map,
+                &db, &tokenizer, None, &src_path, "default", "old_name.md", &config, &empty_map,
             );
         }
         assert_eq!(db.lock().unwrap().stats().unwrap().total_files, 1);
@@ -531,7 +529,7 @@ mod tests {
             let db = db.lock().unwrap();
             let empty_map = std::collections::HashMap::new();
             let _ = index_file_with_embedder(
-                &db, &tokenizer, None, &src_path, "default", "to_delete.md", &config, &[], &empty_map,
+                &db, &tokenizer, None, &src_path, "default", "to_delete.md", &config, &empty_map,
             );
         }
         assert_eq!(db.lock().unwrap().stats().unwrap().total_files, 1);
@@ -586,7 +584,7 @@ mod tests {
             let db = db.lock().unwrap();
             let empty_map = std::collections::HashMap::new();
             let _ = index_file_with_embedder(
-                &db, &tokenizer, None, &src_path, "default", "update.md", &config, &[], &empty_map,
+                &db, &tokenizer, None, &src_path, "default", "update.md", &config, &empty_map,
             );
         }
         assert_eq!(db.lock().unwrap().stats().unwrap().total_files, 1);

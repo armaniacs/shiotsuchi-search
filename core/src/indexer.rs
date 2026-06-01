@@ -211,7 +211,7 @@ pub fn index_file(
     // Backlink tracking is handled by index_directory and watcher which call
     // index_file_with_embedder with vault_paths.
     let empty_map = std::collections::HashMap::new();
-    index_file_with_embedder(db, tokenizer, None, file_path, vault_name, relative_path, config, &[], &empty_map)
+    index_file_with_embedder(db, tokenizer, None, file_path, vault_name, relative_path, config, &empty_map)
 }
 
 /// Walk `vault_dir`, chunk and index all Markdown files.
@@ -341,7 +341,7 @@ pub fn index_directory(
                 cb(global_count, None);
             }
             let result = index_file_with_embedder(
-                db, tokenizer, embedder, full_path, vault_name, rel_str, config, &vault_file_paths, &path_map,
+                db, tokenizer, embedder, full_path, vault_name, rel_str, config, &path_map,
             );
             all_results.push((vault_name.clone(), rel_str.to_string(), result));
         }
@@ -402,7 +402,6 @@ pub fn index_file_with_embedder(
     vault_name: &str,
     relative_path: &str,
     config: &IndexConfig,
-    _vault_paths: &[String],
     path_map: &std::collections::HashMap<String, String>,
 ) -> IndexResult {
     let mtime = file_mtime(file_path);
