@@ -139,6 +139,8 @@ fn test_pdf_reindex_is_skipped_when_file_unchanged() {
 #[cfg(not(feature = "vlm"))]
 #[test]
 fn test_vlm_feature_not_compiled_builds_successfully() {
+    use shiotsuchi_core::indexer::IndexResult;
+
     // vlm feature なしでも index_file は正常動作すること
     let tokenizer = require_tokenizer!(TokenizerConfig::default());
     let temp = TempDir::new().unwrap();
