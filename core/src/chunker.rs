@@ -24,6 +24,17 @@ pub fn split_into_chunks(
     // 1. Extract and strip YAML frontmatter
     let (frontmatter, body) = extract_frontmatter(markdown);
 
+    // Warn if any tag contains a comma — the CSV serialization will split
+    // on commas downstream in reindex_file, fragmenting the tag.
+    for tag in &frontmatter.tags {
+        if tag.contains(',') {
+            log::warn!(
+                "Tag '{}' in '{}' contains a comma — will be split on reindex",
+                tag, file_path
+            );
+        }
+    }
+
     let markdown = body;
     if markdown.trim().is_empty() {
         return vec![Chunk {
@@ -74,7 +85,7 @@ pub fn split_into_chunks(
                     content: para.to_string(),
                     tokenized_content: tokenized,
                     vault_name: vault_name.to_string(),
-                    tags: frontmatter.tags.join(","),
+            tags: frontmatter.tags.join(","),
                     frontmatter_date: frontmatter.date.clone().unwrap_or_default(),
                     title: frontmatter.title.clone().unwrap_or_default(),
                     emphasized_text: String::new(),

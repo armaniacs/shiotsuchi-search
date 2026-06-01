@@ -331,6 +331,17 @@ impl NoteDatabase {
                     PRIMARY KEY (tag, vault_name)
                 ) WITHOUT ROWID
             ")?;
+            // Backfill char_count from existing chunks for upgraded databases.
+            // tag_counts is intentionally NOT backfilled — it will be populated
+            // on the next full re-index (see design spec for rationale).
+            conn.execute_batch(
+                "UPDATE file_cache SET char_count = (
+                    SELECT COALESCE(SUM(LENGTH(content)), 0)
+                    FROM chunks
+                    WHERE chunks.file_path = file_cache.path
+                      AND chunks.vault_name = file_cache.vault_name
+                ) WHERE file_cache.char_count = 0"
+            )?;
             conn.execute_batch("PRAGMA user_version = 10")?;
         }
 
@@ -1008,10 +1019,15 @@ impl NoteDatabase {
 
     /// Decrement the count for a tag in a vault by 1.
     /// If the tag doesn't exist in the table, this is a no-op.
-    /// count=0 rows are left in place — tag_stats() filters with WHERE count > 0.
+    /// Rows that reach count=0 are deleted to prevent dead-row accumulation.
     pub fn decrement_tag_count(&self, vault_name: &str, tag: &str) -> Result<(), DbError> {
-        self.write_conn.borrow().execute(
+        let conn = self.write_conn.borrow();
+        conn.execute(
             "UPDATE tag_counts SET count = count - 1 WHERE tag = ?1 AND vault_name = ?2 AND count > 0",
+            params![tag, vault_name],
+        )?;
+        conn.execute(
+            "DELETE FROM tag_counts WHERE tag = ?1 AND vault_name = ?2 AND count = 0",
             params![tag, vault_name],
         )?;
         Ok(())

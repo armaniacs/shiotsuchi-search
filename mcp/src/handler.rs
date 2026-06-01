@@ -130,9 +130,11 @@ pub fn call_tool(
                 }));
             }
 
-            // Validate vault dir is reachable (path traversal check)
+            // Validate vault dir is reachable (path traversal check).
+            // Strip absolute path from error to avoid internal path disclosure.
             if let Some((_, notes_dir)) = vaults.first() {
-                let _canonical_vault = notes_dir.canonicalize()?;
+                let _canonical_vault = notes_dir.canonicalize()
+                    .map_err(|_| "Vault directory is not accessible or does not exist")?;
             }
 
             let db = NoteDatabase::open(db_path)?;
