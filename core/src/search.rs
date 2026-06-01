@@ -1664,11 +1664,11 @@ mod tests {
                 title: String::new(), emphasized_text: String::new(),
             },
         ];
-        let ids = db.insert_chunks(&chunks).unwrap();
+        let _ids = db.insert_chunks(&chunks).unwrap();
 
         // Set up file_cache with different backlink counts
-        db.upsert_file_cache("default", "popular.md", "h1", 1000, "none", 100).unwrap();
-        db.upsert_file_cache("default", "unpopular.md", "h2", 1000, "none", 100).unwrap();
+        db.upsert_file_cache("default", "popular.md", "h1", 1000, "none", 100, 0).unwrap();
+        db.upsert_file_cache("default", "unpopular.md", "h2", 1000, "none", 100, 0).unwrap();
         db.write_conn.borrow().execute(
             "UPDATE file_cache SET backlink_count = 10 WHERE path = 'popular.md'",
             [],
@@ -1701,7 +1701,7 @@ mod tests {
             },
         ];
         let ids = db.insert_chunks(&chunks).unwrap();
-        db.upsert_file_cache("default", "popular.md", "h1", 1000, "none", 100).unwrap();
+        db.upsert_file_cache("default", "popular.md", "h1", 1000, "none", 100, 0).unwrap();
         db.write_conn.borrow().execute(
             "UPDATE file_cache SET backlink_count = 10 WHERE path = 'popular.md'",
             [],
@@ -1739,8 +1739,8 @@ mod tests {
             },
         ];
         db.insert_chunks(&chunks).unwrap();
-        db.upsert_file_cache("default", "a.md", "h1", 1000, "none", 100).unwrap();
-        db.upsert_file_cache("default", "b.md", "h2", 1000, "none", 100).unwrap();
+        db.upsert_file_cache("default", "a.md", "h1", 1000, "none", 100, 0).unwrap();
+        db.upsert_file_cache("default", "b.md", "h2", 1000, "none", 100, 0).unwrap();
         db.write_conn.borrow().execute(
             "UPDATE file_cache SET backlink_count = 5 WHERE path = 'a.md'",
             [],
@@ -1778,7 +1778,7 @@ mod tests {
             },
         ];
         db.insert_chunks(&chunks).unwrap();
-        db.upsert_file_cache("default", "popular.md", "h1", 1000, "none", 100).unwrap();
+        db.upsert_file_cache("default", "popular.md", "h1", 1000, "none", 100, 0).unwrap();
         db.write_conn.borrow().execute(
             "UPDATE file_cache SET backlink_count = 5 WHERE path = 'popular.md'",
             [],
