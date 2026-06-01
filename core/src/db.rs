@@ -311,6 +311,29 @@ impl NoteDatabase {
             conn.execute_batch("PRAGMA user_version = 9")?;
         }
 
+        if version < 10 {
+            // v9→v10: add char_count to file_cache, create tag_counts table
+            let fc_cols: Vec<String> = {
+                let mut stmt = conn.prepare("PRAGMA table_info(file_cache)")?;
+                let rows = stmt.query_map([], |r| r.get::<_, String>(1))?;
+                rows.collect::<Result<Vec<_>, _>>()?
+            };
+            if !fc_cols.iter().any(|c| c == "char_count") {
+                conn.execute_batch(
+                    "ALTER TABLE file_cache ADD COLUMN char_count INTEGER NOT NULL DEFAULT 0",
+                )?;
+            }
+            conn.execute_batch("
+                CREATE TABLE IF NOT EXISTS tag_counts (
+                    tag        TEXT NOT NULL,
+                    vault_name TEXT NOT NULL,
+                    count      INTEGER NOT NULL DEFAULT 0,
+                    PRIMARY KEY (tag, vault_name)
+                ) WITHOUT ROWID
+            ")?;
+            conn.execute_batch("PRAGMA user_version = 10")?;
+        }
+
         Ok(())
     }
 
@@ -443,7 +466,7 @@ impl NoteDatabase {
     /// Takes ownership of the embedding results (one per chunk, or None for failed ones).
     /// On any SQL error the entire transaction is rolled back to maintain data integrity.
     ///
-    /// All 8 arguments are intrinsic to the transaction's atomicity: each carries a piece
+    /// All arguments are intrinsic to the transaction's atomicity: each carries a piece
     /// of state that must cross the transaction boundary together. Grouping them into a
     /// params struct would not improve testability at the one call site.
     #[allow(clippy::too_many_arguments)]
@@ -457,6 +480,8 @@ impl NoteDatabase {
         chunks: &[Chunk],
         embeddings: &[Option<Vec<f32>>],
         file_size: i64,
+        tasks: &[Task],
+        note_link_targets: &[String],
     ) -> Result<(), DbError> {
         let mut conn = self.write_conn.borrow_mut();
         let tx = conn.transaction()?;
@@ -520,7 +545,27 @@ impl NoteDatabase {
             }
         }
 
-        // 4. Upsert file cache
+        // 4. Insert tasks (if any)
+        for task in tasks {
+            tx.execute(
+                "INSERT INTO tasks (vault_name, file_path, content, checked, line_number) VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![task.vault_name, task.file_path, task.content, task.checked as i32, task.line_number as i64],
+            )?;
+        }
+
+        // 5. Replace note_links: delete old links for this source, insert new ones
+        tx.execute(
+            "DELETE FROM note_links WHERE source_path = ?1 AND vault_name = ?2",
+            params![relative_path, vault_name],
+        )?;
+        for target in note_link_targets {
+            tx.execute(
+                "INSERT OR IGNORE INTO note_links (source_path, target_path, vault_name) VALUES (?1, ?2, ?3)",
+                params![relative_path, target, vault_name],
+            )?;
+        }
+
+        // 6. Upsert file cache
         tx.execute(
             "INSERT INTO file_cache (vault_name, path, hash, mtime, model_id, file_size)
              VALUES (?1,?2,?3,?4,?5,?6)
@@ -627,8 +672,9 @@ impl NoteDatabase {
 
     /// Vector KNN search on vec_chunks.
     /// Returns (chunk_id, distance, embedding) triples.
-    /// The embedding is retrieved from the vec0 virtual table in the same query,
-    /// eliminating the need for a separate get_chunk_vectors() call for MMR.
+    /// When `include_embeddings` is true, the embedding vector is returned from the
+    /// vec0 virtual table in the same query for MMR re-ranking. When false, the
+    /// embedding column is skipped to avoid unnecessary blob deserialization.
     /// When `vault_filter` is Some(_), the search is restricted to that vault
     /// via a JOIN on the chunks table.
     pub fn vec_search(
@@ -636,16 +682,23 @@ impl NoteDatabase {
         embedding: &[f32],
         limit: usize,
         vault_filter: Option<&str>,
+        include_embeddings: bool,
     ) -> Result<Vec<(i64, f64, Vec<f32>)>, DbError> {
         let conn = self.write_conn.borrow();
         let blob: Vec<u8> = embedding.iter().flat_map(|f| f.to_le_bytes()).collect();
         let (sql, params): (String, Vec<Box<dyn rusqlite::ToSql>>) = if let Some(vault) = vault_filter {
+            let select_cols = if include_embeddings {
+                "v.chunk_id, v.distance, v.embedding"
+            } else {
+                "v.chunk_id, v.distance, NULL AS embedding"
+            };
             (
-                "SELECT v.chunk_id, v.distance, v.embedding
-                 FROM vec_chunks v
-                 JOIN chunks c ON c.id = v.chunk_id
-                 WHERE v.embedding MATCH ?1 AND c.vault_name = ?2 AND k = ?3
-                 ORDER BY v.distance".to_string(),
+                format!(
+                    "SELECT {} FROM vec_chunks v
+                     JOIN chunks c ON c.id = v.chunk_id
+                     WHERE v.embedding MATCH ?1 AND c.vault_name = ?2 AND k = ?3
+                     ORDER BY v.distance", select_cols
+                ),
                 vec![
                     Box::new(blob),
                     Box::new(vault.to_string()),
@@ -653,10 +706,17 @@ impl NoteDatabase {
                 ],
             )
         } else {
+            let select_cols = if include_embeddings {
+                "chunk_id, distance, embedding"
+            } else {
+                "chunk_id, distance, NULL AS embedding"
+            };
             (
-                "SELECT chunk_id, distance, embedding FROM vec_chunks
-                 WHERE embedding MATCH ?1 AND k = ?2
-                 ORDER BY distance".to_string(),
+                format!(
+                    "SELECT {} FROM vec_chunks
+                     WHERE embedding MATCH ?1 AND k = ?2
+                     ORDER BY distance", select_cols
+                ),
                 vec![
                     Box::new(blob),
                     Box::new(limit as i64),
@@ -668,10 +728,15 @@ impl NoteDatabase {
         let rows = stmt.query_map(params_refs.as_slice(), |r| {
             let chunk_id: i64 = r.get(0)?;
             let distance: f64 = r.get(1)?;
-            let emb_blob: Vec<u8> = r.get(2)?;
-            let emb_vec: Vec<f32> = emb_blob.chunks_exact(4)
-                .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
-                .collect();
+            // When include_embeddings is false, the embedding column is NULL.
+            let emb_blob: Vec<u8> = r.get::<_, Option<Vec<u8>>>(2)?.unwrap_or_default();
+            let emb_vec: Vec<f32> = if emb_blob.is_empty() {
+                vec![]
+            } else {
+                emb_blob.chunks_exact(4)
+                    .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+                    .collect()
+            };
             Ok((chunk_id, distance, emb_vec))
         })?;
         rows.collect::<SqliteResult<Vec<_>>>().map_err(DbError::Sqlite)
@@ -1357,7 +1422,7 @@ mod tests {
                 title: String::new(), emphasized_text: String::new(),
             },
         ];
-        db.reindex_file("default", "project.md", "newhash", 2000, "none", &chunks, &[], 100).unwrap();
+        db.reindex_file("default", "project.md", "newhash", 2000, "none", &chunks, &[], 100, &[], &[]).unwrap();
 
         // Verify old task is gone
         let tasks: Vec<(String, String)> = {
@@ -1402,7 +1467,7 @@ mod tests {
                 title: String::new(), emphasized_text: String::new(),
             },
         ];
-        db.reindex_file("default", "old.md", "newhash", 2000, "none", &new_chunks, &[], 100).unwrap();
+        db.reindex_file("default", "old.md", "newhash", 2000, "none", &new_chunks, &[], 100, &[], &[]).unwrap();
 
         // Old content should not be findable
         assert!(db.fts_search("old content", 10, None).unwrap().is_empty());
