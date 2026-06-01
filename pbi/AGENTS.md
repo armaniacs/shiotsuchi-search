@@ -35,6 +35,23 @@ MCP 経由によるノートの作成・編集・削除は厳密に禁止する�
 **画像 OCR は別 PBI（Phase B）として分割。**
 参照: `pbi/2026-05-30-28-backlog-vlm-pdf-markdown.md`
 
+### PBI-28: VLM ベース PDF Markdown 化（スキャン PDF 対応）
+
+**Completed — `vlm` feature を CLI デフォルトに追加、テスト追加済み。**
+
+採用技術:
+- `edgequake-pdf2md` v0.9: VLM API（OpenAI/Anthropic/Gemini/Ollama）経由で PDF→Markdown 変換
+- `edgequake-llm` v0.6.23: 複数 LLM プロバイダーの抽象化
+- feature flag: `vlm` — CLI デフォルトビルドに含める（`cli/Cargo.toml:38`）
+- 設定トグル: `VlmConfig.enabled`（デフォルト: false）
+- API キー: `SHIOTSUCHI_API_KEY` または `<PROVIDER>_API_KEY`
+
+実装詳細:
+- `core/src/vlm.rs`: `extract_text_with_vlm()` 実装 + `#[cfg(not(feature = "vlm"))]` スタブ
+- `core/src/indexer.rs:446-470`: ネイティブ PDF 抽出が空の場合に VLM フォールバック
+- `core/src/config.rs:218-244`: `VlmConfig` 構造体
+- `core/tests/integration_test.rs`: feature コンパイルテスト + mtime キャッシュテスト
+
 ### PBI-13: 埋め込みモデルの差し替え（API 方式）
 
 **Completed in v0.4.12**

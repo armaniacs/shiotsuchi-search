@@ -108,7 +108,7 @@ Trade-offs:
 | Vector/semantic search | Yes | No |
 | File watcher (`watch`) | Yes | Yes |
 | PDF text extraction (`pdf`) | Yes | No |
-| VLM-based PDF markdown extraction (`vlm`) | No | No |
+| VLM-based PDF markdown extraction (`vlm`) | Yes | No |
 | Binary size | Larger (includes ONNX Runtime) | Smaller |
 
 To build the MCP server without semantic search:

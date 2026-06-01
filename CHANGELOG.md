@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (PBI-28)
+
+- **VLM-based PDF markdown extraction** (`vlm` feature): Scanned PDFs and image-only PDFs can now be converted to searchable Markdown via Vision Language Models (OpenAI, Anthropic, Gemini, Ollama).
+  - `vlm` Cargo feature enabled in CLI default build (`cli/Cargo.toml`)
+  - `core/src/vlm.rs`: `extract_text_with_vlm()` with `edgequake-pdf2md` v0.9 integration
+  - VLM fallback: when native PDF text extraction produces empty content and `vlm_enabled = true`, automatically calls VLM API
+  - `VlmConfig`: `enabled`, `provider`, `model`, `max_pages_per_doc` settings in `[vlm]` config section
+  - mtime-based caching: VLM is only called once per PDF; unchanged files are skipped on re-index
+  - Graceful degradation: missing API key → skip with warning; VLM failure → keep empty, continue indexing
+  - 3 new tests: feature compile verification, mtime cache skip, not-compiled build verification
+
 ## [0.4.15] - 2026-06-01
 
 ### Added (PBI-18)

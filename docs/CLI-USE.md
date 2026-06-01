@@ -444,7 +444,7 @@ semantic_threshold = 0.75  # minimum score threshold
 
 ### `[vlm]` section
 
-Controls VLM-based PDF extraction for scanned PDFs or PDFs where text extraction produces empty results. Requires the `vlm` Cargo feature flag and an API key via environment variable.
+Controls VLM-based PDF extraction for scanned PDFs or PDFs where text extraction produces empty results. Included in the default build. Requires an API key via environment variable.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|

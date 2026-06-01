@@ -108,7 +108,7 @@ cargo install --path cli --no-default-features
 | ベクトル/セマンティック検索 | 〇 | ✗ |
 | ファイル監視（scan） | 〇 | 〇 |
 | PDF テキスト抽出（`pdf`） | 〇 | ✗ |
-| VLM ベース PDF Markdown 抽出（`vlm`） | ✗ | ✗ |
+| VLM ベース PDF Markdown 抽出（`vlm`） | 〇 | ✗ |
 | バイナリサイズ | 大（ONNX Runtime 含む） | 小 |
 
 MCP サーバーの軽量ビルド:
