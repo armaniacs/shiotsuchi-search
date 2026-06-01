@@ -980,6 +980,28 @@ impl NoteDatabase {
             .map_err(DbError::Sqlite)
     }
 
+    /// Return the concatenated tags (comma-separated) for all chunks of a file.
+    /// Used by cleanup_deleted to decrement tag_counts before deleting chunks.
+    pub fn get_tags_for_file(&self, vault_name: &str, path: &str) -> Result<String, DbError> {
+        let conn = self.write_conn.borrow();
+        let mut stmt = conn.prepare(
+            "SELECT COALESCE(GROUP_CONCAT(tags), '') FROM chunks WHERE vault_name = ?1 AND file_path = ?2"
+        )?;
+        stmt.query_row(params![vault_name, path], |r| r.get(0))
+            .map_err(DbError::Sqlite)
+    }
+
+    /// Decrement the count for a tag in a vault by 1.
+    /// If the tag doesn't exist in the table, this is a no-op.
+    /// count=0 rows are left in place — tag_stats() filters with WHERE count > 0.
+    pub fn decrement_tag_count(&self, vault_name: &str, tag: &str) -> Result<(), DbError> {
+        self.write_conn.borrow().execute(
+            "UPDATE tag_counts SET count = count - 1 WHERE tag = ?1 AND vault_name = ?2 AND count > 0",
+            params![tag, vault_name],
+        )?;
+        Ok(())
+    }
+
     /// Vault statistics.
     pub fn stats(&self) -> Result<VaultStats, DbError> {
         let conn = self.write_conn.borrow();
