@@ -9,6 +9,9 @@ use shiotsuchi_core::{
 use std::fs;
 use tempfile::TempDir;
 
+// Re-export the macro for use in integration tests
+use shiotsuchi_core::require_tokenizer;
+
 #[test]
 fn test_end_to_end_index_and_search() {
     let tokenizer = shiotsuchi_core::require_tokenizer!(TokenizerConfig::default());
@@ -84,5 +87,48 @@ fn test_vlm_feature_is_compiled_and_not_compiled_stub_is_absent() {
         matches!(result, Ok(None)),
         "vlm feature enabled + config.enabled=false should return Ok(None), got: {:?}",
         result
+    );
+}
+
+#[test]
+fn test_pdf_reindex_is_skipped_when_file_unchanged() {
+    use shiotsuchi_core::indexer::IndexResult;
+
+    let tokenizer = require_tokenizer!(TokenizerConfig::default());
+    let temp = TempDir::new().unwrap();
+    let vault = temp.path().join("vault");
+    fs::create_dir(&vault).unwrap();
+
+    // hello.pdf をコピー（pdfium が受け入れる確実な PDF）
+    let fixture_pdf = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/hello.pdf");
+    fs::copy(&fixture_pdf, vault.join("scan.pdf")).unwrap();
+
+    let db = NoteDatabase::open_in_memory().unwrap();
+    let config = IndexConfig {
+        vaults: vec![("default".to_string(), vault.clone())],
+        enable_pdf_extraction: false, // テキスト抽出無効 → テキスト空同等
+        vlm_enabled: false,           // VLM も無効
+        ..Default::default()
+    };
+
+    // 1回目: 新規なので Inserted/Updated
+    let (results1, _, _) = index_directory(&db, &tokenizer, &config, None, None).unwrap();
+    let first = results1.iter()
+        .find(|(_, path, _)| path == "scan.pdf")
+        .expect("scan.pdf should be in results");
+    assert!(
+        matches!(first.2, IndexResult::Inserted | IndexResult::Updated),
+        "first index should insert or update, got: {:?}", first.2
+    );
+
+    // 2回目: ファイル未変更なので Skipped（VLM も再実行されない）
+    let (results2, _, _) = index_directory(&db, &tokenizer, &config, None, None).unwrap();
+    let second = results2.iter()
+        .find(|(_, path, _)| path == "scan.pdf")
+        .expect("scan.pdf should appear in results");
+    assert!(
+        matches!(second.2, IndexResult::Skipped),
+        "second index of unchanged PDF should be Skipped, got: {:?}", second.2
     );
 }
