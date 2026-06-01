@@ -1014,7 +1014,7 @@ impl NoteDatabase {
             [], |r| r.get(0),
         )?;
         let total_chars: i64 = conn.query_row(
-            "SELECT COALESCE(SUM(LENGTH(content)), 0) FROM chunks", [], |r| r.get(0)
+            "SELECT COALESCE(SUM(char_count), 0) FROM file_cache", [], |r| r.get(0)
         )?;
         let last_indexed: Option<i64> = conn.query_row(
             "SELECT MAX(mtime) FROM file_cache", [], |r| r.get(0)
@@ -1105,22 +1105,13 @@ impl NoteDatabase {
     /// Tags are stored as comma-separated values in the `tags` column.
     pub fn tag_stats(&self, limit: usize) -> Result<Vec<(String, usize)>, DbError> {
         let conn = self.write_conn.borrow();
-        let mut stmt = conn.prepare("SELECT tags FROM chunks WHERE tags != ''")?;
-        let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
-        let mut counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
-        for row in rows {
-            let tags_str = row?;
-            for tag in tags_str.split(',') {
-                let trimmed = tag.trim().to_string();
-                if !trimmed.is_empty() {
-                    *counts.entry(trimmed).or_insert(0) += 1;
-                }
-            }
-        }
-        let mut result: Vec<(String, usize)> = counts.into_iter().collect();
-        result.sort_by(|a, b| b.1.cmp(&a.1));
-        result.truncate(limit);
-        Ok(result)
+        let mut stmt = conn.prepare(
+            "SELECT tag, count FROM tag_counts WHERE count > 0 ORDER BY count DESC, tag ASC LIMIT ?"
+        )?;
+        let rows = stmt.query_map(params![limit as i64], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)? as usize))
+        })?;
+        rows.collect::<SqliteResult<Vec<_>>>().map_err(DbError::Sqlite)
     }
 }
 
@@ -1972,5 +1963,106 @@ mod tests {
         assert_eq!(map.len(), 2);
         assert_eq!(map.get(&ids[0]), Some(&5), "hub.md should have backlink_count=5");
         assert_eq!(map.get(&ids[1]), Some(&0), "leaf.md should have backlink_count=0");
+    }
+
+    #[test]
+    fn test_tag_stats_after_reindex_reflects_tags() {
+        let db = NoteDatabase::open_in_memory().unwrap();
+        let stats = db.tag_stats(10).unwrap();
+        assert!(stats.is_empty(), "fresh db should have no tags");
+
+        let chunks = vec![Chunk {
+            id: None, file_path: "tagged.md".into(), chunk_index: 0,
+            parent_header: None, content: "content".into(),
+            tokenized_content: "content".into(),
+            vault_name: "default".to_string(),
+            tags: "project,meeting".to_string(),
+            frontmatter_date: String::new(),
+            title: String::new(), emphasized_text: String::new(),
+        }];
+        db.reindex_file("default", "tagged.md", "hash1", 1000, "none", &chunks, &[], 42, &[], &[]).unwrap();
+
+        let stats = db.tag_stats(10).unwrap();
+        let mut tag_map: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+        for (tag, count) in &stats {
+            tag_map.insert(tag.as_str(), *count);
+        }
+        assert_eq!(tag_map.get("project"), Some(&1), "project tag should have count 1");
+        assert_eq!(tag_map.get("meeting"), Some(&1), "meeting tag should have count 1");
+    }
+
+    #[test]
+    fn test_tag_stats_removed_on_reindex() {
+        let db = NoteDatabase::open_in_memory().unwrap();
+
+        let chunks1 = vec![Chunk {
+            id: None, file_path: "changing.md".into(), chunk_index: 0,
+            parent_header: None, content: "v1".into(),
+            tokenized_content: "v1".into(),
+            vault_name: "default".to_string(),
+            tags: "old_tag".to_string(),
+            frontmatter_date: String::new(),
+            title: String::new(), emphasized_text: String::new(),
+        }];
+        db.reindex_file("default", "changing.md", "hash1", 1000, "none", &chunks1, &[], 10, &[], &[]).unwrap();
+        assert_eq!(db.tag_stats(10).unwrap().len(), 1, "should have old_tag");
+
+        let chunks2 = vec![Chunk {
+            id: None, file_path: "changing.md".into(), chunk_index: 0,
+            parent_header: None, content: "v2".into(),
+            tokenized_content: "v2".into(),
+            vault_name: "default".to_string(),
+            tags: "new_tag".to_string(),
+            frontmatter_date: String::new(),
+            title: String::new(), emphasized_text: String::new(),
+        }];
+        db.reindex_file("default", "changing.md", "hash2", 2000, "none", &chunks2, &[], 10, &[], &[]).unwrap();
+
+        let stats = db.tag_stats(10).unwrap();
+        let tag_names: Vec<&str> = stats.iter().map(|(t, _)| t.as_str()).collect();
+        assert!(!tag_names.contains(&"old_tag"), "old_tag should be removed");
+        assert!(tag_names.contains(&"new_tag"), "new_tag should be present");
+    }
+
+    #[test]
+    fn test_tag_stats_empty_tags_ignored() {
+        let db = NoteDatabase::open_in_memory().unwrap();
+        let chunks = vec![Chunk {
+            id: None, file_path: "notags.md".into(), chunk_index: 0,
+            parent_header: None, content: "content".into(),
+            tokenized_content: "content".into(),
+            vault_name: "default".to_string(),
+            tags: String::new(),
+            frontmatter_date: String::new(),
+            title: String::new(), emphasized_text: String::new(),
+        }];
+        db.reindex_file("default", "notags.md", "hash", 1000, "none", &chunks, &[], 10, &[], &[]).unwrap();
+        assert!(db.tag_stats(10).unwrap().is_empty(), "empty tags should not create tag_counts rows");
+    }
+
+    #[test]
+    fn test_char_count_populated() {
+        let db = NoteDatabase::open_in_memory().unwrap();
+        let chunks = vec![
+            Chunk {
+                id: None, file_path: "file.md".into(), chunk_index: 0,
+                parent_header: None, content: "hello".into(),
+                tokenized_content: "hello".into(),
+                vault_name: "default".to_string(),
+                tags: String::new(), frontmatter_date: String::new(),
+                title: String::new(), emphasized_text: String::new(),
+            },
+            Chunk {
+                id: None, file_path: "file.md".into(), chunk_index: 1,
+                parent_header: None, content: "world!".into(),
+                tokenized_content: "world!".into(),
+                vault_name: "default".to_string(),
+                tags: String::new(), frontmatter_date: String::new(),
+                title: String::new(), emphasized_text: String::new(),
+            },
+        ];
+        db.reindex_file("default", "file.md", "hash", 1000, "none", &chunks, &[], 20, &[], &[]).unwrap();
+        let stats = db.stats().unwrap();
+        assert_eq!(stats.total_chars, 11, "hello(5) + world!(6) = 11 chars");
     }
 }
