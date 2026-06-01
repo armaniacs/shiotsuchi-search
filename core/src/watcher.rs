@@ -1,7 +1,7 @@
 use crate::{
     db::NoteDatabase,
     embedder::Embedder,
-    indexer::{index_file_with_embedder, IndexResult},
+    indexer::{build_path_map, index_file_with_embedder, IndexResult},
     models::IndexConfig,
     tokenizer::JapaneseTokenizer,
 };
@@ -161,6 +161,7 @@ impl VaultWatcher {
                         let db = self.db.lock().expect("watcher mutex poisoned");
                         // Retrieve cached vault paths for wikilink resolution
                         let vault_paths = db.list_cached_paths(vault_name).unwrap_or_default();
+                        let path_map = build_path_map(&vault_paths);
                         if let IndexResult::Error(e) = index_file_with_embedder(
                             &db,
                             &self.tokenizer,
@@ -170,6 +171,7 @@ impl VaultWatcher {
                             &rel_str,
                             &self.config,
                             &vault_paths,
+                            &path_map,
                         ) {
                             log::warn!("watcher: failed to index {}: {}", rel_str, e);
                         }
@@ -233,6 +235,7 @@ impl VaultWatcher {
                         if let Ok(new_rel) = new.strip_prefix(&notes_dir) {
                             let db = self.db.lock().expect("watcher mutex poisoned");
                             let vault_paths = db.list_cached_paths(vault_name).unwrap_or_default();
+                            let path_map = build_path_map(&vault_paths);
                             if let IndexResult::Error(e) = index_file_with_embedder(
                                 &db,
                                 &self.tokenizer,
@@ -242,6 +245,7 @@ impl VaultWatcher {
                                 &new_rel.to_string_lossy(),
                                 &self.config,
                                 &vault_paths,
+                                &path_map,
                             ) {
                                 log::warn!(
                                     "watcher: failed to index new path {}: {}",
@@ -431,8 +435,9 @@ mod tests {
         // Pre-index the old name file
         {
             let db = db.lock().unwrap();
+            let empty_map = std::collections::HashMap::new();
             let _ = index_file_with_embedder(
-                &db, &tokenizer, None, &src_path, "default", "old_name.md", &config, &[],
+                &db, &tokenizer, None, &src_path, "default", "old_name.md", &config, &[], &empty_map,
             );
         }
         assert_eq!(db.lock().unwrap().stats().unwrap().total_files, 1);
@@ -532,8 +537,9 @@ mod tests {
         // Pre-index the file
         {
             let db = db.lock().unwrap();
+            let empty_map = std::collections::HashMap::new();
             let _ = index_file_with_embedder(
-                &db, &tokenizer, None, &src_path, "default", "to_delete.md", &config, &[],
+                &db, &tokenizer, None, &src_path, "default", "to_delete.md", &config, &[], &empty_map,
             );
         }
         assert_eq!(db.lock().unwrap().stats().unwrap().total_files, 1);
@@ -586,8 +592,9 @@ mod tests {
         // Pre-index the file
         {
             let db = db.lock().unwrap();
+            let empty_map = std::collections::HashMap::new();
             let _ = index_file_with_embedder(
-                &db, &tokenizer, None, &src_path, "default", "update.md", &config, &[],
+                &db, &tokenizer, None, &src_path, "default", "update.md", &config, &[], &empty_map,
             );
         }
         assert_eq!(db.lock().unwrap().stats().unwrap().total_files, 1);

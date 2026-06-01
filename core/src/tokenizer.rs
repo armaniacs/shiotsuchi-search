@@ -121,6 +121,9 @@ impl JapaneseTokenizer {
     /// 出力例: `"東京" AND "検索" AND "エンジン"`
     /// 各トークンを "" で囲むことで特殊文字をエスケープし AND 結合する。
     /// FTS5 の MATCH 引数にそのまま渡せる。
+    ///
+    /// Deprecated: use `collect_tokens` + `expand_synonyms` instead.
+    #[deprecated(since = "0.5.0", note = "use collect_tokens() + expand_synonyms() instead")]
     pub fn and_query(&self, text: &str) -> String {
         self.collect_tokens(text)
             .into_iter()

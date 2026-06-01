@@ -181,17 +181,21 @@ pub fn search(
 
     // vec_emb_map carries the embeddings returned by vec_search for free,
     // so MMR does not need a separate get_chunk_vectors() DB query.
+    // Only request embeddings from vec_search when MMR is active, to avoid
+    // unnecessary blob deserialization of potentially large embedding vectors.
+    let include_embeddings = mmr && effective_mode != SearchMode::Fts;
+
     let (mut results, vec_emb_map) = match effective_mode {
         SearchMode::Fts => (search_fts(db, tokenizer, query, limit, min_score, vault_filter, tag_filter, since_date, user_dictionary, synonyms, fuzzy)?, HashMap::new()),
         SearchMode::Vec => {
             let emb_vec = precomputed_embedding.as_deref()
                 .ok_or_else(|| DbError::Other("Vec mode requires embedder — model not loaded".into()))?;
-            search_vec(db, emb_vec, query, vec_fetch_limit, min_score, vault_filter, tag_filter, since_date)?
+            search_vec(db, emb_vec, query, vec_fetch_limit, min_score, vault_filter, tag_filter, since_date, include_embeddings)?
         }
         SearchMode::Hybrid => {
             let emb_vec = precomputed_embedding.as_deref()
                 .ok_or_else(|| DbError::Other("Hybrid mode requires embedder — model not loaded".into()))?;
-            search_hybrid(db, tokenizer, emb_vec, query, limit, vec_fetch_limit, min_score, vault_filter, tag_filter, since_date, user_dictionary, synonyms, fuzzy, alpha)?
+            search_hybrid(db, tokenizer, emb_vec, query, limit, vec_fetch_limit, min_score, vault_filter, tag_filter, since_date, user_dictionary, synonyms, fuzzy, alpha, include_embeddings)?
         }
     };
 
@@ -290,31 +294,69 @@ fn apply_filters_and_boost(
         let query_lower = query.to_lowercase();
         let query_tokens: Vec<&str> = query_lower.split_whitespace().collect();
 
-        // For Hybrid mode, higher score = more relevant, so boost by dividing.
-        // For FTS/Vec, lower score = more relevant, so boost by multiplying.
-        let (title_factor, emph_factor) = match mode {
-            SearchMode::Hybrid => (1.0 / 0.3, 1.0 / 0.5),
-            _ => (0.3, 0.5),
-        };
-
         // Title score boost: if a chunk's title contains a query token,
         // adjust its score to indicate higher relevance.
+        //
+        // For Hybrid mode (higher score = more relevant), boost by dividing
+        // (1.0/0.3 ≈ 3.33× score increase). RRF scores are always ≥ 0 so
+        // direction is unambiguous.
+        //
+        // For FTS/Vec modes (lower score = more relevant), the boost must
+        // reduce the score.  BM25 can return either positive (common terms)
+        // or negative (informative terms) scores, so we apply the factor
+        // sign-aware: negative scores are divided (more negative = better),
+        // positive scores are multiplied (less positive = better).
+        let title_factor = 0.3;
         for r in &mut results {
             if !r.title.is_empty() {
                 let title_lower = r.title.to_lowercase();
                 if query_tokens.iter().any(|t| title_lower.contains(t)) {
-                    r.score = r.score * title_factor;
+                    match mode {
+                        SearchMode::Hybrid => {
+                            r.score = r.score * (1.0 / title_factor);
+                        }
+                        _ => {
+                            if r.score < 0.0 {
+                                r.score /= title_factor;
+                            } else {
+                                r.score *= title_factor;
+                            }
+                        }
+                    }
                 }
             }
         }
 
         // Emphasized text score boost: same logic for ==highlight== and **bold**.
+        let emph_factor = 0.5;
         for r in &mut results {
             if !r.emphasized_text.is_empty() {
                 let emph_lower = r.emphasized_text.to_lowercase();
                 if query_tokens.iter().any(|t| emph_lower.contains(t)) {
-                    r.score = r.score * emph_factor;
+                    match mode {
+                        SearchMode::Hybrid => {
+                            r.score = r.score * (1.0 / emph_factor);
+                        }
+                        _ => {
+                            if r.score < 0.0 {
+                                r.score /= emph_factor;
+                            } else {
+                                r.score *= emph_factor;
+                            }
+                        }
+                    }
                 }
+            }
+        }
+
+        // Re-sort after score adjustments so boosted results appear at the
+        // correct position regardless of the original BM25/vec ranking.
+        match mode {
+            SearchMode::Fts | SearchMode::Vec => {
+                results.sort_by(|a, b| a.score.partial_cmp(&b.score).unwrap_or(std::cmp::Ordering::Equal));
+            }
+            SearchMode::Hybrid => {
+                results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
             }
         }
     }
@@ -458,8 +500,9 @@ fn search_vec(
     vault_filter: Option<&str>,
     tag_filter: Option<&str>,
     since_date: Option<&str>,
+    include_embeddings: bool,
 ) -> Result<(Vec<ChunkSearchResult>, HashMap<i64, Vec<f32>>), DbError> {
-    let raw_hits = db.vec_search(embedding, limit, vault_filter)?;
+    let raw_hits = db.vec_search(embedding, limit, vault_filter, include_embeddings)?;
     if raw_hits.is_empty() {
         return Ok((vec![], HashMap::new()));
     }
@@ -578,11 +621,12 @@ fn search_hybrid(
     synonyms: &HashMap<String, Vec<String>>,
     fuzzy: bool,
     alpha: Option<f64>,
+    include_embeddings: bool,
 ) -> Result<(Vec<ChunkSearchResult>, HashMap<i64, Vec<f32>>), DbError> {
     const K: f64 = 60.0;
 
     let fts_results = search_fts(db, tokenizer, query, limit * 2, None, vault_filter, None, None, user_dictionary, synonyms, fuzzy)?;
-    let (vec_results, emb_map) = search_vec(db, embedding, query, vec_fetch_limit, None, vault_filter, None, None)?;
+    let (vec_results, emb_map) = search_vec(db, embedding, query, vec_fetch_limit, None, vault_filter, None, None, include_embeddings)?;
 
     let blended_scores = match alpha {
         Some(a) => compute_rrf_weighted(&fts_results, &vec_results, limit, K, a.clamp(0.0, 1.0)),
