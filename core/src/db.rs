@@ -487,13 +487,15 @@ impl NoteDatabase {
         let tx = conn.transaction()?;
 
         // 1. Delete old chunks, their FTS/vec entries, and associated tasks
-        let old_ids: Vec<i64> = {
+        let old_rows: Vec<(i64, String)> = {
             let mut stmt =
-                tx.prepare("SELECT id FROM chunks WHERE vault_name = ?1 AND file_path = ?2")?;
-            let rows = stmt.query_map(params![vault_name, relative_path], |r| r.get(0))?;
+                tx.prepare("SELECT id, tags FROM chunks WHERE vault_name = ?1 AND file_path = ?2")?;
+            let rows = stmt.query_map(params![vault_name, relative_path], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })?;
             rows.collect::<SqliteResult<Vec<_>>>()?
         };
-        for id in &old_ids {
+        for (id, _) in &old_rows {
             tx.execute("DELETE FROM fts_chunks WHERE rowid = ?1", [id])?;
             tx.execute("DELETE FROM vec_chunks WHERE chunk_id = ?1", [id])?;
         }
@@ -505,6 +507,19 @@ impl NoteDatabase {
             "DELETE FROM tasks WHERE vault_name = ?1 AND file_path = ?2",
             params![vault_name, relative_path],
         )?;
+
+        // Decrement tag_counts for old chunk tags
+        for (_, tags_str) in &old_rows {
+            for tag in tags_str.split(',') {
+                let tag = tag.trim();
+                if !tag.is_empty() {
+                    tx.execute(
+                        "UPDATE tag_counts SET count = count - 1 WHERE tag = ?1 AND vault_name = ?2",
+                        params![tag, vault_name],
+                    )?;
+                }
+            }
+        }
 
         // 2. Insert new chunks and FTS entries
         let mut new_ids = Vec::with_capacity(chunks.len());
@@ -565,13 +580,31 @@ impl NoteDatabase {
             )?;
         }
 
+        // Increment tag_counts for new chunk tags
+        for chunk in chunks {
+            for tag in chunk.tags.split(',') {
+                let tag = tag.trim();
+                if !tag.is_empty() {
+                    tx.execute(
+                        "INSERT INTO tag_counts (tag, vault_name, count) VALUES (?1, ?2, 1)
+                         ON CONFLICT(tag, vault_name) DO UPDATE SET count = count + 1",
+                        params![tag, vault_name],
+                    )?;
+                }
+            }
+        }
+
+        // Compute total character count from all chunks
+        let char_count: i64 = chunks.iter().map(|c| c.content.len() as i64).sum();
+
         // 6. Upsert file cache
         tx.execute(
-            "INSERT INTO file_cache (vault_name, path, hash, mtime, model_id, file_size)
-             VALUES (?1,?2,?3,?4,?5,?6)
+            "INSERT INTO file_cache (vault_name, path, hash, mtime, model_id, file_size, char_count)
+             VALUES (?1,?2,?3,?4,?5,?6,?7)
              ON CONFLICT(vault_name, path) DO UPDATE SET
-                 hash=excluded.hash, mtime=excluded.mtime, model_id=excluded.model_id, file_size=excluded.file_size",
-            params![vault_name, relative_path, hash, mtime, model_id, file_size],
+                 hash=excluded.hash, mtime=excluded.mtime, model_id=excluded.model_id,
+                 file_size=excluded.file_size, char_count=excluded.char_count",
+            params![vault_name, relative_path, hash, mtime, model_id, file_size, char_count],
         )?;
 
         tx.commit()?;
