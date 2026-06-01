@@ -132,3 +132,29 @@ fn test_pdf_reindex_is_skipped_when_file_unchanged() {
         "second index of unchanged PDF should be Skipped, got: {:?}", second.2
     );
 }
+
+/// vlm feature が OFF のとき、ビルドが通ることを確認するスタブテスト。
+/// `#[cfg(not(feature = "vlm"))]` で囲むため、vlm が有効なビルドではこのテストは存在しない。
+/// vlm が ON の場合、Task 1 の `test_vlm_feature_is_compiled` でカバー。
+#[cfg(not(feature = "vlm"))]
+#[test]
+fn test_vlm_feature_not_compiled_builds_successfully() {
+    // vlm feature なしでも index_file は正常動作すること
+    let tokenizer = require_tokenizer!(TokenizerConfig::default());
+    let temp = TempDir::new().unwrap();
+    let vault = temp.path().join("vault");
+    fs::create_dir(&vault).unwrap();
+
+    fs::write(vault.join("hello.md"), "# Hello\n\nTest content.").unwrap();
+
+    let db = NoteDatabase::open_in_memory().unwrap();
+    let config = IndexConfig {
+        vaults: vec![("default".to_string(), vault.clone())],
+        vlm_enabled: false,
+        ..Default::default()
+    };
+
+    let (results, _, _) = index_directory(&db, &tokenizer, &config, None, None).unwrap();
+    assert_eq!(results.len(), 1);
+    assert!(matches!(results[0].2, IndexResult::Inserted | IndexResult::Updated));
+}
