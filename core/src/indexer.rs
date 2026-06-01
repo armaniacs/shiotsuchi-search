@@ -174,19 +174,26 @@ fn extract_wikilinks(content: &str) -> Vec<String> {
     results
 }
 
-/// Resolve a wikilink target name to a file path within a vault.
-/// Finds files ending with `{target_name}.md` (case-insensitive) and prefers
-/// the shortest path (Obsidian convention for ambiguous file names).
-fn resolve_wikilink(target_name: &str, vault_paths: &[String]) -> Option<String> {
-    let target_lower = target_name.to_lowercase();
-    let target_file_lower = format!("{}.md", target_lower);
-    vault_paths.iter()
-        .filter(|p| {
-            let p_lower = p.to_lowercase();
-            p_lower.ends_with(&target_file_lower)
-        })
-        .min_by_key(|p| p.len())
-        .cloned()
+/// Build a path map for O(1) wikilink resolution from a list of vault file paths.
+/// Maps lowercase filename stem (without .md suffix or directory prefix) → shortest
+/// matching path. Ambiguous names (same filename in different directories) resolve
+/// to the shortest path, matching Obsidian's convention.
+pub fn build_path_map(vault_paths: &[String]) -> std::collections::HashMap<String, String> {
+    let mut map: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    for p in vault_paths {
+        // Extract the filename stem: the last component without .md suffix.
+        if let Some(filename) = p.rsplit('/').next() {
+            if let Some(stem) = filename.strip_suffix(".md") {
+                let stem_lower = stem.to_lowercase();
+                // Prefer the shortest path for ambiguous names (Obsidian convention).
+                let current_len = map.get(&stem_lower).map(|existing| existing.len()).unwrap_or(usize::MAX);
+                if p.len() < current_len {
+                    map.insert(stem_lower, p.clone());
+                }
+            }
+        }
+    }
+    map
 }
 
 /// Index a single file using FTS-only mode (no embedding).
@@ -203,7 +210,8 @@ pub fn index_file(
     // index_file is a convenience wrapper that does not provide vault_paths.
     // Backlink tracking is handled by index_directory and watcher which call
     // index_file_with_embedder with vault_paths.
-    index_file_with_embedder(db, tokenizer, None, file_path, vault_name, relative_path, config, &[])
+    let empty_map = std::collections::HashMap::new();
+    index_file_with_embedder(db, tokenizer, None, file_path, vault_name, relative_path, config, &[], &empty_map)
 }
 
 /// Walk `vault_dir`, chunk and index all Markdown files.
@@ -324,13 +332,16 @@ pub fn index_directory(
         // Extract just the relative paths for wikilink resolution
         let vault_file_paths: Vec<String> = vault_paths.iter().map(|(rel, _)| rel.clone()).collect();
 
+        // Build a path map for O(1) wikilink resolution (avoids O(N·L) scan per file).
+        let path_map = build_path_map(&vault_file_paths);
+
         for (rel_str, full_path) in &vault_paths {
             global_count += 1;
             if let Some(ref cb) = progress {
                 cb(global_count, None);
             }
             let result = index_file_with_embedder(
-                db, tokenizer, embedder, full_path, vault_name, rel_str, config, &vault_file_paths,
+                db, tokenizer, embedder, full_path, vault_name, rel_str, config, &vault_file_paths, &path_map,
             );
             all_results.push((vault_name.clone(), rel_str.to_string(), result));
         }
@@ -360,6 +371,15 @@ pub fn cleanup_deleted(db: &NoteDatabase, config: &IndexConfig) -> Result<Vec<St
         for path in cached_paths {
             let full_path = notes_dir.join(&path);
             if !full_path.exists() {
+                // Decrement tag_counts for this file's tags before deleting chunks
+                if let Ok(old_tags) = db.get_tags_for_file(vault_name, &path) {
+                    for tag in old_tags.split(',') {
+                        let tag = tag.trim();
+                        if !tag.is_empty() {
+                            let _ = db.decrement_tag_count(vault_name, tag);
+                        }
+                    }
+                }
                 db.delete_chunks_for_file(vault_name, &path)?;
                 db.delete_file_cache(vault_name, &path)?;
                 // Clean up outgoing note_links to avoid inflating backlink counts
@@ -381,6 +401,8 @@ pub fn cleanup_deleted(db: &NoteDatabase, config: &IndexConfig) -> Result<Vec<St
 /// Index a single file with optional embedder (for watcher use).
 /// `vault_paths` is the list of all relative file paths in the vault, used for
 /// resolving wikilinks. Pass an empty slice if backlink scoring is not needed.
+/// `path_map` is a pre-built HashMap of lowercase stem → shortest path for O(1)
+/// wikilink resolution; build with `build_path_map()`. Pass an empty map if not needed.
 pub fn index_file_with_embedder(
     db: &NoteDatabase,
     tokenizer: &JapaneseTokenizer,
@@ -389,7 +411,8 @@ pub fn index_file_with_embedder(
     vault_name: &str,
     relative_path: &str,
     config: &IndexConfig,
-    vault_paths: &[String],
+    _vault_paths: &[String],
+    path_map: &std::collections::HashMap<String, String>,
 ) -> IndexResult {
     let mtime = file_mtime(file_path);
     let file_size = std::fs::metadata(file_path)
@@ -497,6 +520,35 @@ pub fn index_file_with_embedder(
         vec![None; chunks.len()]
     };
 
+    // Extract tasks and wikilinks BEFORE the atomic reindex transaction so all
+    // derived data is committed atomically with the file cache and chunks.
+    let task_records: Vec<Task> = if !content.is_empty() {
+        let tasks = extract_tasks(&content);
+        tasks.iter().map(|(content, checked, line)| Task {
+            id: None,
+            vault_name: vault_name.to_string(),
+            file_path: relative_path.to_string(),
+            content: content.clone(),
+            checked: *checked,
+            line_number: *line,
+        }).collect()
+    } else {
+        Vec::new()
+    };
+
+    let note_link_targets: Vec<String> = if !path_map.is_empty() && config.backlink_scoring {
+        let link_names = extract_wikilinks(&content);
+        if !link_names.is_empty() {
+            link_names.iter()
+                .filter_map(|name| path_map.get(&name.to_lowercase()).cloned())
+                .collect()
+        } else {
+            Vec::new()
+        }
+    } else {
+        Vec::new()
+    };
+
     if let Err(e) = db.reindex_file(
         vault_name,
         relative_path,
@@ -506,44 +558,10 @@ pub fn index_file_with_embedder(
         &chunks,
         &embeddings,
         file_size,
+        &task_records,
+        &note_link_targets,
     ) {
         return IndexResult::Error(e.to_string());
-    }
-
-    let tasks = extract_tasks(&content);
-    let task_records: Vec<Task> = tasks.iter().map(|(content, checked, line)| Task {
-        id: None,
-        vault_name: vault_name.to_string(),
-        file_path: relative_path.to_string(),
-        content: content.clone(),
-        checked: *checked,
-        line_number: *line,
-    }).collect();
-    if !task_records.is_empty() {
-        if let Err(e) = db.insert_tasks(vault_name, relative_path, &task_records) {
-            log::warn!("Failed to index tasks for {}: {}", relative_path, e);
-        }
-    } else {
-        if let Err(e) = db.delete_tasks_for_file(vault_name, relative_path) {
-            log::warn!("Failed to clean up tasks for {}: {}", relative_path, e);
-        }
-    }
-
-    // Handle backlinks: extract wikilinks and update note_links.
-    // Backlink_count is recalculated in batch after indexing (see index_directory).
-    // replace_note_links wraps delete+insert in an atomic transaction.
-    if !vault_paths.is_empty() && config.backlink_scoring {
-        let link_names = extract_wikilinks(&content);
-        let resolved: Vec<String> = if !link_names.is_empty() {
-            link_names.iter()
-                .filter_map(|name| resolve_wikilink(name, vault_paths))
-                .collect()
-        } else {
-            Vec::new()
-        };
-        if let Err(e) = db.replace_note_links(relative_path, vault_name, &resolved) {
-            log::warn!("Failed to update note_links for {}: {}", relative_path, e);
-        }
     }
 
     if is_update {
@@ -1540,49 +1558,63 @@ mod tests {
         assert_eq!(links, vec!["日本語ノート", "プロジェクト計画"]);
     }
 
-    // ── Wikilink resolution ─────────────────────────────────────
+    // ── build_path_map ──────────────────────────────────────────
 
     #[test]
-    fn test_resolve_wikilink_exact_match() {
+    fn test_build_path_map_exact_match() {
         let paths = vec!["note.md".to_string(), "other.md".to_string()];
-        let result = resolve_wikilink("note", &paths);
-        assert_eq!(result, Some("note.md".to_string()));
+        let map = build_path_map(&paths);
+        assert_eq!(map.get("note"), Some(&"note.md".to_string()));
     }
 
     #[test]
-    fn test_resolve_wikilink_no_match() {
+    fn test_build_path_map_no_match() {
         let paths = vec!["note.md".to_string()];
-        let result = resolve_wikilink("missing", &paths);
-        assert_eq!(result, None);
+        let map = build_path_map(&paths);
+        assert_eq!(map.get("missing"), None);
     }
 
     #[test]
-    fn test_resolve_wikilink_ambiguous_prefers_shortest() {
+    fn test_build_path_map_ambiguous_prefers_shortest() {
         let paths = vec![
             "long/path/note.md".to_string(),
             "note.md".to_string(),
             "other/note.md".to_string(),
         ];
-        let result = resolve_wikilink("note", &paths);
-        assert_eq!(result, Some("note.md".to_string()));
+        let map = build_path_map(&paths);
+        assert_eq!(map.get("note"), Some(&"note.md".to_string()));
     }
 
     #[test]
-    fn test_resolve_wikilink_subdir_prefers_shorter() {
+    fn test_build_path_map_subdir_prefers_shorter() {
         let paths = vec![
             "subdir/note.md".to_string(),
             "very/long/path/note.md".to_string(),
         ];
-        let result = resolve_wikilink("note", &paths);
-        assert_eq!(result, Some("subdir/note.md".to_string()));
+        let map = build_path_map(&paths);
+        assert_eq!(map.get("note"), Some(&"subdir/note.md".to_string()));
     }
 
     #[test]
-    fn test_resolve_wikilink_extension_is_stripped_in_link() {
+    fn test_build_path_map_extension_is_stripped_in_link() {
         let paths = vec!["project.md".to_string()];
-        // In wikilinks, the name is without .md extension
-        let result = resolve_wikilink("project", &paths);
-        assert_eq!(result, Some("project.md".to_string()));
+        let map = build_path_map(&paths);
+        assert_eq!(map.get("project"), Some(&"project.md".to_string()));
+    }
+
+    #[test]
+    fn test_build_path_map_non_md_files_ignored() {
+        let paths = vec!["image.png".to_string(), "note.md".to_string()];
+        let map = build_path_map(&paths);
+        assert_eq!(map.get("note"), Some(&"note.md".to_string()));
+        assert_eq!(map.get("image"), None);
+    }
+
+    #[test]
+    fn test_build_path_map_lowercase_key() {
+        let paths = vec!["Note_Name.md".to_string()];
+        let map = build_path_map(&paths);
+        assert_eq!(map.get("note_name"), Some(&"Note_Name.md".to_string()));
     }
 
     // ── Backlink indexing integration ───────────────────────────
