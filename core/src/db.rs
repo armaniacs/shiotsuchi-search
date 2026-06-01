@@ -514,7 +514,7 @@ impl NoteDatabase {
                 let tag = tag.trim();
                 if !tag.is_empty() {
                     tx.execute(
-                        "UPDATE tag_counts SET count = count - 1 WHERE tag = ?1 AND vault_name = ?2",
+                        "UPDATE tag_counts SET count = count - 1 WHERE tag = ?1 AND vault_name = ?2 AND count > 0",
                         params![tag, vault_name],
                     )?;
                 }
@@ -595,7 +595,7 @@ impl NoteDatabase {
         }
 
         // Compute total character count from all chunks
-        let char_count: i64 = chunks.iter().map(|c| c.content.len() as i64).sum();
+        let char_count: i64 = chunks.iter().map(|c| c.content.chars().count() as i64).sum();
 
         // 6. Upsert file cache
         tx.execute(
@@ -773,6 +773,21 @@ impl NoteDatabase {
             Ok((chunk_id, distance, emb_vec))
         })?;
         rows.collect::<SqliteResult<Vec<_>>>().map_err(DbError::Sqlite)
+    }
+
+    /// Return the vault_name for a chunk, or None if not found.
+    /// Used by MCP get_surrounding_context to validate vault access.
+    pub fn get_chunk_vault_name(&self, chunk_id: i64) -> Result<Option<String>, DbError> {
+        let conn = self.write_conn.borrow();
+        match conn.query_row(
+            "SELECT vault_name FROM chunks WHERE id = ?1",
+            params![chunk_id],
+            |r| r.get(0),
+        ) {
+            Ok(vault) => Ok(Some(vault)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(DbError::Sqlite(e)),
+        }
     }
 
     /// Fetch chunks by ids, preserving order.

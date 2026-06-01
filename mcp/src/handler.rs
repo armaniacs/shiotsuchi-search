@@ -156,6 +156,12 @@ pub fn call_tool(
             let window = args["window"].as_u64().unwrap_or(2).min(5) as usize;
 
             let db = NoteDatabase::open(db_path)?;
+            // Validate that the chunk belongs to a known vault
+            let chunk_vault = db.get_chunk_vault_name(chunk_id)?
+                .ok_or("chunk not found")?;
+            if !vaults.iter().any(|(name, _)| name == &chunk_vault) {
+                return Err("chunk vault is not configured in this server".into());
+            }
             let chunks = db.get_surrounding_chunks(chunk_id, window)?;
 
             const MAX_CHARS: usize = 100_000;

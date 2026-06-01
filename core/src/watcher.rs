@@ -183,6 +183,15 @@ impl VaultWatcher {
                     if let Ok(rel) = path.strip_prefix(&notes_dir) {
                         let rel_str = rel.to_string_lossy();
                         let db = self.db.lock().expect("watcher mutex poisoned");
+                        // Decrement tag_counts before deleting chunks
+                        if let Ok(old_tags) = db.get_tags_for_file(vault_name, &rel_str) {
+                            for tag in old_tags.split(',') {
+                                let tag = tag.trim();
+                                if !tag.is_empty() {
+                                    let _ = db.decrement_tag_count(vault_name, tag);
+                                }
+                            }
+                        }
                         if let Err(e) = db.delete_chunks_for_file(vault_name, &rel_str) {
                             log::warn!(
                                 "watcher: failed to delete chunks for {}: {}",
@@ -220,6 +229,15 @@ impl VaultWatcher {
                         if let Ok(old_rel) = old.strip_prefix(&notes_dir) {
                             let rel_str = old_rel.to_string_lossy();
                             let db = self.db.lock().expect("watcher mutex poisoned");
+                            // Decrement tag_counts before deleting chunks (old path after rename)
+                            if let Ok(old_tags) = db.get_tags_for_file(vault_name, &rel_str) {
+                                for tag in old_tags.split(',') {
+                                    let tag = tag.trim();
+                                    if !tag.is_empty() {
+                                        let _ = db.decrement_tag_count(vault_name, tag);
+                                    }
+                                }
+                            }
                             if let Err(e) = db.delete_chunks_for_file(vault_name, &rel_str) {
                                 log::warn!(
                                     "watcher: failed to delete old path {}: {}",

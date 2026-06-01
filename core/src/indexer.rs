@@ -376,7 +376,9 @@ pub fn cleanup_deleted(db: &NoteDatabase, config: &IndexConfig) -> Result<Vec<St
                     for tag in old_tags.split(',') {
                         let tag = tag.trim();
                         if !tag.is_empty() {
-                            let _ = db.decrement_tag_count(vault_name, tag);
+                            if let Err(e) = db.decrement_tag_count(vault_name, tag) {
+                                log::warn!("cleanup_deleted: failed to decrement tag '{}': {}", tag, e);
+                            }
                         }
                     }
                 }
