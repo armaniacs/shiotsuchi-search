@@ -37,7 +37,9 @@ thiserror = "2"
 # For production, set ORT_LIB_LOCATION env var to use system-installed ONNX Runtime instead.
 ort = { version = "2.0.0-rc.12", default-features = false, features = ["std", "download-binaries", "tls-rustls"], optional = true }
 ureq = { version = "3", optional = true }
-pdfium-render = { version = "0.9", default-features = false, features = ["pdfium_latest"], optional = true }
+# Version pinned to 0.8 to match pdfium-auto and edgequake-pdf2md.
+# Using 0.9 would create a duplicate pdfium-render in the build graph.
+pdfium-render = { version = "0.8", default-features = false, optional = true }
 pdfium-auto = { version = "0.3", features = ["bundled"], optional = true }
 edgequake-pdf2md = { version = "0.9", default-features = false, features = ["bundled"], optional = true }
 indicatif = "0.17"

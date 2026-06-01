@@ -24,11 +24,6 @@ allow = [
 
 [bans]
 multiple-versions = "warn"
-skip-tree = [
-    # edgequake-pdf2md uses pdfium-render 0.8.x while core uses 0.9.x
-    # This is a known semver conflict that should be resolved upstream.
-    { name = "pdfium-render", version = "0.8" },
-]
 
 [sources]
 unknown-registry = "deny"

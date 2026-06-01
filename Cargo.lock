@@ -1436,7 +1436,7 @@ dependencies = [
  "image",
  "once_cell",
  "pdfium-auto",
- "pdfium-render 0.8.37",
+ "pdfium-render",
  "regex",
  "reqwest",
  "serde",
@@ -2894,7 +2894,7 @@ checksum = "32ec76821f3c4bdb31cb55e57f31508e6ff8d3e26c93e6705513412b6de7b515"
 dependencies = [
  "dirs 5.0.1",
  "flate2",
- "pdfium-render 0.8.37",
+ "pdfium-render",
  "reqwest",
  "tar",
  "thiserror 2.0.18",
@@ -2913,31 +2913,6 @@ dependencies = [
  "console_error_panic_hook",
  "console_log",
  "image",
- "itertools 0.14.0",
- "js-sys",
- "libloading",
- "log",
- "maybe-owned",
- "once_cell",
- "utf16string",
- "vecmath",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "web-sys",
-]
-
-[[package]]
-name = "pdfium-render"
-version = "0.9.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "076dd8f3a6c7da9298ddffbcc0d5a109f89caf967fa4871c9a172d5b3498b35b"
-dependencies = [
- "bitflags 2.11.1",
- "bytemuck",
- "bytes",
- "chrono",
- "console_error_panic_hook",
- "console_log",
  "itertools 0.14.0",
  "js-sys",
  "libloading",
@@ -3839,7 +3814,7 @@ dependencies = [
  "notify 9.0.0-rc.4",
  "ort",
  "pdfium-auto",
- "pdfium-render 0.9.1",
+ "pdfium-render",
  "rayon",
  "rusqlite",
  "ruzstd",
