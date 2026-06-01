@@ -9,36 +9,65 @@ Published name: `shiotsuchi-core`
 
 **Type**: `NoteDatabase { write_conn: RefCell<Connection> }`
 
-**Schema** (v3, created by `create_schema()` + migrations):
+**Schema** (v10, created by `create_schema()` + migrations):
 
 ```sql
--- File cache for incremental indexing (hash + mtime + size tracking)
--- v5: added file_size for two-stage skip
+-- File cache for incremental indexing (hash + mtime + size + backlink tracking)
 CREATE TABLE IF NOT EXISTS file_cache (
-    vault_name TEXT NOT NULL,
-    path       TEXT NOT NULL,
-    hash       TEXT NOT NULL,
-    mtime      INTEGER NOT NULL,
-    model_id   TEXT NOT NULL,
-    file_size  INTEGER NOT NULL DEFAULT 0,
+    vault_name      TEXT NOT NULL,
+    path            TEXT NOT NULL,
+    hash            TEXT NOT NULL,
+    mtime           INTEGER NOT NULL,
+    model_id        TEXT NOT NULL,
+    file_size       INTEGER NOT NULL DEFAULT 0,
+    backlink_count  INTEGER NOT NULL DEFAULT 0,
+    char_count      INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (vault_name, path)
 );
 
 -- Chunk storage
--- v5: added tags, frontmatter_date, title columns
 CREATE TABLE IF NOT EXISTS chunks (
     id                INTEGER PRIMARY KEY,
-    vault_name        TEXT NOT NULL DEFAULT 'default',
     file_path         TEXT NOT NULL,
     chunk_index       INTEGER NOT NULL,
     parent_header     TEXT,
     content           TEXT NOT NULL,
     tokenized_content TEXT NOT NULL,
+    vault_name        TEXT NOT NULL DEFAULT '',
     tags              TEXT NOT NULL DEFAULT '',
     frontmatter_date  TEXT NOT NULL DEFAULT '',
-    title             TEXT NOT NULL DEFAULT ''
+    title             TEXT NOT NULL DEFAULT '',
+    emphasized_text   TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_chunks_file_path ON chunks(vault_name, file_path);
+
+-- Task checkboxes extracted from notes (- [ ] / - [x])
+CREATE TABLE IF NOT EXISTS tasks (
+    id          INTEGER PRIMARY KEY,
+    vault_name  TEXT NOT NULL,
+    file_path   TEXT NOT NULL,
+    content     TEXT NOT NULL,
+    checked     INTEGER NOT NULL DEFAULT 0,
+    line_number INTEGER NOT NULL DEFAULT 0,
+    indexed_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Note-to-note links (wikilinks [[...]] resolving to file paths)
+CREATE TABLE IF NOT EXISTS note_links (
+    source_path TEXT NOT NULL,
+    target_path TEXT NOT NULL,
+    vault_name  TEXT NOT NULL,
+    PRIMARY KEY (source_path, target_path, vault_name)
+);
+CREATE INDEX IF NOT EXISTS idx_note_links_target ON note_links(target_path, vault_name);
+
+-- Tag frequency cache for O(1) stats (populated incrementally during indexing)
+CREATE TABLE IF NOT EXISTS tag_counts (
+    tag        TEXT NOT NULL,
+    vault_name TEXT NOT NULL,
+    count      INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (tag, vault_name)
+) WITHOUT ROWID;
 
 -- FTS5 virtual table for keyword search (external content table)
 CREATE VIRTUAL TABLE IF NOT EXISTS fts_chunks USING fts5(
@@ -58,21 +87,27 @@ CREATE VIRTUAL TABLE IF NOT EXISTS vec_chunks USING vec0(
 **Key Methods**:
 - `open(path)` / `open_in_memory()` — Open SQLite DB, enable WAL, register sqlite-vec extension, run migrations
 - `open_readonly(path)` — Read-only connection (for MCP search handlers)
+- `reindex_file(p: &ReindexParams)` — Delete old chunks and insert new ones in a single atomic transaction, including tasks, note_links, tag_counts, and char_count
 - `insert_chunks(chunks)` — Insert chunk batch in transaction, returns assigned IDs (reads `vault_name` from each chunk)
 - `insert_embeddings(pairs)` — Insert (chunk_id, embedding) pairs for vector search
-- `delete_chunks_for_file(vault_name, file_path)` — Remove all chunks/FTS/vec entries for a file in a specific vault
+- `delete_file_fully(vault_name, path)` — Atomically remove all data for a file: tag_counts, chunks, FTS/vec, tasks, file_cache, note_links — all in one transaction
+- `delete_chunks_for_file(vault_name, file_path)` — Remove all chunks/FTS/vec/tasks entries for a file in a specific vault
+- `delete_file_cache(vault_name, path)` / `delete_note_links_for_source(path, vault)` — Targeted cleanup
 - `fts_search(fts5_query, limit)` — Execute FTS5 MATCH with BM25 ranking (results joined with chunks for vault_name)
-- `vec_search(embedding, limit)` — Execute vec0 KNN search with cosine distance
+- `vec_search(embedding, limit, vault_filter, include_embeddings)` — Execute vec0 KNN search with cosine distance
 - `get_chunks_by_ids(ids)` — Fetch chunks by IDs, preserving order (includes vault_name)
 - `get_surrounding_chunks(chunk_id, window)` — Fetch chunks before/after a given chunk (for context, includes vault_name)
-- `cached_hash(vault_name, path)` / `upsert_file_cache(vault_name, ...)` / `delete_file_cache(vault_name, path)` — Per-vault incremental index tracking
+- `get_chunk_vault_name(chunk_id)` — Return vault_name for a chunk (used for MCP vault auth check)
+- `cached_hash(vault_name, path)` / `upsert_file_cache(vault_name, ..., char_count)` / `delete_file_cache(vault_name, path)` — Per-vault incremental index tracking (char_count must be provided)
 - `list_cached_paths(vault_name)` — Indexed file paths for a specific vault
-- `get_dominant_model_id()` — Returns the most common non-"none" `model_id` stored in `file_cache` (used to detect model changes before re-indexing)
-- `stats()` — Vault statistics (total_chunks, total_files, vec_indexed_chunks, db_path, total_chars, top_tags, etc.)
-- `tag_stats(limit)` — Returns top N tags by frequency
-- `insert_tasks(vault_name, file_path, tasks)` — Insert task list for a file
+- `get_dominant_model_id()` — Returns the most common non-"none" `model_id` stored in `file_cache`
+- `stats()` — Vault statistics (total_chunks, total_files, vec_indexed_chunks, db_path, total_chars from file_cache.char_count, top_tags from tag_counts, etc.)
+- `tag_stats(limit)` — Returns top N tags by frequency (reads from tag_counts table, not chunks)
+- `insert_tasks(vault_name, file_path, tasks)` / `delete_tasks_for_file(vault_name, file_path)` — Task list management
 - `query_tasks(keyword, include_checked)` — Search tasks with optional keyword filter
-- `migrate()` — Schema migration (v1→v2: old notes_fts/notes_meta to chunk schema; v2→v3: add vault_name; v4+: see Schema Migrations)
+- `get_tags_for_file(vault_name, path)` / `decrement_tag_count(vault_name, tag)` — Tag counts maintenance helpers
+- `update_backlink_counts_for_vault(vault_name)` — Recalculate backlink counts for all files in a vault
+- `migrate()` — Schema migration (v1→v10, crash-safe with versioned blocks)
 
 **Error Type**: `DbError { Sqlite(rusqlite::Error), NotFound(String), Io(std::io::Error), Other(String) }`
 
@@ -88,8 +123,9 @@ CREATE VIRTUAL TABLE IF NOT EXISTS vec_chunks USING vec0(
 **Key Methods**:
 - `split(text)` → space-separated tokenized string (for FTS5 body column)
 - `tokenize_content(text, is_code)` → Whitespace-split if `is_code=true`, else Vaporetto-based
-- `and_query(text)` → `"東京" AND "検索" AND "エンジン"` (for FTS5 MATCH)
-- `or_query(text)` → `"東京" OR "検索"` (for future OR search)
+- `and_query(text)` → `"東京" AND "検索" AND "エンジン"` (**deprecated**: use `collect_tokens` + `expand_synonyms`)
+- `collect_tokens(text)` → Collect unique tokens from text (replaces `and_query`)
+- `or_query(text)` → `"東京" OR "検索"` (for OR search)
 
 **Global Cache**:
 - `static TOKENIZER: OnceLock<Arc<JapaneseTokenizer>>`
@@ -138,12 +174,15 @@ CREATE VIRTUAL TABLE IF NOT EXISTS vec_chunks USING vec0(
 ### `indexer.rs` — File Indexing (Chunk-aware)
 
 **Key Functions**:
-- `index_directory(db, tokenizer, config, embedder, progress)` → Walk all configured vaults, index all matching files. Progress is cumulative across vaults.
-- `index_file(db, tokenizer, embedder, file_path, vault_name, relative_path, config)` → Index single file: read → split into chunks → FTS insert → optional embedding insert
-- `cleanup_deleted(db, config)` → Remove DB entries for deleted files across all vaults (checks file_cache per vault)
-- `extract_frontmatter(content)` → Parse YAML frontmatter, extract title
+- `index_directory(db, tokenizer, config, embedder, progress)` → Walk all configured vaults, index all matching files. Builds `path_map` once per vault for O(1) wikilink resolution. Calls `update_backlink_counts_for_vault` after indexing. Progress is cumulative across vaults.
+- `index_file_with_embedder(p: &IndexParams)` → Index single file: read → split into chunks → FTS insert → optional embedding insert → tasks + note_links + tag_counts
+- `index_file(db, tokenizer, file_path, vault_name, relative_path, config)` → Convenience wrapper (embedder=None)
+- `cleanup_deleted(db, config)` → Remove DB entries for deleted files across all vaults using `delete_file_fully` (atomic)
+- `build_path_map(vault_paths)` → Build `HashMap<String, String>` mapping lowercase stem → shortest path for O(1) wikilink resolution
+- `extract_frontmatter(content)` → Parse YAML frontmatter, extract title/tags/date
 - `extract_tasks(content)` → Scan for `- [ ]` / `- [x]` task markers and extract task text
 - `extract_emphasized(content)` → Extract text from `==highlight==` and `**bold**` markers
+- `extract_wikilinks(content)` → Extract wikilink targets (`[[...]]`) from content
 - `load_shiotsuchiignore(vault_dir)` → Read `.shiotsuchiignore` from vault root, return pattern list
 - `check_ignore(relative_path, patterns)` → Verify if a path matches any exclude pattern, returns `Err(pattern)` if excluded
 - `markdown_to_text(markdown)` → Strip markup to plain text
@@ -166,7 +205,7 @@ Progress is cumulative: `(processed_so_far, total_across_all_vaults)`.
 ### `search.rs` — Search Engine
 
 **Key Function**:
-- `search(db, tokenizer, query, limit, mode, embedder, min_score, vault_filter, tag_filter, since_date, user_dictionary, synonyms, fuzzy, alpha, mmr, lambda)` → `Result<Vec<ChunkSearchResult>>`
+- `search(db, tokenizer, query, limit, mode, embedder, min_score, vault_filter, tag_filter, since_date, user_dictionary, synonyms, fuzzy, alpha, mmr, lambda, backlink_scoring)` → `Result<Vec<ChunkSearchResult>>`
 
 **Modes** (`SearchMode` enum):
 - `Fts` — Keyword search via FTS5 BM25 (works without model). Lower score = more relevant.
@@ -209,8 +248,10 @@ Progress is cumulative: `(processed_so_far, total_across_all_vaults)`.
 | `Task` | id, vault_name, file_path, content, checked (bool), line_number |
 | `VaultStats` | total_chunks, total_files, total_size_bytes, last_indexed_at, db_path, vec_indexed_chunks, embedder_status, total_chars, top_tags |
 | `SearchConfig` | max_snippet_chars (128–65535, default 1000) |
-| `IndexConfig` | vaults, include_extensions, exclude_dirs, auto_exclude_hidden, follow_links, dynamic_threshold |
+| `IndexConfig` | vaults, include_extensions, exclude_dirs, auto_exclude_hidden, follow_links, dynamic_threshold, backlink_scoring, enable_pdf_extraction, vlm_config, thesaurus_path, user_dictionary_path, hybrid_alpha |
 | `IndexResult` | `Inserted` / `Updated` / `Skipped` / `Error(String)` |
+| `ReindexParams` | vault_name, relative_path, hash, mtime, model_id, chunks, embeddings, file_size, tasks, note_link_targets (params for `reindex_file`) |
+| `IndexParams` | db, tokenizer, embedder, file_path, vault_name, relative_path, config, path_map (params for `index_file_with_embedder`) |
 | `Config` | synonyms: HashMap, vault_default: Option\<String\>, hybrid_alpha: Option\<f64\>, semantic_threshold: Option\<f64\>, embedder: EmbedderConfig |
 | `EmbedderConfig` | `BuiltIn` (default) / `OnnxFile { path: PathBuf }` / `Api { endpoint, model, api_key }` — embedding model provider; see `[embedder]` config section |
 
@@ -261,9 +302,11 @@ Progress is cumulative: `(processed_so_far, total_across_all_vaults)`.
 | v5 | Added `tags`, `frontmatter_date`, `title` columns to `chunks` for frontmatter metadata |
 | v6 | Added `emphasized_text` column to `chunks` for highlighted/bold text detection |
 | v7 | Added `tasks` table for task checkbox extraction (`- [ ]` / `- [x]`) |
-| v8 | (reserved / consolidated) |
+| v8 | Defensive column adds (consolidated) |
+| v9 | Added `note_links` table and `backlink_count` column to `file_cache` |
+| v10 | Added `char_count` column to `file_cache` and `tag_counts` table for O(1) stats |
 
-The v2→v3 migration is crash-safe: it checks for the column before adding it, and wraps the full migration in a transaction.
+The v2→v3 migration is crash-safe: it checks for the column before adding it, and wraps the full migration in a transaction. Migrations v8→v9 and v9→v10 are also wrapped in transactions.
 
 ## Testing Strategy
 
@@ -271,4 +314,4 @@ The v2→v3 migration is crash-safe: it checks for the column before adding it, 
 - CI: Set `SHIOTSUCHI_MODEL_PATH` for full tests
 - In-memory DB for unit tests
 - `tempfile` for disk-based DB tests
-- 194+ unit tests + 8 integration tests (transaction safety, migration, integrity checks)
+- 554+ tests across core (388), CLI (142), MCP (33)

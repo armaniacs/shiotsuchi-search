@@ -17,9 +17,14 @@ shiotsuchi-search/
 │   │   ├── tokenizer.rs # Japanese tokenizer (Vaporetto)
 │   │   ├── chunker.rs  # Markdown → chunks splitter (RAG)
 │   │   ├── embedder.rs # ONNX embedding inference (RAG)
+│   │   ├── api_embedder.rs # API-based embedding (OpenAI, etc.)
 │   │   ├── indexer.rs  # File walking + indexing (chunk-aware)
 │   │   ├── search.rs   # Search (FTS / Vec / Hybrid) + snippet extraction
 │   │   ├── models.rs   # Data structures (Chunk, SearchMode, VaultStats, etc.)
+│   │   ├── config.rs   # IndexConfig and synonyms configuration
+│   │   ├── frontmatter.rs # YAML frontmatter extraction (title, tags, date)
+│   │   ├── pdf.rs      # PDF text extraction via pdfium-render (XY-cut algorithm)
+│   │   ├── vlm.rs      # VLM API text extraction (feature-gated)
 │   │   ├── watcher.rs  # File change watcher
 │   │   ├── build_info.rs # Compile-time constants (embedded hash, features)
 │   │   ├── paths.rs    # XDG path resolution
@@ -53,7 +58,11 @@ shiotsuchi-search/
 7. **tokio runtime in MCP**: Enables async MCP progress notifications during background `rebuild_index`.
 8. **Vaporetto model embedding at build time**: Tokenizer model can be embedded via `build.rs` for zero-runtime-dependency deployment.
 9. **Multi-vault support**: Single SQLite database can serve multiple notes directories. Each chunk and file_cache entry carries a `vault_name` column to distinguish origins. Config uses `[vaults.xxx]` sections (see config format below).
-10. **Crash-safe migration**: Schema upgrades (v2→v3) are wrapped in transactions with pre-checks to handle mid-migration crashes.
+10. **Crash-safe migration**: Schema upgrades are wrapped in transactions with pre-checks to handle mid-migration crashes. `create_schema()` generates the final v10 schema directly, avoiding unnecessary migration steps for fresh DBs.
+11. **Atomic file deletion**: `delete_file_fully()` removes tag_counts, chunks, FTS/vec, tasks, file_cache, and note_links in a single transaction, preventing stale data after crashes.
+12. **Tag counts caching**: `tag_counts` table is maintained incrementally during `reindex_file` and decremented atomically during `delete_file_fully`. `stats()` reads from this table (O(K)) instead of scanning all chunks (O(N)).
+13. **O(1) wikilink resolution**: `build_path_map()` pre-builds a `HashMap<String, String>` mapping lowercase stems to shortest paths, called once per vault in `index_directory`.
+14. **pdfium-render 0.8 unification**: Core uses `pdfium-render 0.8` to match `pdfium-auto` and `edgequake-pdf2md`, eliminating the duplicate build artifact that existed with v0.9.
 
 ## Data Flow
 
@@ -102,7 +111,7 @@ Search flow:
 
 | Binary | File | Purpose |
 |--------|------|---------|
-| `shiotsuchi` | `cli/src/main.rs` | CLI tool (index, search, watch, stats, prune, list, clean, config-migrate, init, setup, delete) |
+| `shiotsuchi` | `cli/src/main.rs` | CLI tool (index, search, watch, stats, prune, list, clean, config-migrate, init, setup, delete, doctor, synonym, tasks, check-ignore) |
 | `shiotsuchi-mcp` | `mcp/src/main.rs` | MCP server for Claude Desktop (tokio async) |
 
 ## Crate Dependencies
@@ -133,4 +142,7 @@ mcp ──► core
 | Feature | Default | Description |
 |---------|---------|-------------|
 | `watcher` | yes | File system watcher via `notify` crate |
-| `async-index` | yes | Parallel indexing via `rayon` |
+| `async-index` | yes | Parallel indexing via `tokio` |
+| `semantic` | yes | ONNX embedding/vector search via `ort` and `tokenizers` |
+| `pdf` | yes | PDF text extraction via `pdfium-render` + `pdfium-auto` |
+| `vlm` | no | VLM-based PDF markdown extraction via `edgequake-pdf2md` (opt-in; requires API key) |

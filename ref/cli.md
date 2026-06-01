@@ -25,8 +25,8 @@ Running `shiotsuchi` without a subcommand opens an interactive welcome screen wi
 | `doctor` | (no args) | Environment health check with interactive repair for config, database, tokenizer, embedder, and vault directories |
 | `init` | `[--notes-dir]` `[--db-path]` `[--force]` `[--yes]` | Create config file with interactive exclusion selection |
 | `setup` | `[--check]` `[--model-path]` | Setup/check ONNX embedding model and Vaporetto tokenizer. `--check` verifies model availability and hash. |
-| `synonym` | `add/remove/list` | — | Manage thesaurus entries via CLI (synonym add/remove/list)
-| `tasks` | `[<keyword>]` `[--all]` | — | Cross-vault task checkbox search (incomplete `- [ ]` and completed `- [x]`) |
+| `synonym` | `add/remove/list` | Manage thesaurus entries via CLI (synonym add/remove/list) |
+| `tasks` | `[<keyword>]` `[--all]` | Cross-vault task checkbox search (incomplete `- [ ]` and completed `- [x]`) |
 | `support` | (no subcommands) | Display build info, dependency versions, and system information |
 
 ## Global Options
@@ -100,7 +100,7 @@ notes_dir = "/home/name/Documents/Personal"
 notes_dir = "/home/name/Documents/Work"
 ```
 
-When `vault_default` is set and no `--vault` flag is given, `search`, `index`, and `watch` operate on only that vault.```
+When `vault_default` is set and no `--vault` flag is given, `search`, `index`, and `watch` operate on only that vault.
 
 ## Configuration Fields
 
@@ -186,6 +186,26 @@ model = "multilingual-e5-large"
 ```
 
 > **Security note:** When using `provider = "api"`, set the API key via the `SHIOTSUCHI_API_KEY` environment variable instead of `api_key` in `config.toml`. The CLI will warn you if the key is stored in the config file.
+
+### `[vlm]` section
+
+Controls VLM-based PDF extraction for scanned PDFs or PDFs where `enable_pdf_extraction` produces empty text. Requires the `vlm` Cargo feature flag and an API key set via environment variable.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | bool | `false` | Enable VLM-based extraction. When false, all VLM features are skipped. |
+| `provider` | string | `"openai"` | VLM provider name. Supports `"openai"`, `"anthropic"`, `"bedrock"`, `"gemini"`, `"ollama"`. |
+| `model` | string | `"gpt-4.1-nano"` | Model name to use for vision extraction. |
+| `max_pages_per_doc` | int | — | Maximum pages to process per document. Omit for unlimited. |
+
+**Example:**
+
+```toml
+[vlm]
+enabled = true
+provider = "openai"
+model = "gpt-4.1-nano"
+```
 
 > **Note on model changes:** If you change the model after indexing, the existing vector embeddings in the database were generated with a different model and will be incompatible. Run `shiotsuchi index` to re-index all files. A warning is shown at index time when a model change is detected.
 
