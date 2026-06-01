@@ -244,7 +244,7 @@ mod tests {
         assert!(result.is_err());
         let msg = format!("{}", result.unwrap_err());
         assert!(
-            msg.contains("No such file") || msg.contains("not found") || msg.contains("不存在"),
+            msg.contains("No such file") || msg.contains("not found") || msg.contains("不存在") || msg.contains("does not exist"),
             "expected directory-not-found error, got: {}",
             msg
         );
