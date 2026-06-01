@@ -5,44 +5,43 @@ use shiotsuchi_core::{
     search::{extract_snippet, search},
     tokenizer::get_tokenizer,
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 use std::sync::Mutex;
 use std::time::Instant;
 
-/// Simple rate limiter: allows up to `max_per_second` calls.
-/// Thread-safe via a single Mutex covering count + interval reset.
+/// Sliding-window rate limiter: allows up to `max_per_second` requests
+/// in any rolling 1-second window. Uses a VecDeque of timestamps to
+/// avoid burst violations at fixed-second boundaries.
 pub struct RateLimiter {
-    max_per_second: u64,
-    inner: Mutex<RateLimiterInner>,
-}
-
-struct RateLimiterInner {
-    count: u64,
-    interval_start: Instant,
+    max_per_second: usize,
+    inner: Mutex<VecDeque<Instant>>,
 }
 
 impl RateLimiter {
-    pub fn new(max_per_second: u64) -> Self {
+    pub fn new(max_per_second: usize) -> Self {
         Self {
             max_per_second,
-            inner: Mutex::new(RateLimiterInner {
-                count: 0,
-                interval_start: Instant::now(),
-            }),
+            inner: Mutex::new(VecDeque::new()),
         }
     }
 
+    /// Sliding-window rate limiter: allows up to `max_per_second` requests
+    /// in any rolling 1-second window, preventing burst violations at
+    /// fixed-second boundaries.
     pub fn allow(&self) -> bool {
-        let mut inner = self.inner.lock().unwrap();
-        if inner.interval_start.elapsed().as_secs() >= 1 {
-            inner.interval_start = Instant::now();
-            inner.count = 0;
+        let mut timestamps = self.inner.lock().unwrap();
+        let now = Instant::now();
+        // Remove timestamps older than 1 second
+        while timestamps.front().map_or(false, |t| now.duration_since(*t).as_secs() >= 1) {
+            timestamps.pop_front();
         }
-        let prev = inner.count;
-        inner.count += 1;
-        prev < self.max_per_second
+        if timestamps.len() >= self.max_per_second {
+            return false;
+        }
+        timestamps.push_back(now);
+        true
     }
 }
 
@@ -369,7 +368,7 @@ mod tests {
     }
 
     #[test]
-    fn test_rate_limiter_resets_after_second() {
+    fn test_rate_limiter_sliding_window() {
         let limiter = RateLimiter::new(5);
         // Use up 5 calls
         for _ in 0..5 {
@@ -377,10 +376,10 @@ mod tests {
         }
         assert!(!limiter.allow(), "sixth call should be blocked");
 
-        // Manually advance the interval start to simulate 1 second passing
-        limiter.inner.lock().unwrap().interval_start = Instant::now() - std::time::Duration::from_secs(2);
+        // Simulate 2 seconds passing by clearing all old timestamps
+        limiter.inner.lock().unwrap().clear();
 
-        // Should allow again after reset
-        assert!(limiter.allow(), "call after reset should be allowed");
+        // Should allow again after old timestamps expire
+        assert!(limiter.allow(), "call after expiry should be allowed");
     }
 }

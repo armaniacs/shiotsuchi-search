@@ -285,6 +285,8 @@ impl NoteDatabase {
 
         if version < 9 {
             // v8→v9: add note_links table and backlink_count column to file_cache
+            // Wrap multi-statement migration in a transaction for crash safety.
+            conn.execute_batch("BEGIN TRANSACTION")?;
             conn.execute_batch("
                 CREATE TABLE IF NOT EXISTS note_links (
                     source_path TEXT NOT NULL,
@@ -293,7 +295,6 @@ impl NoteDatabase {
                     PRIMARY KEY (source_path, target_path, vault_name)
                 )
             ")?;
-            // Index for efficient backlink count queries (WHERE target_path=? AND vault_name=?)
             conn.execute_batch("
                 CREATE INDEX IF NOT EXISTS idx_note_links_target
                 ON note_links(target_path, vault_name)
@@ -309,10 +310,13 @@ impl NoteDatabase {
                 )?;
             }
             conn.execute_batch("PRAGMA user_version = 9")?;
+            conn.execute_batch("COMMIT")?;
         }
 
         if version < 10 {
-            // v9→v10: add char_count to file_cache, create tag_counts table
+            // v9→v10: add char_count to file_cache, create tag_counts table.
+            // Multi-statement migration: wrap in transaction for crash safety.
+            conn.execute_batch("BEGIN TRANSACTION")?;
             let fc_cols: Vec<String> = {
                 let mut stmt = conn.prepare("PRAGMA table_info(file_cache)")?;
                 let rows = stmt.query_map([], |r| r.get::<_, String>(1))?;
@@ -343,6 +347,7 @@ impl NoteDatabase {
                 ) WHERE file_cache.char_count = 0"
             )?;
             conn.execute_batch("PRAGMA user_version = 10")?;
+            conn.execute_batch("COMMIT")?;
         }
 
         Ok(())
@@ -351,11 +356,15 @@ impl NoteDatabase {
     fn create_schema(&self, conn: &Connection) -> SqliteResult<()> {
         conn.execute_batch("
             CREATE TABLE IF NOT EXISTS file_cache (
-                path      TEXT PRIMARY KEY,
-                hash      TEXT NOT NULL,
-                mtime     INTEGER NOT NULL,
-                file_size INTEGER NOT NULL DEFAULT 0,
-                model_id  TEXT NOT NULL
+                vault_name      TEXT NOT NULL,
+                path            TEXT NOT NULL,
+                hash            TEXT NOT NULL,
+                mtime           INTEGER NOT NULL,
+                model_id        TEXT NOT NULL,
+                file_size       INTEGER NOT NULL DEFAULT 0,
+                backlink_count  INTEGER NOT NULL DEFAULT 0,
+                char_count      INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (vault_name, path)
             );
 
             CREATE TABLE IF NOT EXISTS chunks (
@@ -365,9 +374,39 @@ impl NoteDatabase {
                 parent_header     TEXT,
                 content           TEXT NOT NULL,
                 tokenized_content TEXT NOT NULL,
+                vault_name        TEXT NOT NULL DEFAULT '',
+                tags              TEXT NOT NULL DEFAULT '',
+                frontmatter_date  TEXT NOT NULL DEFAULT '',
+                title             TEXT NOT NULL DEFAULT '',
                 emphasized_text   TEXT NOT NULL DEFAULT ''
             );
             CREATE INDEX IF NOT EXISTS idx_chunks_file_path ON chunks(file_path);
+
+            CREATE TABLE IF NOT EXISTS tasks (
+                id          INTEGER PRIMARY KEY,
+                vault_name  TEXT NOT NULL,
+                file_path   TEXT NOT NULL,
+                content     TEXT NOT NULL,
+                checked     INTEGER NOT NULL DEFAULT 0,
+                line_number INTEGER NOT NULL DEFAULT 0,
+                indexed_at  TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+
+            CREATE TABLE IF NOT EXISTS note_links (
+                source_path TEXT NOT NULL,
+                target_path TEXT NOT NULL,
+                vault_name  TEXT NOT NULL,
+                PRIMARY KEY (source_path, target_path, vault_name)
+            );
+            CREATE INDEX IF NOT EXISTS idx_note_links_target
+                ON note_links(target_path, vault_name);
+
+            CREATE TABLE IF NOT EXISTS tag_counts (
+                tag        TEXT NOT NULL,
+                vault_name TEXT NOT NULL,
+                count      INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (tag, vault_name)
+            ) WITHOUT ROWID;
 
             CREATE VIRTUAL TABLE IF NOT EXISTS fts_chunks USING fts5(
                 tokenized_content,
@@ -452,7 +491,59 @@ impl NoteDatabase {
         Ok(())
     }
 
+    /// Atomically remove all data for a file: tag_counts decrement, chunk/FTS/vec/task
+    /// deletion, file_cache removal, and note_links cleanup — all in one transaction.
+    /// This eliminates the crash-consistency gap between separate delete steps.
+    pub fn delete_file_fully(&self, vault_name: &str, file_path: &str) -> Result<(), DbError> {
+        // Get old tags before transaction (separate borrow from get_tags_for_file)
+        let old_tags = self.get_tags_for_file(vault_name, file_path)?;
+
+        let mut conn = self.write_conn.borrow_mut();
+        let tx = conn.transaction()?;
+
+        // 1. Decrement tag_counts for this file's tags
+        for tag in old_tags.split(',') {
+            let tag = tag.trim();
+            if !tag.is_empty() {
+                tx.execute(
+                    "UPDATE tag_counts SET count = count - 1 WHERE tag = ?1 AND vault_name = ?2 AND count > 0",
+                    params![tag, vault_name],
+                )?;
+                tx.execute(
+                    "DELETE FROM tag_counts WHERE tag = ?1 AND vault_name = ?2 AND count = 0",
+                    params![tag, vault_name],
+                )?;
+            }
+        }
+
+        // 2. Delete chunk IDs for FTS/vec cleanup
+        let ids: Vec<i64> = {
+            let mut stmt = tx.prepare("SELECT id FROM chunks WHERE vault_name = ?1 AND file_path = ?2")?;
+            let rows = stmt.query_map(params![vault_name, file_path], |r| r.get(0))?;
+            rows.collect::<SqliteResult<Vec<_>>>()?
+        };
+        for id in &ids {
+            tx.execute("DELETE FROM fts_chunks WHERE rowid = ?1", [id])?;
+            tx.execute("DELETE FROM vec_chunks WHERE chunk_id = ?1", [id])?;
+        }
+
+        // 3. Delete chunks, tasks, file_cache, note_links
+        tx.execute("DELETE FROM chunks WHERE vault_name = ?1 AND file_path = ?2", params![vault_name, file_path])?;
+        tx.execute("DELETE FROM tasks WHERE vault_name = ?1 AND file_path = ?2", params![vault_name, file_path])?;
+        tx.execute("DELETE FROM file_cache WHERE vault_name = ?1 AND path = ?2", params![vault_name, file_path])?;
+        tx.execute("DELETE FROM note_links WHERE source_path = ?1 AND vault_name = ?2", params![file_path, vault_name])?;
+
+        tx.commit()?;
+        Ok(())
+    }
+
     /// Upsert file_cache entry.
+    /// Upsert a file cache entry.
+    ///
+    /// NOTE: This method does NOT update `char_count`. Use `reindex_file()` instead,
+    /// which computes and writes `char_count` from chunk content lengths in the same
+    /// transaction. Calling this directly will leave `char_count` at its DEFAULT 0
+    /// value, causing `stats().total_chars` to be undercounted.
     pub fn upsert_file_cache(
         &self,
         vault_name: &str,

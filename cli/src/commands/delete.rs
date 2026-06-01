@@ -52,17 +52,8 @@ pub fn run_delete(
     }
 
     let db = NoteDatabase::open(db_path)?;
-    // Decrement tag_counts before deleting chunks
-    if let Ok(old_tags) = db.get_tags_for_file(vault_name, path) {
-        for tag in old_tags.split(',') {
-            let tag = tag.trim();
-            if !tag.is_empty() {
-                let _ = db.decrement_tag_count(vault_name, tag);
-            }
-        }
-    }
-    db.delete_chunks_for_file(vault_name, path)?;
-    db.delete_file_cache(vault_name, path)?;
+    // Atomic delete: tag_counts + chunks + FTS/vec + file_cache + note_links
+    db.delete_file_fully(vault_name, path)?;
     println!("{}", msg_fmt!(messages::DELETED_FILE, path));
     Ok(())
 }

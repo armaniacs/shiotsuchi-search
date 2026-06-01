@@ -371,21 +371,10 @@ pub fn cleanup_deleted(db: &NoteDatabase, config: &IndexConfig) -> Result<Vec<St
         for path in cached_paths {
             let full_path = notes_dir.join(&path);
             if !full_path.exists() {
-                // Decrement tag_counts for this file's tags before deleting chunks
-                if let Ok(old_tags) = db.get_tags_for_file(vault_name, &path) {
-                    for tag in old_tags.split(',') {
-                        let tag = tag.trim();
-                        if !tag.is_empty() {
-                            if let Err(e) = db.decrement_tag_count(vault_name, tag) {
-                                log::warn!("cleanup_deleted: failed to decrement tag '{}': {}", tag, e);
-                            }
-                        }
-                    }
+                // Atomic delete: tag_counts + chunks + file_cache + note_links all in one tx
+                if let Err(e) = db.delete_file_fully(vault_name, &path) {
+                    log::warn!("cleanup_deleted: failed to fully delete {}: {}", path, e);
                 }
-                db.delete_chunks_for_file(vault_name, &path)?;
-                db.delete_file_cache(vault_name, &path)?;
-                // Clean up outgoing note_links to avoid inflating backlink counts
-                let _ = db.delete_note_links_for_source(&path, vault_name);
                 removed.push(path);
                 vault_removed = true;
             }

@@ -183,31 +183,14 @@ impl VaultWatcher {
                     if let Ok(rel) = path.strip_prefix(&notes_dir) {
                         let rel_str = rel.to_string_lossy();
                         let db = self.db.lock().expect("watcher mutex poisoned");
-                        // Decrement tag_counts before deleting chunks
-                        if let Ok(old_tags) = db.get_tags_for_file(vault_name, &rel_str) {
-                            for tag in old_tags.split(',') {
-                                let tag = tag.trim();
-                                if !tag.is_empty() {
-                                    let _ = db.decrement_tag_count(vault_name, tag);
-                                }
-                            }
-                        }
-                        if let Err(e) = db.delete_chunks_for_file(vault_name, &rel_str) {
+                        // Atomic delete: tag_counts + chunks + FTS/vec + file_cache + note_links
+                        if let Err(e) = db.delete_file_fully(vault_name, &rel_str) {
                             log::warn!(
-                                "watcher: failed to delete chunks for {}: {}",
+                                "watcher: failed to delete {}: {}",
                                 rel_str,
                                 e
                             );
                         }
-                        if let Err(e) = db.delete_file_cache(vault_name, &rel_str) {
-                            log::warn!(
-                                "watcher: failed to delete cache for {}: {}",
-                                rel_str,
-                                e
-                            );
-                        }
-                        // Clean up outgoing note_links to avoid backlink count inflation
-                        let _ = db.delete_note_links_for_source(&rel_str, vault_name);
                         if self.config.backlink_scoring {
                             if let Err(e) = db.update_backlink_counts_for_vault(vault_name) {
                                 log::warn!("watcher: failed to update backlink counts: {}", e);
@@ -229,23 +212,14 @@ impl VaultWatcher {
                         if let Ok(old_rel) = old.strip_prefix(&notes_dir) {
                             let rel_str = old_rel.to_string_lossy();
                             let db = self.db.lock().expect("watcher mutex poisoned");
-                            // Decrement tag_counts before deleting chunks (old path after rename)
-                            if let Ok(old_tags) = db.get_tags_for_file(vault_name, &rel_str) {
-                                for tag in old_tags.split(',') {
-                                    let tag = tag.trim();
-                                    if !tag.is_empty() {
-                                        let _ = db.decrement_tag_count(vault_name, tag);
-                                    }
-                                }
-                            }
-                            if let Err(e) = db.delete_chunks_for_file(vault_name, &rel_str) {
+                            // Atomic delete: tag_counts + chunks + FTS/vec + file_cache + note_links
+                            if let Err(e) = db.delete_file_fully(vault_name, &rel_str) {
                                 log::warn!(
                                     "watcher: failed to delete old path {}: {}",
                                     rel_str,
                                     e
                                 );
                             }
-                            let _ = db.delete_file_cache(vault_name, &rel_str);
                         }
                     }
                     // Symlink-safe vault check for the new path before indexing
