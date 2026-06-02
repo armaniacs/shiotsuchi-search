@@ -13,6 +13,14 @@ MCP 経由によるノートの作成・編集・削除は厳密に禁止する�
 
 ## 完了・アーカイブ済み
 
+### PBI-27: Obsidian コミュニティプラグイン化
+
+**分割・アーカイブ済み — Rust 側は PBI-37 として独立、TypeScript 側は別リポジトリで管理。**
+
+分割方針:
+- **Rust 側**（このリポジトリ）: `shiotsuchi serve` — HTTP ローカルサーバーモード追加 → `pbi/2026-06-03-37-feat-serve-http-server.md`
+- **TypeScript 側**（別リポジトリ: `shiotsuchi-obsidian`）: Obsidian プラグイン本体
+
 ### PBI-21: PDF テキスト抽出検索
 
 **Phase A (PDF テキスト抽出 + XY-Cut レイアウト解析) — 完了・アーカイブ済み。**
