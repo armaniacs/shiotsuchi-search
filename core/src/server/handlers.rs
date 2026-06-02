@@ -17,7 +17,10 @@ pub struct AppState {
 
 /// Health check endpoint.
 pub async fn handle_health() -> Json<serde_json::Value> {
-    todo!()
+    Json(serde_json::json!({
+        "status": "ok",
+        "version": env!("CARGO_PKG_VERSION"),
+    }))
 }
 
 /// Search endpoint.
