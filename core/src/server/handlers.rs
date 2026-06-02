@@ -103,9 +103,22 @@ pub async fn handle_search(
 
 /// Stats endpoint.
 pub async fn handle_stats(
-    State(_state): State<Arc<AppState>>,
+    State(state): State<Arc<AppState>>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    todo!()
+    let db = state.db.lock().await;
+    let stats = db
+        .stats()
+        .map_err(|e| ApiError::Internal(format!("failed to get stats: {}", e)))?;
+
+    Ok(Json(serde_json::json!({
+        "total_files": stats.total_files,
+        "total_chunks": stats.total_chunks,
+        "total_size_bytes": stats.total_size_bytes,
+        "last_indexed_at": stats.last_indexed_at,
+        "db_path": stats.db_path.to_string_lossy(),
+        "embedder_status": stats.embedder_status,
+        "top_tags": stats.top_tags,
+    })))
 }
 
 /// List indexed files endpoint.
