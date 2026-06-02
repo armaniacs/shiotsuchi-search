@@ -25,10 +25,31 @@ pub async fn handle_health() -> Json<serde_json::Value> {
 
 /// Search endpoint.
 pub async fn handle_search(
-    State(_state): State<Arc<AppState>>,
-    _params: axum::extract::Query<SearchParams>,
+    State(state): State<Arc<AppState>>,
+    axum::extract::Query(params): axum::extract::Query<SearchParams>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    todo!()
+    let query = params.q.trim().to_string();
+    if query.is_empty() {
+        return Err(ApiError::BadRequest(
+            "query parameter 'q' is required".to_string(),
+        ));
+    }
+
+    let _mode = match params.mode.as_str() {
+        "fts" => crate::models::SearchMode::Fts,
+        "vec" => crate::models::SearchMode::Vec,
+        "hybrid" => crate::models::SearchMode::Hybrid,
+        other => {
+            return Err(ApiError::BadRequest(format!(
+                "invalid mode '{}': must be 'fts', 'vec', or 'hybrid'",
+                other
+            )));
+        }
+    };
+
+    let _ = state;
+
+    todo!("search implementation")
 }
 
 /// Stats endpoint.
