@@ -57,6 +57,21 @@ shiotsuchi search "project plan"
 shiotsuchi watch --notes-dir ~/Notes
 ```
 
+## Linear CLI
+
+Linear CLI は **常に `npx` を使って呼び出すこと**。
+
+```bash
+# 正しい使い方
+npx @schpet/linear-cli issue list
+npx @schpet/linear-cli issue create --title "..." --team DEV
+
+# 間違い（使わないこと）
+linear issue list
+```
+
+グローバルインストールしない。`npx` 経由で必ず呼ぶ。
+
 ## Important Context
 
 - Uses **Vaporetto** for Japanese tokenization (not SQLite extension)
