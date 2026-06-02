@@ -123,10 +123,31 @@ pub async fn handle_stats(
 
 /// List indexed files endpoint.
 pub async fn handle_list(
-    State(_state): State<Arc<AppState>>,
-    _config: axum::extract::Extension<ShiotsuchiConfig>,
+    State(state): State<Arc<AppState>>,
+    config: axum::extract::Extension<ShiotsuchiConfig>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    todo!()
+    let mut files = Vec::new();
+    let db = state.db.lock().await;
+    for (vault_name, _vault_path) in config.resolved_vaults() {
+        match db.list_cached_paths(&vault_name) {
+            Ok(paths) => {
+                for path in paths {
+                    files.push(FileItem {
+                        path,
+                        vault_name: vault_name.clone(),
+                    });
+                }
+            }
+            Err(e) => {
+                eprintln!("Warning: failed to list files for vault '{}': {}", vault_name, e);
+            }
+        }
+    }
+    let count = files.len();
+    Ok(Json(serde_json::json!({
+        "files": files,
+        "count": count,
+    })))
 }
 
 /// Create the axum router with all routes.
