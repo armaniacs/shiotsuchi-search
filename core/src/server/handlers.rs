@@ -302,6 +302,37 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_cors_preflight_returns_ok() {
+        let (router, _tmp) = setup_test_router();
+        let req = Request::builder()
+            .method("OPTIONS")
+            .uri("/api/v1/search")
+            .header("Origin", "http://localhost")
+            .header("Access-Control-Request-Method", "GET")
+            .body(Body::empty())
+            .unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert!(
+            resp.headers().contains_key("access-control-allow-origin"),
+            "CORS header missing"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_cors_rejects_non_localhost() {
+        let (router, _tmp) = setup_test_router();
+        let req = Request::builder()
+            .uri("/api/v1/health")
+            .header("Origin", "http://evil.com")
+            .body(Body::empty())
+            .unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        let has_cors = resp.headers().contains_key("access-control-allow-origin");
+        assert!(!has_cors || resp.status() == StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
     async fn test_error_response_format() {
         let (router, _tmp) = setup_test_router();
         let req = Request::builder()
