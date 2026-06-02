@@ -1178,7 +1178,7 @@ impl NoteDatabase {
         } else {
             " AND checked = 0".to_string()
         };
-        let has_keyword = keyword.map_or(false, |k| !k.is_empty());
+        let has_keyword = keyword.is_some_and(|k| !k.is_empty());
         let keyword_filter = if has_keyword {
             " AND content LIKE ?1".to_string()
         } else {

@@ -10,7 +10,7 @@ use log;
 ///
 /// `tag_filter` — comma-separated tag string to match (empty/none = no filter).
 /// `since_date` — ISO 8601 date string for minimum frontmatter date filter.
-
+///
 /// Cosine similarity between two f32 vectors.
 fn cosine_similarity(a: &[f32], b: &[f32]) -> f64 {
     let dot: f32 = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum();
@@ -313,7 +313,7 @@ fn apply_filters_and_boost(
                 if query_tokens.iter().any(|t| title_lower.contains(t)) {
                     match mode {
                         SearchMode::Hybrid => {
-                            r.score = r.score * (1.0 / title_factor);
+                            r.score *= 1.0 / title_factor;
                         }
                         _ => {
                             if r.score < 0.0 {
@@ -335,7 +335,7 @@ fn apply_filters_and_boost(
                 if query_tokens.iter().any(|t| emph_lower.contains(t)) {
                     match mode {
                         SearchMode::Hybrid => {
-                            r.score = r.score * (1.0 / emph_factor);
+                            r.score *= 1.0 / emph_factor;
                         }
                         _ => {
                             if r.score < 0.0 {

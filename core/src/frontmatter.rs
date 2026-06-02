@@ -3,7 +3,7 @@
 /// Extracts `title`, `tags`, and `date` fields from `---`-delimited blocks.
 /// Handles both inline arrays (`tags: [a, b]`) and multi-line lists
 /// (`tags:\n  - a\n  - b`). All other YAML keys are silently ignored.
-
+///
 /// Parsed frontmatter metadata.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Frontmatter {
@@ -101,16 +101,14 @@ fn parse_frontmatter_lines(content: &str) -> Frontmatter {
         let value = trimmed[colon_pos + 1..].trim();
 
         match key.as_str() {
-            "title" => {
-                if !value.is_empty() {
+            "title"
+                if !value.is_empty() => {
                     title = Some(value.to_string());
                 }
-            }
-            "date" => {
-                if !value.is_empty() {
+            "date"
+                if !value.is_empty() => {
                     date = Some(value.to_string());
                 }
-            }
             "tags" => {
                 if value.is_empty() {
                     // tags key with no value on same line → start of multi-line list

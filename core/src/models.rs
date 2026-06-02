@@ -45,8 +45,6 @@ pub struct ChunkSearchResult {
 }
 
 /// Which retrieval strategy was used.
-
-/// Which retrieval strategy was used.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum SearchMode {

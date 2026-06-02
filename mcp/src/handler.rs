@@ -34,7 +34,7 @@ impl RateLimiter {
         let mut timestamps = self.inner.lock().unwrap();
         let now = Instant::now();
         // Remove timestamps older than 1 second
-        while timestamps.front().map_or(false, |t| now.duration_since(*t).as_secs() >= 1) {
+        while timestamps.front().is_some_and(|t| now.duration_since(*t).as_secs() >= 1) {
             timestamps.pop_front();
         }
         if timestamps.len() >= self.max_per_second {

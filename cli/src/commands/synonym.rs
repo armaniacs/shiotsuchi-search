@@ -1,7 +1,7 @@
 use crate::msg_fmt;
 use crate::messages;
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Manage synonym/thesaurus entries for FTS5 query expansion.
 ///
@@ -42,7 +42,7 @@ pub fn run_synonym(cmd: &SynonymCommand) -> Result<(), Box<dyn std::error::Error
 }
 
 /// Load the thesaurus file, returning an empty map if it doesn't exist.
-fn load_thesaurus(path: &PathBuf) -> HashMap<String, Vec<String>> {
+fn load_thesaurus(path: &Path) -> HashMap<String, Vec<String>> {
     if path.exists() {
         match shiotsuchi_core::config::ShiotsuchiConfig::load_synonyms_from(path) {
             Ok(map) => map,
@@ -74,7 +74,7 @@ fn add_synonym(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut thes = load_thesaurus(path);
 
-    let entry = thes.entry(word.to_string()).or_insert_with(Vec::new);
+    let entry = thes.entry(word.to_string()).or_default();
     for syn in synonyms {
         if entry.contains(syn) {
             println!("  {}", msg_fmt!(messages::SYNONYM_ALREADY_EXISTS, word, syn));
@@ -109,7 +109,7 @@ fn remove_synonym(
 }
 
 fn list_synonyms(
-    path: &PathBuf,
+    path: &Path,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let thes = load_thesaurus(path);
     if thes.is_empty() {

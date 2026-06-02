@@ -157,7 +157,7 @@ impl JapaneseTokenizer {
                     }
                     if self.should_include(&token) {
                         for st in split_ascii_words(surface) {
-                            if tokens.last().map_or(true, |last| last != &st) {
+                            if tokens.last() != Some(&st) {
                                 tokens.push(st);
                             }
                         }

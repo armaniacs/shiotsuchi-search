@@ -77,7 +77,7 @@ fn test_snippet_extraction() {
 #[test]
 fn test_vlm_feature_is_compiled_and_not_compiled_stub_is_absent() {
     use shiotsuchi_core::config::VlmConfig;
-    use shiotsuchi_core::vlm::{extract_text_with_vlm, VlmError};
+    use shiotsuchi_core::vlm::extract_text_with_vlm;
 
     let config = VlmConfig { enabled: false, ..Default::default() };
     let path = std::path::Path::new("/nonexistent/dummy.pdf");
