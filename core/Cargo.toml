@@ -55,6 +55,9 @@ unicode-normalization = "0.1"
 config = { version = "0.15", features = ["toml"] }
 sqlite-vec = "0.1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "sync", "time"], optional = true }
+axum = "0.8"
+tower = { version = "0.5", features = ["util"] }
+tower-http = { version = "0.6", features = ["cors"] }
 toml = "1.1"
 
 [features]
