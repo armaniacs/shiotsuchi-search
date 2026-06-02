@@ -116,9 +116,12 @@ enum Commands {
     Tasks(commands::tasks::TasksArgs),
     #[command(name = "stats", alias = "tide", about = crate::messages::TIDE_ABOUT)]
     Tide(commands::tide::TideArgs),
+    #[command(about = "Start HTTP API server")]
+    Serve(commands::serve::ServeArgs),
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cmd = <Cli as clap::CommandFactory>::command()
         .after_help(build_info::help_footer())
         .long_version(build_info::long_version());
@@ -263,6 +266,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Some(Commands::Synonym(cmd)) => {
             commands::synonym::run_synonym(&cmd)?;
+        }
+        Some(Commands::Serve(args)) => {
+            if let Err(e) = commands::serve::run_serve(&args, &cfg).await {
+                eprintln!("Error: {}", e);
+                std::process::exit(1);
+            }
         }
         Some(Commands::Config(args)) => {
             commands::config::run_config(

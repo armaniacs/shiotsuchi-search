@@ -11,6 +11,7 @@ pub mod init;
 pub mod log;
 pub mod noise;
 pub mod scan;
+pub mod serve;
 pub mod setup;
 pub mod support;
 pub mod synonym;
