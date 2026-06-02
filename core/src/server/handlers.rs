@@ -243,6 +243,23 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_list_returns_empty_when_no_files() {
+        let (router, _tmp) = setup_test_router();
+        let req = Request::builder()
+            .uri("/api/v1/list")
+            .body(Body::empty())
+            .unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["count"], 0);
+        assert_eq!(json["files"], serde_json::json!([]));
+    }
+
+    #[tokio::test]
     async fn test_stats_returns_expected_fields() {
         let (router, _tmp) = setup_test_router();
         let req = Request::builder()
