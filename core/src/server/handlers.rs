@@ -10,7 +10,7 @@ use std::sync::Arc;
 /// Shared application state.
 pub struct AppState {
     pub db: Arc<tokio::sync::Mutex<NoteDatabase>>,
-    pub tokenizer: Arc<crate::tokenizer::JapaneseTokenizer>,
+    pub tokenizer: Option<Arc<crate::tokenizer::JapaneseTokenizer>>,
     pub synonyms: HashMap<String, Vec<String>>,
     pub hybrid_alpha: Option<f64>,
 }
@@ -75,10 +75,7 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let db_path = tmp.path().join("test.db");
         let db = NoteDatabase::open(&db_path).unwrap();
-        let tokenizer = match crate::tokenizer::get_tokenizer() {
-            Ok(t) => t,
-            Err(_) => panic!("Tokenizer model not available — skipping server tests"),
-        };
+        let tokenizer = crate::tokenizer::get_tokenizer().ok();
         let state = Arc::new(AppState {
             db: Arc::new(tokio::sync::Mutex::new(db)),
             tokenizer,
@@ -98,5 +95,38 @@ mod tests {
             .unwrap();
         let resp = router.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_search_missing_query_param() {
+        let (router, _tmp) = setup_test_router();
+        let req = Request::builder()
+            .uri("/api/v1/search")
+            .body(Body::empty())
+            .unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn test_search_empty_query() {
+        let (router, _tmp) = setup_test_router();
+        let req = Request::builder()
+            .uri("/api/v1/search?q=")
+            .body(Body::empty())
+            .unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn test_search_invalid_mode() {
+        let (router, _tmp) = setup_test_router();
+        let req = Request::builder()
+            .uri("/api/v1/search?q=test&mode=invalid")
+            .body(Body::empty())
+            .unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
     }
 }
