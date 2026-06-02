@@ -3778,7 +3778,7 @@ checksum = "dc6fe69c597f9c37bfeeeeeb33da3530379845f10be461a66d16d03eca2ded77"
 
 [[package]]
 name = "shiotsuchi"
-version = "0.4.15"
+version = "0.4.16"
 dependencies = [
  "clap",
  "clap_complete",
@@ -3801,7 +3801,7 @@ dependencies = [
 
 [[package]]
 name = "shiotsuchi-core"
-version = "0.4.15"
+version = "0.4.16"
 dependencies = [
  "config",
  "criterion",
@@ -3836,7 +3836,7 @@ dependencies = [
 
 [[package]]
 name = "shiotsuchi-e2e"
-version = "0.4.15"
+version = "0.4.16"
 dependencies = [
  "notify 6.1.1",
  "serde_json",
@@ -3846,7 +3846,7 @@ dependencies = [
 
 [[package]]
 name = "shiotsuchi-mcp"
-version = "0.4.15"
+version = "0.4.16"
 dependencies = [
  "clap",
  "config",
