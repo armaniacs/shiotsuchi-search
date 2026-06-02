@@ -215,6 +215,25 @@ impl Default for WatcherConfig {
     }
 }
 
+/// HTTP server configuration for `shiotsuchi serve`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ServerConfig {
+    pub port: u16,
+    pub host: String,
+    pub cors_origins: Vec<String>,
+}
+
+impl Default for ServerConfig {
+    fn default() -> Self {
+        Self {
+            port: 7171,
+            host: "127.0.0.1".to_string(),
+            cors_origins: vec!["http://localhost".to_string()],
+        }
+    }
+}
+
 /// Configuration for VLM-based PDF extraction (e.g., scanned PDFs with no embedded text).
 /// Requires the `vlm` Cargo feature flag.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -278,6 +297,9 @@ pub struct ShiotsuchiConfig {
     /// Defaults to built-in model resolution (env var / XDG default).
     #[serde(default)]
     pub embedder: EmbedderConfig,
+    /// HTTP server configuration.
+    #[serde(default)]
+    pub server: ServerConfig,
 }
 
 impl ShiotsuchiConfig {
