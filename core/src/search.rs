@@ -369,7 +369,7 @@ fn apply_filters_and_boost(
 /// Resolves chunk metadata from DB, applies optional min_score filter,
 /// and sorts ascending (lower score = more relevant). Common post-processing
 /// for both FTS and vec search paths.
-fn build_results(
+pub(crate) fn build_results(
     db: &NoteDatabase,
     hits: Vec<(i64, f64)>,
     mode: SearchMode,

@@ -35,7 +35,7 @@ pub async fn handle_search(
         ));
     }
 
-    let _mode = match params.mode.as_str() {
+    let mode = match params.mode.as_str() {
         "fts" => crate::models::SearchMode::Fts,
         "vec" => crate::models::SearchMode::Vec,
         "hybrid" => crate::models::SearchMode::Hybrid,
@@ -47,9 +47,58 @@ pub async fn handle_search(
         }
     };
 
-    let _ = state;
+    let db = state.db.lock().await;
 
-    todo!("search implementation")
+    let results = if let Some(tokenizer) = &state.tokenizer {
+        crate::search::search(
+            &db,
+            tokenizer,
+            &query,
+            params.limit,
+            mode,
+            None,
+            None,
+            params.vault.as_deref(),
+            params.tag.as_deref(),
+            params.since.as_deref(),
+            &[],
+            &state.synonyms,
+            false,
+            state.hybrid_alpha,
+            false,
+            0.7,
+            false,
+        )
+        .map_err(|e| ApiError::Internal(format!("search failed: {}", e)))?
+    } else {
+        let fts5_query = crate::tokenizer::simple_and_query(&query);
+        let hits = db.fts_search(&fts5_query, params.limit, params.vault.as_deref())
+            .map_err(|e| ApiError::Internal(format!("search failed: {}", e)))?;
+        if hits.is_empty() {
+            vec![]
+        } else {
+            crate::search::build_results(&db, hits, crate::models::SearchMode::Fts, None)
+                .map_err(|e| ApiError::Internal(format!("search failed: {}", e)))?
+        }
+    };
+
+    let items: Vec<SearchResultItem> = results
+        .into_iter()
+        .map(|r| SearchResultItem {
+            file_path: r.file_path,
+            title: r.title,
+            parent_header: r.parent_header,
+            snippet: crate::search::extract_snippet(&r.content, &query, 5, 200),
+            score: r.score,
+            vault_name: r.vault_name,
+        })
+        .collect();
+
+    let count = items.len();
+    Ok(Json(serde_json::json!({
+        "results": items,
+        "count": count,
+    })))
 }
 
 /// Stats endpoint.
