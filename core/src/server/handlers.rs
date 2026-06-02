@@ -26,8 +26,11 @@ pub async fn handle_health() -> Json<serde_json::Value> {
 /// Search endpoint.
 pub async fn handle_search(
     State(state): State<Arc<AppState>>,
-    axum::extract::Query(params): axum::extract::Query<SearchParams>,
+    params: Result<axum::extract::Query<SearchParams>, axum::extract::rejection::QueryRejection>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    let axum::extract::Query(params) =
+        params.map_err(|e| ApiError::BadRequest(e.body_text()))?;
+
     let query = params.q.trim().to_string();
     if query.is_empty() {
         return Err(ApiError::BadRequest(
@@ -296,5 +299,22 @@ mod tests {
         assert!(json.get("total_files").is_some());
         assert!(json.get("total_chunks").is_some());
         assert!(json.get("db_path").is_some());
+    }
+
+    #[tokio::test]
+    async fn test_error_response_format() {
+        let (router, _tmp) = setup_test_router();
+        let req = Request::builder()
+            .uri("/api/v1/search")
+            .body(Body::empty())
+            .unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["error"]["code"], "BAD_REQUEST");
+        assert!(json["error"]["message"].is_string());
     }
 }
