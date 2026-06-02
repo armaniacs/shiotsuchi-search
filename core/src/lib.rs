@@ -17,6 +17,7 @@ pub mod tokenizer;
 pub mod watcher;
 
 pub mod pdf;
+pub mod server;
 
 #[cfg(feature = "vlm")]
 pub mod vlm;
