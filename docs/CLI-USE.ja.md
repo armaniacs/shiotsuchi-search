@@ -574,6 +574,75 @@ shiotsuchi clean
 
 ---
 
+## HTTP サーバー（ブラウザ UI）
+
+shiotsuchi には、ブラウザで使える検索 UI が組み込まれています。Obsidian プラグインやブラウザから検索機能を利用できます。
+
+### 起動
+
+```sh
+shiotsuchi serve --port 7171
+```
+
+ブラウザで http://localhost:7171/ui を開いてください。
+
+### 主な機能
+
+- **Search** — キーワード検索（Hybrid / Full-text モード）
+- **Stats** — インデックス統計情報（ファイル数、チャンク数、合計サイズ等）
+- **Files** — インデックス済みファイル一覧（ページネーション対応）
+- **ファイルビューア** — 検索結果・ファイル一覧からファイル内容を閲覧
+
+キーボード操作・スクリーンリーダーにも対応しています。
+
+### API エンドポイント
+
+| パス | 説明 |
+|------|------|
+| `GET /ui` | ブラウザ検索 UI |
+| `GET /api/v1/health` | ヘルスチェック |
+| `GET /api/v1/search?q=<query>&mode=<mode>&limit=<n>` | 検索 |
+| `GET /api/v1/stats` | 統計情報 |
+| `GET /api/v1/list?offset=<n>&limit=<n>` | ファイル一覧 |
+| `GET /api/v1/read?path=<path>&vault=<vault>` | ファイル内容の読み取り |
+
+### 認証
+
+外部ネットワーク公開時は API キー認証を設定できます：
+
+```sh
+# 環境変数で設定
+SHIOTSUCHI_SERVER_API_KEY=my-secret-key shiotsuchi serve --host 0.0.0.0
+
+# CLI オプションで設定
+shiotsuchi serve --host 0.0.0.0 --api-key my-secret-key
+```
+
+認証設定時は `X-API-Key` ヘッダーまたは `Authorization: Bearer <key>` ヘッダーでリクエストする必要があります。`/api/v1/health` と `/ui` は認証不要です。
+
+### 設定ファイル
+
+`~/.config/shiotsuchi/config.toml` に `[server]` セクションを追加：
+
+```toml
+[server]
+port = 7171
+host = "127.0.0.1"
+cors_origins = ["http://localhost"]
+```
+
+### MCP サーバーとの違い
+
+| | `shiotsuchi serve` | `shiotsuchi-mcp` |
+|--|-------------------|-------------------|
+| 用途 | UI フロントエンド向け | AI アシスタント向け |
+| インターフェース | HTTP API + ブラウザ UI | MCP プロトコル（stdio） |
+| 認証 | API キー（任意） | なし |
+
+両方とも同一の SQLite DB を Read Only で参照するため、並存して使えます。
+
+---
+
 ## CLI と MCP サーバーの連携
 
 CLI がインデックスを構築・管理し、MCP サーバーが LLM からの検索要求に応えます。

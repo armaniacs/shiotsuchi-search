@@ -542,6 +542,75 @@ shiotsuchi clean
 
 ---
 
+## HTTP server (Browser UI)
+
+shiotsuchi includes a built-in browser-based search UI. You can search your vault from a web browser or use it as a backend for Obsidian plugins.
+
+### Start the server
+
+```sh
+shiotsuchi serve --port 7171
+```
+
+Open http://localhost:7171/ui in your browser.
+
+### Features
+
+- **Search** — Keyword search (Hybrid / Full-text mode)
+- **Stats** — Index statistics (file count, chunk count, total size, etc.)
+- **Files** — Indexed file list (with pagination)
+- **File viewer** — View file content from search results or file list
+
+Keyboard navigation and screen readers are supported.
+
+### API endpoints
+
+| Path | Description |
+|------|-------------|
+| `GET /ui` | Browser search UI |
+| `GET /api/v1/health` | Health check |
+| `GET /api/v1/search?q=<query>&mode=<mode>&limit=<n>` | Search |
+| `GET /api/v1/stats` | Index statistics |
+| `GET /api/v1/list?offset=<n>&limit=<n>` | Indexed file list |
+| `GET /api/v1/read?path=<path>&vault=<vault>` | Read file content |
+
+### Authentication
+
+When exposing the server to a network, set up API key authentication:
+
+```sh
+# Via environment variable
+SHIOTSUCHI_SERVER_API_KEY=my-secret-key shiotsuchi serve --host 0.0.0.0
+
+# Via CLI option
+shiotsuchi serve --host 0.0.0.0 --api-key my-secret-key
+```
+
+When authentication is enabled, requests must include an `X-API-Key` header or `Authorization: Bearer <key>` header. `/api/v1/health` and `/ui` are always unauthenticated.
+
+### Configuration file
+
+Add a `[server]` section to `~/.config/shiotsuchi/config.toml`:
+
+```toml
+[server]
+port = 7171
+host = "127.0.0.1"
+cors_origins = ["http://localhost"]
+```
+
+### Difference from MCP server
+
+| | `shiotsuchi serve` | `shiotsuchi-mcp` |
+|--|-------------------|-------------------|
+| Purpose | UI frontend backend | AI assistant backend |
+| Interface | HTTP API + browser UI | MCP protocol (stdio) |
+| Authentication | API key (optional) | None |
+
+Both read from the same SQLite database in read-only mode and can run concurrently.
+
+---
+
 ## Using the CLI together with the MCP server
 
 The CLI builds and maintains the index; the MCP server makes it searchable by an LLM.
