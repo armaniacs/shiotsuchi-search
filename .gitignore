@@ -38,3 +38,6 @@ docs/superpowers/
 
 # Vendored third-party binaries (auto-downloaded by build deps)
 /vendor/
+
+# Git worktrees for parallel development sessions
+.worktrees/
