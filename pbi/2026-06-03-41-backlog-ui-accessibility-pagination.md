@@ -16,18 +16,37 @@
 ```gherkin
 Scenario: タブがキーボードで操作できる
   Given ブラウザ UI が開いている
-  When Tab キーでタブにフォーカスを移動し Enter キーを押す
-  Then 対応するパネルが表示される
+  When Tab キーで "Stats" タブにフォーカスを移動し Enter キーを押す
+  Then Stats パネルが表示される
+  And 検索パネルは非表示になる
 
-Scenario: 検索結果がキーボードで操作できる
-  Given 検索結果が表示されている
-  When Tab キーで結果カードにフォーカスを移動し Enter キーを押す
+Scenario: 検索結果カードがキーボードで開ける
+  Given 検索結果が 1 件以上表示されている
+  When Tab キーで最初の結果カードにフォーカスを移動し Enter キーを押す
   Then ファイルビューアモーダルが開く
+  And モーダル内にファイル内容が表示される
 
-Scenario: ファイル一覧がページ分割される
-  Given 1000 ファイルがインデックスされている
-  When Files タブを開く
-  Then 最初の 50 ファイルが表示され「さらに読み込み」ボタンが表示される
+Scenario: モーダルが開いた状態でフォーカスがモーダル内に留まる
+  Given ファイルビューアモーダルが開いている
+  When Tab キーを 5 回押す
+  Then フォーカスはモーダル内の要素を循環する
+  And モーダル背後の要素にフォーカスが移動しない
+
+Scenario: ファイル一覧の API がページ分割される
+  Given 100 ファイルがインデックスされている
+  When `GET /api/v1/list?offset=0&limit=50` をリクエストする
+  Then 50 ファイルが返される
+  And `total` は 100
+
+Scenario: ファイル一覧の 2 ページ目が取得できる
+  Given 100 ファイルがインデックスされている
+  When `GET /api/v1/list?offset=50&limit=50` をリクエストする
+  Then 残り 50 ファイルが返される
+
+Scenario: フェッチがタイムアウトした場合にエラーが表示される
+  Given API サーバーが応答しない
+  When 検索を実行する
+  Then 15 秒以内にエラーメッセージが表示される
 ```
 
 ## 受け入れ基準
@@ -40,11 +59,15 @@ Scenario: ファイル一覧がページ分割される
 - [ ] `AbortController` で fetch タイムアウト（15秒）を設定
 - [ ] `<html lang="en">` に修正（現在は `lang="ja` だが UI は英語）
 
-## テスト戦略（t_wada スタイル）
+## テスト戦略（TDD レッド → グリーン → リファクタ）
 
-### Unit Test
-- ARIA 属性の存在確認
-- キーボードイベントハンドラのテスト
+### Unit Test（各シナリオに対応）
+- `test_tab_keyboard_navigation` — Tab でタブ切替
+- `test_result_card_keyboard_open` — Enter でモーダル表示
+- `test_modal_focus_trap` — Tab でフォーカス循環
+- `test_list_pagination_offset_limit` — offset/limit でページ分割
+- `test_list_pagination_second_page` — 2 ページ目の取得
+- `test_fetch_timeout_error` — タイムアウト時のエラー表示
 
 ### Manual Test
 - スクリーンリーダー（VoiceOver / NVDA）での操作確認
@@ -77,9 +100,10 @@ GET /api/v1/list?offset=0&limit=50
 - `core/src/db.rs`: `list_cached_paths` にページネーション対応
 
 ## Definition of Done
-- [ ] タブがキーボードで操作できる
-- [ ] 検索結果がキーボードで操作できる
-- [ ] ファイル一覧がページ分割される
-- [ ] モーダルにフォーカストラップがある
-- [ ] fetch タイムアウトが動作する
-- [ ] テストがパスする
+- [ ] `test_tab_keyboard_navigation` がパスする
+- [ ] `test_result_card_keyboard_open` がパスする
+- [ ] `test_modal_focus_trap` がパスする
+- [ ] `test_list_pagination_offset_limit` がパスする
+- [ ] `test_list_pagination_second_page` がパスする
+- [ ] `test_fetch_timeout_error` がパスする
+- [ ] 全テストがパスする

@@ -14,29 +14,33 @@
 ## BDD 受け入れシナリオ
 
 ```gherkin
-Scenario: API キー認証でリクエストが許可される
-  Given 環境変数 `SHIOTSUCHI_SERVER_API_KEY` に API キーが設定されている
+Scenario: 有効な API キーでリクエストが許可される
+  Given `SHIOTSUCHI_SERVER_API_KEY` = "test-key-123"
   And `shiotsuchi serve --host 0.0.0.0` が起動している
-  When `X-API-Key: <valid-key>` ヘッダー付きで `GET /api/v1/health` をリクエストする
+  When `X-API-Key: test-key-123` で `GET /api/v1/health` をリクエストする
   Then 200 OK レスポンスが返される
 
 Scenario: API キーなしでリクエストが拒否される
-  Given 環境変数 `SHIOTSUCHI_SERVER_API_KEY` に API キーが設定されている
+  Given `SHIOTSUCHI_SERVER_API_KEY` = "test-key-123"
   And `shiotsuchi serve --host 0.0.0.0` が起動している
-  When API キーヘッダーなしで `GET /api/v1/health` をリクエストする
+  When ヘッダーなしで `GET /api/v1/health` をリクエストする
+  Then 401 Unauthorized レスポンスが返される
+
+Scenario: 無効な API キーでリクエストが拒否される
+  Given `SHIOTSUCHI_SERVER_API_KEY` = "test-key-123"
+  And `shiotsuchi serve --host 0.0.0.0` が起動している
+  When `X-API-Key: wrong-key` で `GET /api/v1/health` をリクエストする
   Then 401 Unauthorized レスポンスが返される
 
 Scenario: localhost バインド時は認証不要
-  Given `shiotsuchi serve` がデフォルト（127.0.0.1）で起動している
-  When API キーヘッダーなしで `GET /api/v1/health` をリクエストする
+  Given `shiotsuchi serve` (デフォルト 127.0.0.1) が起動している
+  When ヘッダーなしで `GET /api/v1/health` をリクエストする
   Then 200 OK レスポンスが返される
 
-Scenario: SHIOTSUCHI_API_KEY と SHIOTSUCHI_SERVER_API_KEY は分離されている
-  Given 環境変数 `SHIOTSUCHI_API_KEY` に埋め込み用キーが設定されている
-  And 環境変数 `SHIOTSUCHI_SERVER_API_KEY` が未設定
-  And `shiotsuchi serve --host 0.0.0.0` が起動している
-  When API キーヘッダーなしで `GET /api/v1/health` をリクエストする
-  Then 401 Unauthorized レスポンスが返される
+Scenario: 認証失敗時のエラーレスポンス形式
+  Given `SHIOTSUCHI_SERVER_API_KEY` = "test-key-123"
+  When ヘッダーなしで `GET /api/v1/health` をリクエストする
+  Then レスポンス JSON は `{"error": {"code": "UNAUTHORIZED", "message": "..."}}` 形式
 ```
 
 ## 受け入れ基準
@@ -47,14 +51,18 @@ Scenario: SHIOTSUCHI_API_KEY と SHIOTSUCHI_SERVER_API_KEY は分離されてい
 - [ ] `SHIOTSUCHI_SERVER_API_KEY` は HTTP サーバー専用。埋め込み API 用の `SHIOTSUCHI_API_KEY` とは完全に分離
 - [ ] API キーは config.toml に保存せず、環境変数のみで管理する
 
-## テスト戦略（t_wada スタイル）
+## テスト戦略（TDD レッド → グリーン → リファクタ）
 
-### Unit Test
-- 認証ミドルウェアのテスト（有効キー、無効キー、キーなし）
-- localhost バインド時のスキップ確認
+### Unit Test（各シナリオに対応）
+- `test_auth_valid_key_returns_200` — 有効キーで 200
+- `test_auth_no_key_returns_401` — キーなしで 401
+- `test_auth_wrong_key_returns_401` — 無効キーで 401
+- `test_auth_localhost_skips_auth` — localhost で 200
+- `test_auth_error_response_format` — 401 時の JSON 形式
 
 ### Integration Test
 - サーバー起動 → 認証付きリクエスト → レスポンス検証
+- サーバー起動 → 認証なしリクエスト → 401 検証
 
 ## 実装アプローチ
 
@@ -106,8 +114,10 @@ create_router (既存のルーティング)
 - `core/src/server/types.rs` に `ApiError::Unauthorized` を追加
 
 ## Definition of Done
-- [ ] 認証付きリクエストが 200 を返す
-- [ ] 認証なしリクエストが 401 を返す
-- [ ] localhost バインド時は認証不要
+- [ ] `test_auth_valid_key_returns_200` がパスする
+- [ ] `test_auth_no_key_returns_401` がパスする
+- [ ] `test_auth_wrong_key_returns_401` がパスする
+- [ ] `test_auth_localhost_skips_auth` がパスする
+- [ ] `test_auth_error_response_format` がパスする
 - [ ] `SHIOTSUCHI_API_KEY` と `SHIOTSUCHI_SERVER_API_KEY` が分離されている
-- [ ] テストがパスする
+- [ ] 全テストがパスする

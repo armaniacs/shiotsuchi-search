@@ -14,19 +14,28 @@
 ## BDD 受け入れシナリオ
 
 ```gherkin
-Scenario: PDF 内容未変化時は VLM 抽出をスキップ
-  Given PDF ファイルがインデックス済み
-  And VLM 抽出結果が DB にキャッシュされている
+Scenario: 初回インデックス時に VLM 抽出が実行される
+  Given PDF ファイル "scan.pdf" が未インデックス
+  When `shiotsuchi chart` を実行する
+  Then VLM API が 1 回呼び出される
+  And 抽出結果が DB の `file_cache.vlm_hash` にキャッシュされる
+
+Scenario: PDF バイナリ未変化時に VLM API がスキップされる
+  Given "scan.pdf" がインデックス済み
+  And VLM 抽出結果がキャッシュされている
   When `shiotsuchi chart` を再実行する
   Then VLM API が呼び出されない
-  And 既存のキャッシュされたテキストが使用される
 
-Scenario: PDF 内容変化時は VLM 抽出を再実行
-  Given PDF ファイルがインデックス済み
-  And PDF ファイルが変更されている
+Scenario: PDF バイナリ変化時に VLM 抽出が再実行される
+  Given "scan.pdf" がインデックス済み
+  And "scan.pdf" の内容が変更されている
   When `shiotsuchi chart` を実行する
-  Then VLM API が呼び出される
-  And 新しいテキストが DB に保存される
+  Then VLM API が 1 回呼び出される
+
+Scenario: `shiotsuchi clean` で VLM キャッシュがクリアされる
+  Given VLM 抽出結果がキャッシュされている
+  When `shiotsuchi clean` を実行する
+  Then 次回 `shiotsuchi chart` 時に VLM API が呼び出される
 ```
 
 ## 受け入れ基準
@@ -36,14 +45,16 @@ Scenario: PDF 内容変化時は VLM 抽出を再実行
 - [ ] ハッシュ不一致時は再抽出を実行
 - [ ] `shiotsuchi clean` でキャッシュをクリア
 
-## テスト戦略（t_wada スタイル）
+## テスト戦略（TDD レッド → グリーン → リファクタ）
 
-### Unit Test
-- ハッシュ比較ロジックのテスト
-- キャッシュヒット/ミスの分岐テスト
+### Unit Test（各シナリオに対応）
+- `test_vlm_first_index_calls_api` — 初回は API 呼び出し
+- `test_vlm_reindex_skips_unchanged` — 再インデックスでスキップ
+- `test_vlm_reindex_calls_changed` — 内容変化時に再実行
+- `test_vlm_cache_cleared_by_clean` — `shiotsuchi clean` でクリア
 
 ### Integration Test
-- PDF インデックス → 再インデックス → VLM 呼び出し回数の検証
+- PDF インデックス → 再インデックス → VLM 呼び出し回数の検証（モック or ログ）
 
 ## 実装アプローチ
 
@@ -78,6 +89,8 @@ file_cache.vlm_hash と比較
 - `core/src/db.rs`: `upsert_file_cache` に `vlm_hash` パラメータ追加
 
 ## Definition of Done
-- [ ] PDF 内容未変化時に VLM API がスキップされる
-- [ ] PDF 内容変化時に再抽出が実行される
-- [ ] テストがパスする
+- [ ] `test_vlm_first_index_calls_api` がパスする
+- [ ] `test_vlm_reindex_skips_unchanged` がパスする
+- [ ] `test_vlm_reindex_calls_changed` がパスする
+- [ ] `test_vlm_cache_cleared_by_clean` がパスする
+- [ ] 全テストがパスする

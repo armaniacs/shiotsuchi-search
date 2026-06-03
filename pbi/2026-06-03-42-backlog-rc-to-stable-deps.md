@@ -14,29 +14,33 @@
 ## BDD 受け入れシナリオ
 
 ```gherkin
-Scenario: ort が stable リリースに移行されている
-  Given core/Cargo.toml を確認する
-  Then `ort` のバージョンが stable（rc でない）である
+Scenario: ort の stable バージョンでビルドが通る
+  When `cargo build --features semantic` を実行する
+  Then ビルドが成功する
+  And ort のバージョンが stable（rc でない）である
 
-Scenario: notify が stable リリースに移行されている
-  Given core/Cargo.toml を確認する
-  Then `notify` のバージョンが stable（rc でない）である
+Scenario: notify の stable バージョンでファイル監視が動作する
+  Given `shiotsuchi watch` が起動している
+  When ファイルを作成する
+  Then そのファイルがインデックスされる
+
+Scenario: 全テストがパスする
+  When `make test` を実行する
+  Then 全テストがパスする
 ```
 
 ## 受け入れ基準
-- [ ] `ort` を stable バージョンに更新
-- [ ] `notify` を stable バージョンに更新
+- [ ] `ort` を stable バージョンに更新し、ビルドが通る
+- [ ] `notify` を stable バージョンに更新し、ファイル監視が動作する
 - [ ] `edgequake-pdf2md` の推移的依存を確認し、必要に応じて更新
-- [ ] ビルドが正常に完了する
 - [ ] 全テストがパスする
 
-## テスト戦略（t_wada スタイル）
+## テスト戦略（TDD レッド → グリーン → リファクタ）
 
-### Unit Test
-- 既存テストが全てパスすることを確認
-
-### Integration Test
-- `cargo build --all-features` が完了することを確認
+### Integration Test（各シナリオに対応）
+- `test_build_with_stable_ort` — ort stable でビルド成功
+- `test_watch_with_stable_notify` — notify stable でファイル監視動作
+- `test_all_tests_pass` — 全テストパス
 
 ## 実装アプローチ
 
@@ -66,7 +70,8 @@ Scenario: notify が stable リリースに移行されている
 - `core/src/watcher.rs`: notify API 変更への対応（必要な場合）
 
 ## Definition of Done
-- [ ] `ort` が stable バージョンである
-- [ ] `notify` が stable バージョンである
-- [ ] ビルドが正常に完了する
-- [ ] 全テストがパスする
+- [ ] `test_build_with_stable_ort` がパスする
+- [ ] `test_watch_with_stable_notify` がパスする
+- [ ] `test_all_tests_pass` がパスする
+- [ ] ort が stable バージョンである
+- [ ] notify が stable バージョンである
