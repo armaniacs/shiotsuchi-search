@@ -9,6 +9,8 @@ use serde_json::json;
 pub enum ApiError {
     /// 400 — invalid request parameters
     BadRequest(String),
+    /// 401 — authentication required or invalid
+    Unauthorized(String),
     /// 404 — resource not found
     NotFound(String),
     /// 500 — internal server error
@@ -19,6 +21,7 @@ impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let (status, code, message) = match self {
             ApiError::BadRequest(msg) => (StatusCode::BAD_REQUEST, "BAD_REQUEST", msg),
+            ApiError::Unauthorized(msg) => (StatusCode::UNAUTHORIZED, "UNAUTHORIZED", msg),
             ApiError::NotFound(msg) => (StatusCode::NOT_FOUND, "NOT_FOUND", msg),
             ApiError::Internal(msg) => (
                 StatusCode::INTERNAL_SERVER_ERROR,

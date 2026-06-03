@@ -3,6 +3,10 @@ use crate::db::NoteDatabase;
 use crate::search::SearchRequest;
 use crate::server::types::*;
 use axum::extract::State;
+use axum::http::header;
+use axum::http::Request;
+use axum::middleware::Next;
+use axum::response::Response;
 use axum::routing::get;
 use axum::{Json, Router};
 use std::collections::HashMap;
@@ -15,6 +19,44 @@ pub struct AppState {
     pub synonyms: HashMap<String, Vec<String>>,
     pub hybrid_alpha: Option<f64>,
     pub config: Option<ShiotsuchiConfig>,
+    /// API key for authentication. None = no auth required.
+    pub api_key: Option<String>,
+}
+
+/// Authentication middleware — checks X-API-Key header against AppState.api_key.
+/// Skips auth when api_key is None (localhost or no key configured).
+pub async fn auth_middleware(
+    req: Request<axum::body::Body>,
+    next: Next,
+) -> Result<Response, ApiError> {
+    let state = req
+        .extensions()
+        .get::<Arc<AppState>>()
+        .cloned()
+        .ok_or_else(|| ApiError::Internal("AppState not found".to_string()))?;
+
+    if let Some(ref expected_key) = state.api_key {
+        let provided_key = req
+            .headers()
+            .get(header::AUTHORIZATION)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.strip_prefix("Bearer "))
+            .or_else(|| {
+                req.headers()
+                    .get("X-API-Key")
+                    .and_then(|v| v.to_str().ok())
+            });
+
+        match provided_key {
+            Some(key) if key == expected_key.as_str() => Ok(next.run(req).await),
+            _ => Err(ApiError::Unauthorized(
+                "Authentication required. Provide a valid API key via X-API-Key header.".to_string(),
+            )),
+        }
+    } else {
+        // No API key configured — skip authentication
+        Ok(next.run(req).await)
+    }
 }
 
 /// Health check endpoint.
@@ -221,14 +263,24 @@ pub fn create_router(state: Arc<AppState>, config: &ShiotsuchiConfig) -> Router 
 
     let cors = create_cors_layer(&config.server);
 
-    Router::new()
-        .route("/ui", get(serve_ui))
-        .route("/api/v1/health", get(handle_health))
+    // Protected routes (require X-API-Key when api_key is set)
+    let protected = Router::new()
         .route("/api/v1/search", get(handle_search))
         .route("/api/v1/stats", get(handle_stats))
         .route("/api/v1/list", get(handle_list))
         .route("/api/v1/read", get(handle_read))
+        .layer(axum::middleware::from_fn(auth_middleware));
+
+    // Public routes (no authentication)
+    let public = Router::new()
+        .route("/ui", get(serve_ui))
+        .route("/api/v1/health", get(handle_health));
+
+    Router::new()
+        .merge(protected)
+        .merge(public)
         .layer(cors)
+        .layer(axum::extract::Extension(state.clone()))
         .layer(axum::extract::Extension(config.clone()))
         .with_state(state)
 }
@@ -253,6 +305,7 @@ mod tests {
             synonyms: HashMap::new(),
             hybrid_alpha: None,
             config: Some(ShiotsuchiConfig::default()),
+            api_key: None,
         });
         let router = create_router(state, &ShiotsuchiConfig::default());
         (router, tmp)
@@ -432,5 +485,111 @@ mod tests {
         let html = String::from_utf8_lossy(&body);
         assert!(html.contains("shiotsuchi search"), "HTML should contain title");
         assert!(html.contains("<input"), "HTML should contain search input");
+    }
+
+    // --- Authentication Tests ---
+
+    /// Build a test router with API key authentication enabled.
+    fn setup_test_router_with_auth(api_key: &str) -> (Router, TempDir) {
+        let tmp = TempDir::new().unwrap();
+        let db_path = tmp.path().join("test.db");
+        let db = NoteDatabase::open(&db_path).unwrap();
+        let tokenizer = crate::tokenizer::get_tokenizer().ok();
+        let state = Arc::new(AppState {
+            db: Arc::new(tokio::sync::Mutex::new(db)),
+            tokenizer,
+            synonyms: HashMap::new(),
+            hybrid_alpha: None,
+            config: Some(ShiotsuchiConfig::default()),
+            api_key: Some(api_key.to_string()),
+        });
+        let router = create_router(state, &ShiotsuchiConfig::default());
+        (router, tmp)
+    }
+
+    #[tokio::test]
+    async fn test_auth_valid_key_returns_200() {
+        let (router, _tmp) = setup_test_router_with_auth("test-key-123");
+        let req = Request::builder()
+            .uri("/api/v1/health")
+            .body(Body::empty())
+            .unwrap();
+        // Health endpoint is public — no auth needed
+        let resp = router.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        // Protected endpoint with valid key
+        let (router2, _tmp2) = setup_test_router_with_auth("test-key-123");
+        let req = Request::builder()
+            .uri("/api/v1/stats")
+            .header("X-API-Key", "test-key-123")
+            .body(Body::empty())
+            .unwrap();
+        let resp = router2.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_auth_no_key_returns_401() {
+        let (router, _tmp) = setup_test_router_with_auth("test-key-123");
+        let req = Request::builder()
+            .uri("/api/v1/stats")
+            .body(Body::empty())
+            .unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn test_auth_wrong_key_returns_401() {
+        let (router, _tmp) = setup_test_router_with_auth("test-key-123");
+        let req = Request::builder()
+            .uri("/api/v1/stats")
+            .header("X-API-Key", "wrong-key")
+            .body(Body::empty())
+            .unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn test_auth_localhost_skips_auth() {
+        // Default setup has api_key: None — auth is skipped
+        let (router, _tmp) = setup_test_router();
+        let req = Request::builder()
+            .uri("/api/v1/stats")
+            .body(Body::empty())
+            .unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_auth_error_response_format() {
+        let (router, _tmp) = setup_test_router_with_auth("test-key-123");
+        let req = Request::builder()
+            .uri("/api/v1/stats")
+            .body(Body::empty())
+            .unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["error"]["code"], "UNAUTHORIZED");
+        assert!(json["error"]["message"].is_string());
+    }
+
+    #[tokio::test]
+    async fn test_auth_bearer_header_works() {
+        let (router, _tmp) = setup_test_router_with_auth("test-key-123");
+        let req = Request::builder()
+            .uri("/api/v1/stats")
+            .header("Authorization", "Bearer test-key-123")
+            .body(Body::empty())
+            .unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
     }
 }

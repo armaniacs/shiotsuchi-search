@@ -15,6 +15,29 @@ pub struct ServeArgs {
     /// Host to bind to (overrides config)
     #[arg(long)]
     pub host: Option<String>,
+
+    /// API key for authentication (overrides SHIOTSUCHI_SERVER_API_KEY env var)
+    #[arg(long)]
+    pub api_key: Option<String>,
+}
+
+/// Resolve API key: CLI option > env var > None.
+/// Config.toml is NOT used — API keys should only come from CLI or env vars for security.
+fn resolve_api_key(cli_key: &Option<String>) -> Option<String> {
+    // 1. CLI option (highest priority)
+    if let Some(ref key) = cli_key {
+        if !key.is_empty() {
+            return Some(key.clone());
+        }
+    }
+    // 2. Environment variable
+    if let Ok(key) = std::env::var("SHIOTSUCHI_SERVER_API_KEY") {
+        if !key.is_empty() {
+            return Some(key);
+        }
+    }
+    // 3. No authentication
+    None
 }
 
 pub async fn run_serve(
@@ -26,6 +49,8 @@ pub async fn run_serve(
         .host
         .clone()
         .unwrap_or_else(|| config.server.host.clone());
+
+    let api_key = resolve_api_key(&args.api_key);
 
     let db_path = config.resolved_db_path();
     if !db_path.exists() {
@@ -48,6 +73,7 @@ pub async fn run_serve(
         synonyms: config.synonyms.clone(),
         hybrid_alpha: config.hybrid_alpha,
         config: Some(config.clone()),
+        api_key: api_key.clone(),
     });
 
     let app = create_router(state, config);
@@ -56,9 +82,14 @@ pub async fn run_serve(
 
     // Security warning for non-localhost binds
     if host != "127.0.0.1" && host != "localhost" && host != "::1" {
-        eprintln!("\x1b[33m⚠ WARNING: Binding to '{}'. The HTTP API has NO authentication.\x1b[0m", host);
-        eprintln!("\x1b[33m  Anyone on the network can access your notes via http://{}:{}/ui\x1b[0m", host, port);
-        eprintln!("\x1b[33m  Use --host 127.0.0.1 for local-only access.\x1b[0m\n");
+        if api_key.is_some() {
+            eprintln!("\x1b[32m✓ Authentication enabled: X-API-Key header required.\x1b[0m");
+        } else {
+            eprintln!("\x1b[33m⚠ WARNING: Binding to '{}'. The HTTP API has NO authentication.\x1b[0m", host);
+            eprintln!("\x1b[33m  Anyone on the network can access your notes via http://{}:{}/ui\x1b[0m", host, port);
+            eprintln!("\x1b[33m  Use --host 127.0.0.1 for local-only access.\x1b[0m");
+            eprintln!("\x1b[33m  Or set --api-key / SHIOTSUCHI_SERVER_API_KEY to enable authentication.\x1b[0m\n");
+        }
     }
 
     println!("shiotsuchi server listening on http://{}", addr);
