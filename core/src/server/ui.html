@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="ja">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -30,6 +30,19 @@
     header h1 { font-size: 1.5rem; font-weight: 600; color: var(--accent); }
     header p { color: var(--text-muted); font-size: 0.875rem; margin-top: 0.25rem; }
 
+    /* Screen-reader only utility */
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0,0,0,0);
+      white-space: nowrap;
+      border: 0;
+    }
+
     /* Tabs */
     .tabs { display: flex; gap: 0; margin-bottom: 1.5rem; border-bottom: 1px solid var(--border); }
     .tab {
@@ -44,6 +57,7 @@
     }
     .tab:hover { color: var(--text); }
     .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+    .tab:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 4px; }
 
     /* Search */
     .search-box {
@@ -77,6 +91,7 @@
     }
     .search-box button:hover { background: var(--accent-hover); }
     .search-box button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .search-box button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
     .options {
       display: flex;
@@ -106,6 +121,7 @@
       cursor: pointer;
     }
     .result-card:hover { border-color: var(--accent); }
+    .result-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     .result-title {
       font-weight: 600;
       color: var(--accent);
@@ -171,8 +187,26 @@
       transition: border-color 0.15s;
     }
     .file-item:hover { border-color: var(--accent); }
+    .file-item:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     .file-name { font-weight: 500; }
     .file-vault { color: var(--text-muted); font-size: 0.75rem; font-family: monospace; }
+
+    /* Load more button */
+    .load-more {
+      display: block;
+      width: 100%;
+      padding: 0.75rem;
+      margin-top: 1rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--accent);
+      font-size: 0.875rem;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .load-more:hover { background: var(--surface-hover); }
+    .load-more:disabled { opacity: 0.5; cursor: not-allowed; }
 
     /* File viewer modal */
     .modal-overlay {
@@ -225,6 +259,7 @@
       border-radius: 4px;
     }
     .modal-close:hover { color: var(--text); background: var(--surface-hover); }
+    .modal-close:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     .modal-body {
       padding: 1.25rem;
       overflow-y: auto;
@@ -256,28 +291,29 @@
       <p>Japanese-aware search for Markdown vaults</p>
     </header>
 
-    <div class="tabs">
-      <button class="tab active" data-tab="search">Search</button>
-      <button class="tab" data-tab="stats">Stats</button>
-      <button class="tab" data-tab="files">Files</button>
+    <div class="tabs" role="tablist" aria-label="Navigation tabs">
+      <button class="tab active" role="tab" aria-selected="true" aria-controls="search" id="tab-search" data-tab="search">Search</button>
+      <button class="tab" role="tab" aria-selected="false" aria-controls="stats" id="tab-stats" data-tab="stats">Stats</button>
+      <button class="tab" role="tab" aria-selected="false" aria-controls="files" id="tab-files" data-tab="files">Files</button>
     </div>
 
     <!-- Search Panel -->
-    <div id="search" class="panel active">
+    <div id="search" class="panel active" role="tabpanel" aria-labelledby="tab-search">
       <div class="search-box">
-        <input type="text" id="query" placeholder="Search notes..." autofocus>
+        <label for="query" class="sr-only">Search notes</label>
+        <input type="text" id="query" placeholder="Search notes..." autofocus aria-label="Search notes">
         <button id="searchBtn" onclick="doSearch()">Search</button>
       </div>
       <div class="options">
         <div>
-          <label>Mode</label><br>
+          <label for="mode">Mode</label><br>
           <select id="mode">
             <option value="hybrid">Hybrid</option>
             <option value="fts">Full-text</option>
           </select>
         </div>
         <div>
-          <label>Limit</label><br>
+          <label for="limit">Limit</label><br>
           <input type="number" id="limit" value="20" min="1" max="100" style="width: 70px;">
         </div>
       </div>
@@ -285,22 +321,22 @@
     </div>
 
     <!-- Stats Panel -->
-    <div id="stats" class="panel">
+    <div id="stats" class="panel" role="tabpanel" aria-labelledby="tab-stats">
       <div id="statsContent"></div>
     </div>
 
     <!-- Files Panel -->
-    <div id="files" class="panel">
+    <div id="files" class="panel" role="tabpanel" aria-labelledby="tab-files">
       <div id="filesContent"></div>
     </div>
   </div>
 
   <!-- File Viewer Modal -->
-  <div class="modal-overlay" id="modal">
+  <div class="modal-overlay" id="modal" role="dialog" aria-modal="true" aria-label="File viewer">
     <div class="modal">
       <div class="modal-header">
         <span class="modal-title" id="modalTitle"></span>
-        <button class="modal-close" onclick="closeModal()">&times;</button>
+        <button class="modal-close" id="modalCloseBtn" aria-label="Close file viewer">&times;</button>
       </div>
       <div class="modal-body" id="modalBody"></div>
     </div>
@@ -308,18 +344,60 @@
 
   <script>
     const $ = (s) => document.querySelector(s);
-    const api = (path) => fetch(path).then(r => r.json());
 
-    // Tab switching
-    document.querySelectorAll('.tab').forEach(tab => {
-      tab.addEventListener('click', () => {
-        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-        document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
-        tab.classList.add('active');
-        $('#' + tab.dataset.tab).classList.add('active');
+    // --- Fetch with timeout ---
+    const TIMEOUT_MS = 15000;
+    async function apiWithTimeout(path) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+      try {
+        const resp = await fetch(path, { signal: controller.signal });
+        clearTimeout(timer);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        return await resp.json();
+      } catch (e) {
+        clearTimeout(timer);
+        if (e.name === 'AbortError') {
+          throw new Error('Request timed out. The server may be unreachable.');
+        }
+        throw e;
+      }
+    }
 
-        if (tab.dataset.tab === 'stats') loadStats();
-        if (tab.dataset.tab === 'files') loadFiles();
+    // --- Tab switching (keyboard + mouse) ---
+    const tabs = document.querySelectorAll('.tab');
+    const panels = document.querySelectorAll('.panel');
+
+    function switchTab(tab) {
+      tabs.forEach(t => {
+        t.classList.remove('active');
+        t.setAttribute('aria-selected', 'false');
+      });
+      panels.forEach(p => p.classList.remove('active'));
+      tab.classList.add('active');
+      tab.setAttribute('aria-selected', 'true');
+      const panel = $('#' + tab.dataset.tab);
+      panel.classList.add('active');
+      if (tab.dataset.tab === 'stats') loadStats();
+      if (tab.dataset.tab === 'files') loadFiles();
+    }
+
+    tabs.forEach(tab => {
+      tab.addEventListener('click', () => switchTab(tab));
+      tab.addEventListener('keydown', (e) => {
+        const tabList = Array.from(tabs);
+        const idx = tabList.indexOf(tab);
+        if (e.key === 'ArrowRight') {
+          e.preventDefault();
+          const next = tabList[(idx + 1) % tabList.length];
+          next.focus();
+          switchTab(next);
+        } else if (e.key === 'ArrowLeft') {
+          e.preventDefault();
+          const prev = tabList[(idx - 1 + tabList.length) % tabList.length];
+          prev.focus();
+          switchTab(prev);
+        }
       });
     });
 
@@ -328,14 +406,52 @@
       if (e.key === 'Enter') doSearch();
     });
 
-    // Close modal on overlay click or Escape
+    // --- Modal focus trap ---
+    let previousFocus = null;
+
+    function openModalFocusTrap() {
+      const modal = $('#modal');
+      const focusable = modal.querySelectorAll('button, [tabindex]:not([tabindex="-1"])');
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+
+      modal._trapHandler = (e) => {
+        if (e.key !== 'Tab') return;
+        if (e.shiftKey) {
+          if (document.activeElement === first) {
+            e.preventDefault();
+            last.focus();
+          }
+        } else {
+          if (document.activeElement === last) {
+            e.preventDefault();
+            first.focus();
+          }
+        }
+      };
+      modal.addEventListener('keydown', modal._trapHandler);
+      first.focus();
+    }
+
+    function removeModalFocusTrap() {
+      const modal = $('#modal');
+      if (modal._trapHandler) {
+        modal.removeEventListener('keydown', modal._trapHandler);
+        modal._trapHandler = null;
+      }
+    }
+
+    // Close modal on overlay click, Escape, or close button
     $('#modal').addEventListener('click', (e) => {
       if (e.target === $('#modal')) closeModal();
     });
+    $('#modalCloseBtn').addEventListener('click', closeModal);
     document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') closeModal();
+      if (e.key === 'Escape' && $('#modal').classList.contains('open')) closeModal();
     });
 
+    // --- Search ---
     async function doSearch() {
       const q = $('#query').value.trim();
       if (!q) return;
@@ -343,10 +459,11 @@
       const limit = $('#limit').value;
       const btn = $('#searchBtn');
       btn.disabled = true;
+      btn.textContent = 'Searching...';
       $('#searchResults').innerHTML = '<div class="loading">Searching...</div>';
 
       try {
-        const data = await api(`/api/v1/search?q=${encodeURIComponent(q)}&mode=${mode}&limit=${limit}`);
+        const data = await apiWithTimeout(`/api/v1/search?q=${encodeURIComponent(q)}&mode=${mode}&limit=${limit}`);
         if (data.error) {
           $('#searchResults').innerHTML = `<div class="error">${esc(data.error.message)}</div>`;
           return;
@@ -358,7 +475,9 @@
         $('#searchResults').innerHTML = `
           <div class="results-info">${data.count} results</div>
           ${data.results.map(r => `
-            <div class="result-card" onclick="openFile('${esc(r.file_path)}', '${esc(r.vault_name)}')">
+            <div class="result-card" role="button" tabindex="0"
+                 onclick="openFile('${esc(r.file_path)}', '${esc(r.vault_name)}')"
+                 onkeydown="if(event.key==='Enter')openFile('${esc(r.file_path)}', '${esc(r.vault_name)}')">
               <div class="result-title">${esc(r.title || '(untitled)')}</div>
               <div class="result-path">${esc(r.file_path)}</div>
               <div class="result-snippet">${esc(r.snippet)}</div>
@@ -367,16 +486,18 @@
           `).join('')}
         `;
       } catch (e) {
-        $('#searchResults').innerHTML = `<div class="error">Error: ${esc(e.message)}</div>`;
+        $('#searchResults').innerHTML = `<div class="error">${esc(e.message)}</div>`;
       } finally {
         btn.disabled = false;
+        btn.textContent = 'Search';
       }
     }
 
+    // --- Stats ---
     async function loadStats() {
       $('#statsContent').innerHTML = '<div class="loading">Loading...</div>';
       try {
-        const d = await api('/api/v1/stats');
+        const d = await apiWithTimeout('/api/v1/stats');
         $('#statsContent').innerHTML = `
           <div class="stats-grid">
             <div class="stat-card">
@@ -392,65 +513,119 @@
               <div class="stat-label">Total Size</div>
             </div>
             <div class="stat-card">
-              <div class="stat-value">${d.embedder_status}</div>
+              <div class="stat-value">${esc(d.embedder_status)}</div>
               <div class="stat-label">Embedder</div>
             </div>
           </div>
         `;
       } catch (e) {
-        $('#statsContent').innerHTML = `<div class="error">Error: ${esc(e.message)}</div>`;
+        $('#statsContent').innerHTML = `<div class="error">${esc(e.message)}</div>`;
       }
     }
 
-    async function loadFiles() {
-      $('#filesContent').innerHTML = '<div class="loading">Loading...</div>';
+    // --- Files with pagination ---
+    let filesOffset = 0;
+    const FILES_PAGE_SIZE = 50;
+    let filesTotal = 0;
+
+    async function loadFiles(reset = true) {
+      if (reset) {
+        filesOffset = 0;
+        $('#filesContent').innerHTML = '<div class="loading">Loading...</div>';
+      }
+
       try {
-        const d = await api('/api/v1/list');
-        if (d.files.length === 0) {
+        const d = await apiWithTimeout(`/api/v1/list?offset=${filesOffset}&limit=${FILES_PAGE_SIZE}`);
+        filesTotal = d.total;
+
+        if (filesTotal === 0) {
           $('#filesContent').innerHTML = '<div class="empty">No files indexed</div>';
           return;
         }
-        $('#filesContent').innerHTML = `
-          <div class="results-info">${d.count} files</div>
-          <ul class="file-list">
-            ${d.files.map(f => `
-              <li class="file-item" onclick="openFile('${esc(f.path)}', '${esc(f.vault_name)}')">
-                <span class="file-name">${esc(f.path)}</span>
-                <span class="file-vault">${esc(f.vault_name)}</span>
-              </li>
-            `).join('')}
-          </ul>
-        `;
+
+        const existingList = reset ? '' : ($('#fileListUl') ? $('#fileListUl').outerHTML : '');
+        const newItems = d.files.map(f => `
+          <li class="file-item" role="button" tabindex="0"
+              onclick="openFile('${esc(f.path)}', '${esc(f.vault_name)}')"
+              onkeydown="if(event.key==='Enter')openFile('${esc(f.path)}', '${esc(f.vault_name)}')">
+            <span class="file-name">${esc(f.path)}</span>
+            <span class="file-vault">${esc(f.vault_name)}</span>
+          </li>
+        `).join('');
+
+        let html = `<div class="results-info">${d.count} of ${filesTotal} files</div>`;
+        if (reset) {
+          html += `<ul class="file-list" id="fileListUl">${newItems}</ul>`;
+        } else {
+          const list = $('#fileListUl');
+          if (list) {
+            list.insertAdjacentHTML('beforeend', newItems);
+          } else {
+            html += `<ul class="file-list" id="fileListUl">${newItems}</ul>`;
+          }
+        }
+
+        filesOffset += d.files.length;
+        if (filesOffset < filesTotal) {
+          html += `<button class="load-more" id="loadMoreBtn" onclick="loadFiles(false)">
+            Load more (${filesOffset} of ${filesTotal})
+          </button>`;
+        } else if (reset) {
+          // No load more needed if all loaded on first page
+        }
+
+        if (reset) {
+          $('#filesContent').innerHTML = html;
+        } else {
+          const loadMore = $('#loadMoreBtn');
+          if (loadMore) loadMore.remove();
+          if (filesOffset < filesTotal) {
+            $('#filesContent').insertAdjacentHTML('beforeend',
+              `<button class="load-more" id="loadMoreBtn" onclick="loadFiles(false)">
+                Load more (${filesOffset} of ${filesTotal})
+              </button>`);
+          }
+        }
       } catch (e) {
-        $('#filesContent').innerHTML = `<div class="error">Error: ${esc(e.message)}</div>`;
+        $('#filesContent').innerHTML = `<div class="error">${esc(e.message)}</div>`;
       }
     }
 
+    // --- File viewer ---
     async function openFile(path, vault) {
       const modal = $('#modal');
       const title = $('#modalTitle');
       const body = $('#modalBody');
 
+      previousFocus = document.activeElement;
       title.textContent = path;
       body.innerHTML = '<div class="modal-loading">Loading...</div>';
       modal.classList.add('open');
+      openModalFocusTrap();
 
       try {
-        const data = await api(`/api/v1/read?path=${encodeURIComponent(path)}&vault=${encodeURIComponent(vault)}`);
+        const data = await apiWithTimeout(`/api/v1/read?path=${encodeURIComponent(path)}&vault=${encodeURIComponent(vault)}`);
         if (data.error) {
           body.innerHTML = `<div class="error">${esc(data.error.message)}</div>`;
           return;
         }
         body.innerHTML = `<pre>${esc(data.content)}</pre>`;
       } catch (e) {
-        body.innerHTML = `<div class="error">Error: ${esc(e.message)}</div>`;
+        body.innerHTML = `<div class="error">${esc(e.message)}</div>`;
       }
     }
 
     function closeModal() {
-      $('#modal').classList.remove('open');
+      const modal = $('#modal');
+      modal.classList.remove('open');
+      removeModalFocusTrap();
+      if (previousFocus) {
+        previousFocus.focus();
+        previousFocus = null;
+      }
     }
 
+    // --- Utilities ---
     function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
     function formatBytes(b) {
       if (b === 0) return '0 B';

@@ -167,18 +167,23 @@ pub async fn handle_stats(
     })))
 }
 
-/// List indexed files endpoint.
+/// List indexed files endpoint with pagination.
 pub async fn handle_list(
     State(state): State<Arc<AppState>>,
     config: axum::extract::Extension<ShiotsuchiConfig>,
+    params: Result<axum::extract::Query<ListParams>, axum::extract::rejection::QueryRejection>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let mut files = Vec::new();
+    let params = params.map_err(|e| ApiError::BadRequest(e.body_text()))?;
+    let offset = params.offset;
+    let limit = params.limit.min(200); // cap at 200
+
+    let mut all_files = Vec::new();
     let db = state.db.lock().await;
     for (vault_name, _vault_path) in config.resolved_vaults() {
         match db.list_cached_paths(&vault_name) {
             Ok(paths) => {
                 for path in paths {
-                    files.push(FileItem {
+                    all_files.push(FileItem {
                         path,
                         vault_name: vault_name.clone(),
                     });
@@ -189,10 +194,15 @@ pub async fn handle_list(
             }
         }
     }
+    let total = all_files.len();
+    let files: Vec<FileItem> = all_files.into_iter().skip(offset).take(limit).collect();
     let count = files.len();
     Ok(Json(serde_json::json!({
         "files": files,
         "count": count,
+        "total": total,
+        "offset": offset,
+        "limit": limit,
     })))
 }
 
@@ -398,7 +408,44 @@ mod tests {
             .unwrap();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(json["count"], 0);
+        assert_eq!(json["total"], 0);
+        assert_eq!(json["offset"], 0);
+        assert_eq!(json["limit"], 50);
         assert_eq!(json["files"], serde_json::json!([]));
+    }
+
+    #[tokio::test]
+    async fn test_list_pagination_offset_limit() {
+        let (router, _tmp) = setup_test_router();
+        let req = Request::builder()
+            .uri("/api/v1/list?offset=0&limit=5")
+            .body(Body::empty())
+            .unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["offset"], 0);
+        assert_eq!(json["limit"], 5);
+    }
+
+    #[tokio::test]
+    async fn test_list_pagination_second_page() {
+        let (router, _tmp) = setup_test_router();
+        let req = Request::builder()
+            .uri("/api/v1/list?offset=50&limit=50")
+            .body(Body::empty())
+            .unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["offset"], 50);
+        assert_eq!(json["limit"], 50);
     }
 
     #[tokio::test]

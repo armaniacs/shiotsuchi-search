@@ -119,6 +119,21 @@ pub struct StatsResponse {
 pub struct ListResponse {
     pub files: Vec<FileItem>,
     pub count: usize,
+    pub total: usize,
+    pub offset: usize,
+    pub limit: usize,
+}
+
+#[derive(Deserialize)]
+pub struct ListParams {
+    #[serde(default)]
+    pub offset: usize,
+    #[serde(default = "default_list_limit")]
+    pub limit: usize,
+}
+
+fn default_list_limit() -> usize {
+    50
 }
 
 #[derive(Serialize)]
