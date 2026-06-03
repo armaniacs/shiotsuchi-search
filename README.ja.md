@@ -13,7 +13,7 @@ Markdownノートvault（Obsidianなど）向けの高性能日本語対応全�
 
 - **サブ秒検索**: 10,000件以上のノートを高速検索
 - **日本語対応トークナイザ**: Vaporettoによる形態素解析
-- **複数インターフェース**: CLI、MCP（Claude Desktop）
+- **複数インターフェース**: CLI、HTTP API サーバー（ブラウザ UI 付き）、MCP（Claude Desktop）
 - **インクリメンタルインデックス**: SHA-256ハッシュで変更ファイルのみ再インデックス
 
 > **注意:** CLI の出力とヘルプは日本語に対応しています。使用方法の詳細は [docs/CLI-USE.ja.md](docs/CLI-USE.ja.md) を参照してください。
@@ -39,6 +39,7 @@ Markdownノートvault（Obsidianなど）向けの高性能日本語対応全�
 | `tasks` | 全 vault のタスクチェックボックスを横断検索 |
 | `stats` / `tide` | vault 統計情報を表示（--json 対応） |
 | `support` | ビルド情報と依存バージョンを表示 |
+| `serve` | ブラウザ UI 付き HTTP API サーバーを起動 |
 
 ## Claude Desktop 連携（MCP）
 
@@ -65,6 +66,38 @@ shiotsuchi index --notes-dir ~/Notes
 ```
 
 Claude Desktopを再起動して「プロジェクトについてノートを検索して」と聞いてみる。
+
+## HTTP API ローカルサーバー
+
+ブラウザベースの検索 UI 付きの HTTP API サーバーを起動できます：
+
+```bash
+shiotsuchi serve --port 7171
+```
+
+ブラウザで http://localhost:7171/ui を開いてください。
+
+### API エンドポイント
+
+| メソッド | パス | 説明 |
+|---------|------|------|
+| GET | `/ui` | ブラウザベースの検索 UI |
+| GET | `/api/v1/health` | ヘルスチェック |
+| GET | `/api/v1/search?q=<query>&mode=<mode>&limit=<n>` | ノート検索 |
+| GET | `/api/v1/stats` | インデックス統計情報 |
+| GET | `/api/v1/list` | インデックス済みファイル一覧 |
+| GET | `/api/v1/read?path=<path>&vault=<vault>` | ファイル内容の読み取り |
+
+### 設定
+
+`config.toml` に以下を追加：
+
+```toml
+[server]
+port = 7171
+host = "127.0.0.1"
+cors_origins = ["http://localhost"]
+```
 
 ## セキュリティとプライバシー
 

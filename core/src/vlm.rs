@@ -5,7 +5,6 @@
 // return empty results (no-op).
 
 use std::path::Path;
-use std::sync::OnceLock;
 
 use crate::config::VlmConfig;
 
@@ -23,22 +22,9 @@ pub enum VlmError {
     Io(String),
 }
 
-/// Global tokio runtime reused across all VLM calls to avoid per-call thread pool setup.
-/// Returns an error if tokio runtime creation fails, preserving the original error-recovery
-/// path so the caller can log a warning and continue gracefully instead of panicking.
-fn tokio_runtime() -> Result<&'static tokio::runtime::Runtime, VlmError> {
-    static RT: OnceLock<Result<tokio::runtime::Runtime, String>> = OnceLock::new();
-    RT.get_or_init(|| {
-        tokio::runtime::Runtime::new()
-            .map_err(|e| format!("failed to create tokio runtime for VLM: {}", e))
-    })
-    .as_ref()
-    .map_err(|msg| VlmError::ConversionFailed(msg.clone()))
-}
-
 /// Extract text from a PDF using VLM, returning Markdown.
-/// Returns Ok(Some(text)) on success, Ok(None) if VLM is not configured/enabled,
-/// or Err if something goes wrong.
+/// Uses tokio::task::block_in_place to avoid runtime nesting issues.
+/// This function MUST be called from within a tokio runtime context.
 #[cfg(feature = "vlm")]
 pub fn extract_text_with_vlm(
     file_path: &Path,
@@ -49,12 +35,12 @@ pub fn extract_text_with_vlm(
     }
 
     // Check for API key
-    let api_key = std::env::var("SHIOTSUCHI_API_KEY").ok();
+    let api_key = std::env::var("SHIOTSUCHI_API_KEY").ok()
+        .filter(|k| !k.is_empty());
     if api_key.is_none() {
-        // Also check provider-specific env vars
         let provider_upper = vlm_config.provider.to_uppercase();
         let provider_key_var = format!("{}_API_KEY", provider_upper);
-        if std::env::var(&provider_key_var).is_err() {
+        if std::env::var(&provider_key_var).unwrap_or_default().is_empty() {
             return Err(VlmError::MissingApiKey(vlm_config.provider.clone()));
         }
     }
@@ -76,11 +62,12 @@ pub fn extract_text_with_vlm(
     let bytes = std::fs::read(file_path)
         .map_err(|e| VlmError::Io(e.to_string()))?;
 
-    // Reuse a global tokio runtime instead of creating one per call
-    let rt = tokio_runtime()?;
-
-    let result = rt.block_on(async {
-        edgequake_pdf2md::convert_from_bytes(&bytes, &config).await
+    // Use block_in_place to handle the case where we're already in a tokio runtime
+    let result = tokio::task::block_in_place(|| {
+        let rt = tokio::runtime::Handle::current();
+        rt.block_on(async {
+            edgequake_pdf2md::convert_from_bytes(&bytes, &config).await
+        })
     });
 
     match result {

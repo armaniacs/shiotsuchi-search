@@ -47,11 +47,20 @@ pub async fn run_serve(
         tokenizer: Some(tokenizer),
         synonyms: config.synonyms.clone(),
         hybrid_alpha: config.hybrid_alpha,
+        config: Some(config.clone()),
     });
 
     let app = create_router(state, config);
 
     let addr = format!("{}:{}", host, port);
+
+    // Security warning for non-localhost binds
+    if host != "127.0.0.1" && host != "localhost" && host != "::1" {
+        eprintln!("\x1b[33m⚠ WARNING: Binding to '{}'. The HTTP API has NO authentication.\x1b[0m", host);
+        eprintln!("\x1b[33m  Anyone on the network can access your notes via http://{}:{}/ui\x1b[0m", host, port);
+        eprintln!("\x1b[33m  Use --host 127.0.0.1 for local-only access.\x1b[0m\n");
+    }
+
     println!("shiotsuchi server listening on http://{}", addr);
 
     let listener = tokio::net::TcpListener::bind(&addr).await.map_err(|e| {

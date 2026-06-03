@@ -1,5 +1,6 @@
 use crate::config::ShiotsuchiConfig;
 use crate::db::NoteDatabase;
+use crate::search::SearchRequest;
 use crate::server::types::*;
 use axum::extract::State;
 use axum::routing::get;
@@ -13,6 +14,7 @@ pub struct AppState {
     pub tokenizer: Option<Arc<crate::tokenizer::JapaneseTokenizer>>,
     pub synonyms: HashMap<String, Vec<String>>,
     pub hybrid_alpha: Option<f64>,
+    pub config: Option<ShiotsuchiConfig>,
 }
 
 /// Health check endpoint.
@@ -53,26 +55,25 @@ pub async fn handle_search(
     let db = state.db.lock().await;
 
     let results = if let Some(tokenizer) = &state.tokenizer {
-        crate::search::search(
-            &db,
-            tokenizer,
-            &query,
-            params.limit,
+        let request = SearchRequest {
+            query: &query,
+            limit: params.limit,
             mode,
-            None,
-            None,
-            params.vault.as_deref(),
-            params.tag.as_deref(),
-            params.since.as_deref(),
-            &[],
-            &state.synonyms,
-            false,
-            state.hybrid_alpha,
-            false,
-            0.7,
-            false,
-        )
-        .map_err(|e| ApiError::Internal(format!("search failed: {}", e)))?
+            embedder: None,
+            min_score: None,
+            vault_filter: params.vault.as_deref(),
+            tag_filter: params.tag.as_deref(),
+            since_date: params.since.as_deref(),
+            user_dictionary: &[],
+            synonyms: &state.synonyms,
+            fuzzy: false,
+            hybrid_alpha: state.hybrid_alpha,
+            mmr: false,
+            lambda: 0.7,
+            backlink_scoring: false,
+        };
+        crate::search::search(&db, tokenizer, &request)
+            .map_err(|e| ApiError::Internal(format!("search failed: {}", e)))?
     } else {
         let fts5_query = crate::tokenizer::simple_and_query(&query);
         let hits = db.fts_search(&fts5_query, params.limit, params.vault.as_deref())
@@ -153,6 +154,67 @@ pub async fn handle_list(
     })))
 }
 
+/// Serve the browser UI.
+pub async fn serve_ui() -> axum::response::Html<&'static str> {
+    axum::response::Html(include_str!("ui.html"))
+}
+
+/// Read a file's content — from disk if available, falling back to DB chunks.
+pub async fn handle_read(
+    State(state): State<Arc<AppState>>,
+    params: Result<axum::extract::Query<ReadParams>, axum::extract::rejection::QueryRejection>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let params = params.map_err(|e| ApiError::BadRequest(e.body_text()))?;
+
+    let vault_name = params.vault.as_deref().unwrap_or("default");
+    let file_path = &params.path;
+
+    // Try reading from disk first
+    if let Some(config) = &state.config {
+        if let Some((_, vault_path)) = config.resolved_vaults().into_iter().find(|(name, _)| name == vault_name) {
+            let full_path = vault_path.join(file_path);
+            if let Ok(canonical) = full_path.canonicalize() {
+                if let Ok(canonical_vault) = vault_path.canonicalize() {
+                    if canonical.starts_with(&canonical_vault) {
+                        if let Ok(content) = tokio::fs::read_to_string(&canonical).await {
+                            return Ok(Json(serde_json::json!({
+                                "path": file_path,
+                                "vault": vault_name,
+                                "content": content,
+                                "source": "disk",
+                            })));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Fallback: read from DB chunks
+    let db = state.db.lock().await;
+    let chunks = db.get_chunks_for_file(vault_name, file_path)
+        .map_err(|e| ApiError::Internal(format!("database error: {}", e)))?;
+
+    if chunks.is_empty() {
+        return Err(ApiError::NotFound(format!(
+            "file '{}' not found in vault '{}'", file_path, vault_name
+        )));
+    }
+
+    // Reassemble content from chunks in order
+    let content: String = chunks.iter()
+        .map(|c| c.content.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    Ok(Json(serde_json::json!({
+        "path": file_path,
+        "vault": vault_name,
+        "content": content,
+        "source": "index",
+    })))
+}
+
 /// Create the axum router with all routes.
 pub fn create_router(state: Arc<AppState>, config: &ShiotsuchiConfig) -> Router {
     use crate::server::cors::create_cors_layer;
@@ -160,10 +222,12 @@ pub fn create_router(state: Arc<AppState>, config: &ShiotsuchiConfig) -> Router 
     let cors = create_cors_layer(&config.server);
 
     Router::new()
+        .route("/ui", get(serve_ui))
         .route("/api/v1/health", get(handle_health))
         .route("/api/v1/search", get(handle_search))
         .route("/api/v1/stats", get(handle_stats))
         .route("/api/v1/list", get(handle_list))
+        .route("/api/v1/read", get(handle_read))
         .layer(cors)
         .layer(axum::extract::Extension(config.clone()))
         .with_state(state)
@@ -188,6 +252,7 @@ mod tests {
             tokenizer,
             synonyms: HashMap::new(),
             hybrid_alpha: None,
+            config: Some(ShiotsuchiConfig::default()),
         });
         let router = create_router(state, &ShiotsuchiConfig::default());
         (router, tmp)
@@ -347,5 +412,25 @@ mod tests {
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(json["error"]["code"], "BAD_REQUEST");
         assert!(json["error"]["message"].is_string());
+    }
+
+    #[tokio::test]
+    async fn test_ui_returns_html() {
+        let (router, _tmp) = setup_test_router();
+        let req = Request::builder()
+            .uri("/ui")
+            .body(Body::empty())
+            .unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let headers = resp.headers().clone();
+        let content_type = headers.get("content-type").unwrap().to_str().unwrap();
+        assert!(content_type.contains("text/html"), "Expected HTML content type, got: {}", content_type);
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let html = String::from_utf8_lossy(&body);
+        assert!(html.contains("shiotsuchi search"), "HTML should contain title");
+        assert!(html.contains("<input"), "HTML should contain search input");
     }
 }

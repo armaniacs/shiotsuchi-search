@@ -445,6 +445,16 @@ pub fn index_file_with_embedder(p: &IndexParams<'_>) -> IndexResult {
 
     // If native PDF extraction returned empty text, try VLM for scanned PDFs
     if ext == "pdf" && content.is_empty() && config.vlm_enabled {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        static VLM_WARNING_SENT: AtomicBool = AtomicBool::new(false);
+        if !VLM_WARNING_SENT.swap(true, Ordering::Relaxed) {
+            log::warn!(
+                "VLM extraction enabled: PDF content will be sent to {} API for text extraction. \
+                 Set [vlm] enabled = false to disable.",
+                config.vlm_provider
+            );
+        }
+
         #[cfg(feature = "vlm")]
         {
             use crate::config::VlmConfig;
@@ -1428,7 +1438,7 @@ mod tests {
     #[test]
     fn test_index_pdf_text_is_searchable_with_pdf_feature() {
         use crate::models::SearchMode;
-        use crate::search::search;
+        use crate::search::{search, SearchRequest};
         use std::collections::HashMap;
 
         let tokenizer = crate::require_tokenizer!(Default::default());
@@ -1457,9 +1467,23 @@ mod tests {
         assert_eq!(results[0].2, IndexResult::Inserted);
 
         let hits = search(
-            &db, &tokenizer, "Hello", 10, SearchMode::Fts,
-            None, None, Some("default"), None, None,
-            &[], &HashMap::new(), false, None, false, 0.5, false,
+            &db, &tokenizer, &SearchRequest {
+                query: "Hello",
+                limit: 10,
+                mode: SearchMode::Fts,
+                embedder: None,
+                min_score: None,
+                vault_filter: Some("default"),
+                tag_filter: None,
+                since_date: None,
+                user_dictionary: &[],
+                synonyms: &HashMap::new(),
+                fuzzy: false,
+                hybrid_alpha: None,
+                mmr: false,
+                lambda: 0.5,
+                backlink_scoring: false,
+            },
         ).unwrap();
         assert!(
             !hits.is_empty(),

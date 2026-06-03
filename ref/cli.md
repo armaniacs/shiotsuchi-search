@@ -28,6 +28,7 @@ Running `shiotsuchi` without a subcommand opens an interactive welcome screen wi
 | `synonym` | `add/remove/list` | Manage thesaurus entries via CLI (synonym add/remove/list) |
 | `tasks` | `[<keyword>]` `[--all]` | Cross-vault task checkbox search (incomplete `- [ ]` and completed `- [x]`) |
 | `support` | (no subcommands) | Display build info, dependency versions, and system information |
+| `serve` | `[--port]` `[--host]` | Start HTTP API server with browser-based search UI (default port: 7171) |
 
 ## Global Options
 
@@ -215,6 +216,31 @@ model = "gpt-4.1-nano"
 |-------|------|---------|-------------|
 | `enabled` | bool | `true` | Enable the file watcher |
 
+### `[server]` section
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `port` | integer | `7171` | HTTP server port |
+| `host` | string | `"127.0.0.1"` | HTTP server bind address |
+| `cors_origins` | string array | `["http://localhost"]` | Allowed CORS origins |
+
+Example:
+
+```toml
+[server]
+port = 7171
+host = "127.0.0.1"
+cors_origins = ["http://localhost", "http://localhost:3000"]
+```
+
+The HTTP server provides:
+- `/ui` — Browser-based search UI
+- `/api/v1/health` — Health check
+- `/api/v1/search` — Search notes
+- `/api/v1/stats` — Index statistics
+- `/api/v1/list` — Indexed file list
+- `/api/v1/read` — Read file content
+
 ## Config Migration (v0.2.9)
 
 In v0.2.9, the `exclude_patterns` field was renamed to `exclude_dirs` to accurately reflect that it matches directory names (not arbitrary file patterns). If your existing config uses `exclude_patterns`, you will see a deserialization error with a message like:
@@ -257,6 +283,7 @@ exclude_dirs = ["node_modules", "templates"]
 - `cli/src/commands/setup.rs` — ONNX model download/check
 - `cli/src/commands/support.rs` — Build info display
 - `cli/src/commands/tide.rs` — Statistics display (chunk/file/vector counts, tag stats)
+- `cli/src/commands/serve.rs` — HTTP API server with browser UI
 
 ## DB Path Resolution
 

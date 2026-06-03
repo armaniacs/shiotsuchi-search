@@ -3,7 +3,7 @@ use shiotsuchi_core::{
     db::NoteDatabase,
     indexer::{cleanup_deleted, index_directory},
     models::{IndexConfig, SearchMode},
-    search::{extract_snippet, search},
+    search::{extract_snippet, search, SearchRequest},
     tokenizer::TokenizerConfig,
 };
 use std::fs;
@@ -48,9 +48,41 @@ fn test_end_to_end_index_and_search() {
     assert_eq!(results.len(), 3);
 
     // FTS search
-    let _search_results = search(&db, &tokenizer, "search engine", 10, SearchMode::Fts, None, None, None, None, None, &[], &HashMap::new(), false, None, false, 0.5, false).unwrap();
+    let _search_results = search(&db, &tokenizer, &SearchRequest {
+        query: "search engine",
+        limit: 10,
+        mode: SearchMode::Fts,
+        embedder: None,
+        min_score: None,
+        vault_filter: None,
+        tag_filter: None,
+        since_date: None,
+        user_dictionary: &[],
+        synonyms: &HashMap::new(),
+        fuzzy: false,
+        hybrid_alpha: None,
+        mmr: false,
+        lambda: 0.5,
+        backlink_scoring: false,
+    }).unwrap();
 
-    let ja_results = search(&db, &tokenizer, "形態素", 10, SearchMode::Fts, None, None, None, None, None, &[], &HashMap::new(), false, None, false, 0.5, false).unwrap();
+    let ja_results = search(&db, &tokenizer, &SearchRequest {
+        query: "形態素",
+        limit: 10,
+        mode: SearchMode::Fts,
+        embedder: None,
+        min_score: None,
+        vault_filter: None,
+        tag_filter: None,
+        since_date: None,
+        user_dictionary: &[],
+        synonyms: &HashMap::new(),
+        fuzzy: false,
+        hybrid_alpha: None,
+        mmr: false,
+        lambda: 0.5,
+        backlink_scoring: false,
+    }).unwrap();
     assert!(!ja_results.is_empty());
 
     // Stats

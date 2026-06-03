@@ -3,6 +3,21 @@
 
 use std::path::Path;
 
+/// Lines spanning >= 80% of page width are treated as full-width (titles/headings).
+const FULL_WIDTH_RATIO: f32 = 0.8;
+
+/// Minimum vertical gap (in points) between lines to trigger a Y-cut split.
+const MIN_Y_GAP: f32 = 2.0;
+
+/// Minimum horizontal gap (in points) between lines to trigger an X-cut split.
+const MIN_X_GAP: f32 = 5.0;
+
+/// Font size ratio >= 1.5 relative to body text maps to H1.
+const H1_RATIO_THRESHOLD: f32 = 1.5;
+
+/// Font size ratio >= 1.2 relative to body text maps to H2.
+const H2_RATIO_THRESHOLD: f32 = 1.2;
+
 #[derive(Debug, Clone)]
 pub struct RawChar {
     pub text: String,
@@ -84,7 +99,7 @@ pub fn xycut_to_text(lines: &[TextLine], page_width: f32) -> String {
     }
 
     // Pre-mask: separate full-width lines (>= 80% of page width) from body
-    let threshold = page_width * 0.8;
+    let threshold = page_width * FULL_WIDTH_RATIO;
     let mut full_width: Vec<&TextLine> = lines.iter()
         .filter(|l| (l.x1 - l.x0) >= threshold).collect();
     let mut body: Vec<&TextLine> = lines.iter()
@@ -168,7 +183,7 @@ fn find_max_gap_y(desc_sorted: &[&TextLine]) -> Option<f32> {
         }
         prev_bottom = prev_bottom.min(l.y0);
     }
-    if max_gap >= 2.0 { split_y } else { None }
+    if max_gap >= MIN_Y_GAP { split_y } else { None }
 }
 
 /// Find the largest horizontal gap between lines (X-ascending sorted input).
@@ -184,7 +199,7 @@ fn find_max_gap_x(sorted: &[&TextLine]) -> Option<f32> {
         }
         prev_x1 = prev_x1.max(l.x1);
     }
-    if max_gap >= 5.0 { split_x } else { None }
+    if max_gap >= MIN_X_GAP { split_x } else { None }
 }
 
 /// Returns the most common font size in the given lines (mode).
@@ -210,11 +225,11 @@ fn lines_to_markdown(lines: &[&TextLine], body_size: f32) -> String {
         if text.is_empty() { continue; }
 
         let ratio = if body_size > 0.0 { l.font_size / body_size } else { 1.0 };
-        let is_heading = ratio >= 1.2;
+        let is_heading = ratio >= H2_RATIO_THRESHOLD;
 
-        let formatted = if ratio >= 1.5 {
+        let formatted = if ratio >= H1_RATIO_THRESHOLD {
             format!("# {}", text)
-        } else if ratio >= 1.2 {
+        } else if ratio >= H2_RATIO_THRESHOLD {
             format!("## {}", text)
         } else {
             text.to_string()

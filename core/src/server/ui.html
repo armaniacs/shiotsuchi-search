@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>shiotsuchi search</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --surface: #1e293b;
+      --surface-hover: #334155;
+      --border: #334155;
+      --text: #e2e8f0;
+      --text-muted: #94a3b8;
+      --accent: #38bdf8;
+      --accent-hover: #7dd3fc;
+      --success: #4ade80;
+      --error: #f87171;
+      --radius: 8px;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans JP", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+    .container { max-width: 800px; margin: 0 auto; padding: 2rem 1rem; }
+    header { text-align: center; margin-bottom: 2rem; }
+    header h1 { font-size: 1.5rem; font-weight: 600; color: var(--accent); }
+    header p { color: var(--text-muted); font-size: 0.875rem; margin-top: 0.25rem; }
+
+    /* Tabs */
+    .tabs { display: flex; gap: 0; margin-bottom: 1.5rem; border-bottom: 1px solid var(--border); }
+    .tab {
+      padding: 0.75rem 1.25rem;
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      font-size: 0.875rem;
+      border-bottom: 2px solid transparent;
+      transition: all 0.15s;
+    }
+    .tab:hover { color: var(--text); }
+    .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+    /* Search */
+    .search-box {
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 1.5rem;
+    }
+    .search-box input {
+      flex: 1;
+      padding: 0.75rem 1rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text);
+      font-size: 1rem;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    .search-box input:focus { border-color: var(--accent); }
+    .search-box input::placeholder { color: var(--text-muted); }
+    .search-box button {
+      padding: 0.75rem 1.5rem;
+      background: var(--accent);
+      color: var(--bg);
+      border: none;
+      border-radius: var(--radius);
+      font-size: 0.875rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .search-box button:hover { background: var(--accent-hover); }
+    .search-box button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .options {
+      display: flex;
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+      flex-wrap: wrap;
+    }
+    .options label { color: var(--text-muted); font-size: 0.8rem; }
+    .options select, .options input[type="number"] {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--text);
+      padding: 0.35rem 0.5rem;
+      font-size: 0.8rem;
+    }
+
+    /* Results */
+    .results-info { color: var(--text-muted); font-size: 0.8rem; margin-bottom: 1rem; }
+    .result-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1rem;
+      margin-bottom: 0.75rem;
+      transition: border-color 0.15s;
+      cursor: pointer;
+    }
+    .result-card:hover { border-color: var(--accent); }
+    .result-title {
+      font-weight: 600;
+      color: var(--accent);
+      margin-bottom: 0.25rem;
+      font-size: 0.95rem;
+    }
+    .result-path {
+      color: var(--text-muted);
+      font-size: 0.75rem;
+      margin-bottom: 0.5rem;
+      font-family: monospace;
+    }
+    .result-snippet {
+      color: var(--text-muted);
+      font-size: 0.85rem;
+      line-height: 1.5;
+      white-space: pre-wrap;
+    }
+    .result-score {
+      color: var(--text-muted);
+      font-size: 0.7rem;
+      margin-top: 0.5rem;
+      text-align: right;
+    }
+
+    /* Stats */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 1rem;
+    }
+    .stat-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.25rem;
+      text-align: center;
+    }
+    .stat-value {
+      font-size: 1.75rem;
+      font-weight: 700;
+      color: var(--accent);
+    }
+    .stat-label {
+      color: var(--text-muted);
+      font-size: 0.8rem;
+      margin-top: 0.25rem;
+    }
+
+    /* File list */
+    .file-list { list-style: none; }
+    .file-item {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 0.75rem 1rem;
+      margin-bottom: 0.5rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.875rem;
+      cursor: pointer;
+      transition: border-color 0.15s;
+    }
+    .file-item:hover { border-color: var(--accent); }
+    .file-name { font-weight: 500; }
+    .file-vault { color: var(--text-muted); font-size: 0.75rem; font-family: monospace; }
+
+    /* File viewer modal */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.7);
+      z-index: 100;
+      justify-content: center;
+      align-items: center;
+      padding: 2rem;
+    }
+    .modal-overlay.open { display: flex; }
+    .modal {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      width: 100%;
+      max-width: 900px;
+      max-height: 85vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 1rem 1.25rem;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+    }
+    .modal-title {
+      font-weight: 600;
+      font-size: 0.9rem;
+      color: var(--accent);
+      font-family: monospace;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 80%;
+    }
+    .modal-close {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      font-size: 1.25rem;
+      cursor: pointer;
+      padding: 0.25rem 0.5rem;
+      border-radius: 4px;
+    }
+    .modal-close:hover { color: var(--text); background: var(--surface-hover); }
+    .modal-body {
+      padding: 1.25rem;
+      overflow-y: auto;
+      flex: 1;
+    }
+    .modal-body pre {
+      font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+      font-size: 0.85rem;
+      line-height: 1.6;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+      color: var(--text);
+    }
+    .modal-loading { text-align: center; color: var(--text-muted); padding: 3rem; }
+
+    /* Loading & empty */
+    .loading { text-align: center; color: var(--text-muted); padding: 2rem; }
+    .empty { text-align: center; color: var(--text-muted); padding: 2rem; font-size: 0.9rem; }
+    .error { color: var(--error); padding: 1rem; text-align: center; }
+
+    .panel { display: none; }
+    .panel.active { display: block; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>shiotsuchi search</h1>
+      <p>Japanese-aware search for Markdown vaults</p>
+    </header>
+
+    <div class="tabs">
+      <button class="tab active" data-tab="search">Search</button>
+      <button class="tab" data-tab="stats">Stats</button>
+      <button class="tab" data-tab="files">Files</button>
+    </div>
+
+    <!-- Search Panel -->
+    <div id="search" class="panel active">
+      <div class="search-box">
+        <input type="text" id="query" placeholder="Search notes..." autofocus>
+        <button id="searchBtn" onclick="doSearch()">Search</button>
+      </div>
+      <div class="options">
+        <div>
+          <label>Mode</label><br>
+          <select id="mode">
+            <option value="hybrid">Hybrid</option>
+            <option value="fts">Full-text</option>
+          </select>
+        </div>
+        <div>
+          <label>Limit</label><br>
+          <input type="number" id="limit" value="20" min="1" max="100" style="width: 70px;">
+        </div>
+      </div>
+      <div id="searchResults"></div>
+    </div>
+
+    <!-- Stats Panel -->
+    <div id="stats" class="panel">
+      <div id="statsContent"></div>
+    </div>
+
+    <!-- Files Panel -->
+    <div id="files" class="panel">
+      <div id="filesContent"></div>
+    </div>
+  </div>
+
+  <!-- File Viewer Modal -->
+  <div class="modal-overlay" id="modal">
+    <div class="modal">
+      <div class="modal-header">
+        <span class="modal-title" id="modalTitle"></span>
+        <button class="modal-close" onclick="closeModal()">&times;</button>
+      </div>
+      <div class="modal-body" id="modalBody"></div>
+    </div>
+  </div>
+
+  <script>
+    const $ = (s) => document.querySelector(s);
+    const api = (path) => fetch(path).then(r => r.json());
+
+    // Tab switching
+    document.querySelectorAll('.tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+        tab.classList.add('active');
+        $('#' + tab.dataset.tab).classList.add('active');
+
+        if (tab.dataset.tab === 'stats') loadStats();
+        if (tab.dataset.tab === 'files') loadFiles();
+      });
+    });
+
+    // Enter key to search
+    $('#query').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') doSearch();
+    });
+
+    // Close modal on overlay click or Escape
+    $('#modal').addEventListener('click', (e) => {
+      if (e.target === $('#modal')) closeModal();
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') closeModal();
+    });
+
+    async function doSearch() {
+      const q = $('#query').value.trim();
+      if (!q) return;
+      const mode = $('#mode').value;
+      const limit = $('#limit').value;
+      const btn = $('#searchBtn');
+      btn.disabled = true;
+      $('#searchResults').innerHTML = '<div class="loading">Searching...</div>';
+
+      try {
+        const data = await api(`/api/v1/search?q=${encodeURIComponent(q)}&mode=${mode}&limit=${limit}`);
+        if (data.error) {
+          $('#searchResults').innerHTML = `<div class="error">${esc(data.error.message)}</div>`;
+          return;
+        }
+        if (data.results.length === 0) {
+          $('#searchResults').innerHTML = '<div class="empty">No results found</div>';
+          return;
+        }
+        $('#searchResults').innerHTML = `
+          <div class="results-info">${data.count} results</div>
+          ${data.results.map(r => `
+            <div class="result-card" onclick="openFile('${esc(r.file_path)}', '${esc(r.vault_name)}')">
+              <div class="result-title">${esc(r.title || '(untitled)')}</div>
+              <div class="result-path">${esc(r.file_path)}</div>
+              <div class="result-snippet">${esc(r.snippet)}</div>
+              <div class="result-score">score: ${r.score.toFixed(3)}</div>
+            </div>
+          `).join('')}
+        `;
+      } catch (e) {
+        $('#searchResults').innerHTML = `<div class="error">Error: ${esc(e.message)}</div>`;
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    async function loadStats() {
+      $('#statsContent').innerHTML = '<div class="loading">Loading...</div>';
+      try {
+        const d = await api('/api/v1/stats');
+        $('#statsContent').innerHTML = `
+          <div class="stats-grid">
+            <div class="stat-card">
+              <div class="stat-value">${d.total_files}</div>
+              <div class="stat-label">Files</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-value">${d.total_chunks}</div>
+              <div class="stat-label">Chunks</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-value">${formatBytes(d.total_size_bytes)}</div>
+              <div class="stat-label">Total Size</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-value">${d.embedder_status}</div>
+              <div class="stat-label">Embedder</div>
+            </div>
+          </div>
+        `;
+      } catch (e) {
+        $('#statsContent').innerHTML = `<div class="error">Error: ${esc(e.message)}</div>`;
+      }
+    }
+
+    async function loadFiles() {
+      $('#filesContent').innerHTML = '<div class="loading">Loading...</div>';
+      try {
+        const d = await api('/api/v1/list');
+        if (d.files.length === 0) {
+          $('#filesContent').innerHTML = '<div class="empty">No files indexed</div>';
+          return;
+        }
+        $('#filesContent').innerHTML = `
+          <div class="results-info">${d.count} files</div>
+          <ul class="file-list">
+            ${d.files.map(f => `
+              <li class="file-item" onclick="openFile('${esc(f.path)}', '${esc(f.vault_name)}')">
+                <span class="file-name">${esc(f.path)}</span>
+                <span class="file-vault">${esc(f.vault_name)}</span>
+              </li>
+            `).join('')}
+          </ul>
+        `;
+      } catch (e) {
+        $('#filesContent').innerHTML = `<div class="error">Error: ${esc(e.message)}</div>`;
+      }
+    }
+
+    async function openFile(path, vault) {
+      const modal = $('#modal');
+      const title = $('#modalTitle');
+      const body = $('#modalBody');
+
+      title.textContent = path;
+      body.innerHTML = '<div class="modal-loading">Loading...</div>';
+      modal.classList.add('open');
+
+      try {
+        const data = await api(`/api/v1/read?path=${encodeURIComponent(path)}&vault=${encodeURIComponent(vault)}`);
+        if (data.error) {
+          body.innerHTML = `<div class="error">${esc(data.error.message)}</div>`;
+          return;
+        }
+        body.innerHTML = `<pre>${esc(data.content)}</pre>`;
+      } catch (e) {
+        body.innerHTML = `<div class="error">Error: ${esc(e.message)}</div>`;
+      }
+    }
+
+    function closeModal() {
+      $('#modal').classList.remove('open');
+    }
+
+    function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+    function formatBytes(b) {
+      if (b === 0) return '0 B';
+      const k = 1024, s = ['B', 'KB', 'MB', 'GB'];
+      const i = Math.floor(Math.log(b) / Math.log(k));
+      return parseFloat((b / Math.pow(k, i)).toFixed(1)) + ' ' + s[i];
+    }
+  </script>
+</body>
+</html>

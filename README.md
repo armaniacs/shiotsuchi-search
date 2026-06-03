@@ -13,7 +13,7 @@ Powered by [Vaporetto](https://github.com/daac-tools/vaporetto) × SQLite FTS5.
 
 - **Sub-second search** across 10,000+ notes
 - **Japanese-aware tokenization** via Vaporetto
-- **Multiple interfaces**: CLI, MCP (Claude Desktop)
+- **Multiple interfaces**: CLI, HTTP API server with browser UI, MCP (Claude Desktop)
 - **Incremental indexing**: only re-indexes changed files (SHA-256 hash tracking)
 
 > **Note:** CLI output and help text are in Japanese by default. English usage docs are available in [docs/CLI-USE.md](docs/CLI-USE.md).
@@ -39,6 +39,7 @@ Powered by [Vaporetto](https://github.com/daac-tools/vaporetto) × SQLite FTS5.
 | `tasks` | Cross-vault task checkbox search |
 | `stats` / `tide` | Show vault statistics (files, chunks, tags, --json) |
 | `support` | Show build info and dependency versions |
+| `serve` | Start HTTP API server with browser UI |
 
 ## Claude Desktop Integration (MCP)
 
@@ -65,6 +66,38 @@ shiotsuchi index --notes-dir ~/Notes
 ```
 
 Restart Claude Desktop and ask: "Search my notes for project"
+
+## HTTP API Server
+
+Start a local HTTP server with a browser-based search UI:
+
+```bash
+shiotsuchi serve --port 7171
+```
+
+Then open http://localhost:7171/ui in your browser.
+
+### API Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/ui` | Browser-based search UI |
+| GET | `/api/v1/health` | Health check |
+| GET | `/api/v1/search?q=<query>&mode=<mode>&limit=<n>` | Search notes |
+| GET | `/api/v1/stats` | Index statistics |
+| GET | `/api/v1/list` | Indexed file list |
+| GET | `/api/v1/read?path=<path>&vault=<vault>` | Read file content |
+
+### Configuration
+
+Add to `config.toml`:
+
+```toml
+[server]
+port = 7171
+host = "127.0.0.1"
+cors_origins = ["http://localhost"]
+```
 
 ## Security & Privacy
 

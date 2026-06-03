@@ -1,10 +1,31 @@
 use crate::{
     db::{DbError, NoteDatabase},
+    embedder::Embedder,
     models::{ChunkSearchResult, SearchMode},
     tokenizer::{apply_user_dictionary, normalize, simple_and_query, JapaneseTokenizer},
 };
 use std::collections::HashMap;
 use log;
+
+/// All parameters for a search operation, grouped for maintainability.
+#[derive(Debug, Clone)]
+pub struct SearchRequest<'a> {
+    pub query: &'a str,
+    pub limit: usize,
+    pub mode: SearchMode,
+    pub embedder: Option<&'a Embedder>,
+    pub min_score: Option<f64>,
+    pub vault_filter: Option<&'a str>,
+    pub tag_filter: Option<&'a str>,
+    pub since_date: Option<&'a str>,
+    pub user_dictionary: &'a [String],
+    pub synonyms: &'a HashMap<String, Vec<String>>,
+    pub fuzzy: bool,
+    pub hybrid_alpha: Option<f64>,
+    pub mmr: bool,
+    pub lambda: f64,
+    pub backlink_scoring: bool,
+}
 
 /// Main search entry point. Dispatches to FTS, vec, or hybrid (RRF) mode.
 ///
@@ -125,44 +146,29 @@ fn mmr_rerank(
         .collect()
 }
 
-#[allow(clippy::too_many_arguments)]
 pub fn search(
     db: &NoteDatabase,
     tokenizer: &JapaneseTokenizer,
-    query: &str,
-    limit: usize,
-    mode: SearchMode,
-    embedder: Option<&crate::embedder::Embedder>,
-    min_score: Option<f64>,
-    vault_filter: Option<&str>,
-    tag_filter: Option<&str>,
-    since_date: Option<&str>,
-    user_dictionary: &[String],
-    synonyms: &HashMap<String, Vec<String>>,
-    fuzzy: bool,
-    alpha: Option<f64>,
-    mmr: bool,
-    lambda: f64,
-    backlink_scoring: bool,
+    req: &SearchRequest,
 ) -> Result<Vec<ChunkSearchResult>, DbError> {
-    if query.trim().is_empty() {
+    if req.query.trim().is_empty() {
         return Ok(vec![]);
     }
 
-    let effective_mode = if embedder.is_none() && matches!(mode, SearchMode::Hybrid) {
+    let effective_mode = if req.embedder.is_none() && matches!(req.mode, SearchMode::Hybrid) {
         SearchMode::Fts
     } else {
-        mode
+        req.mode.clone()
     };
 
     // When MMR is active, expand the candidate pool so the algorithm has
     // diverse material to select from. FTS pool stays at limit*2 to avoid
     // slow query expansion; only the vec side is widened.
     const MMR_POOL_MULTIPLIER: usize = 3;
-    let vec_fetch_limit = if mmr && effective_mode != SearchMode::Fts {
-        limit * MMR_POOL_MULTIPLIER
+    let vec_fetch_limit = if req.mmr && effective_mode != SearchMode::Fts {
+        req.limit * MMR_POOL_MULTIPLIER
     } else {
-        limit
+        req.limit
     };
 
     // Embed the query once and share it across vec search and MMR.
@@ -170,8 +176,8 @@ pub fn search(
     // Propagate embedding errors so the user sees the real cause (e.g. model
     // runtime failure) instead of a generic "model not loaded" message.
     let precomputed_embedding = if effective_mode != SearchMode::Fts {
-        match embedder {
-            Some(e) => e.embed(query).map(Some).map_err(|err| DbError::Other(err.to_string())),
+        match req.embedder {
+            Some(e) => e.embed(req.query).map(Some).map_err(|err| DbError::Other(err.to_string())),
             None => Ok(None),
         }
     } else {
@@ -183,34 +189,34 @@ pub fn search(
     // so MMR does not need a separate get_chunk_vectors() DB query.
     // Only request embeddings from vec_search when MMR is active, to avoid
     // unnecessary blob deserialization of potentially large embedding vectors.
-    let include_embeddings = mmr && effective_mode != SearchMode::Fts;
+    let include_embeddings = req.mmr && effective_mode != SearchMode::Fts;
 
     let (mut results, vec_emb_map) = match effective_mode {
-        SearchMode::Fts => (search_fts(db, tokenizer, query, limit, min_score, vault_filter, tag_filter, since_date, user_dictionary, synonyms, fuzzy)?, HashMap::new()),
+        SearchMode::Fts => (search_fts(db, tokenizer, req.query, req.limit, req.min_score, req.vault_filter, req.tag_filter, req.since_date, req.user_dictionary, req.synonyms, req.fuzzy)?, HashMap::new()),
         SearchMode::Vec => {
             let emb_vec = precomputed_embedding.as_deref()
                 .ok_or_else(|| DbError::Other("Vec mode requires embedder — model not loaded".into()))?;
-            search_vec(db, emb_vec, query, vec_fetch_limit, min_score, vault_filter, tag_filter, since_date, include_embeddings)?
+            search_vec(db, emb_vec, req.query, vec_fetch_limit, req.min_score, req.vault_filter, req.tag_filter, req.since_date, include_embeddings)?
         }
         SearchMode::Hybrid => {
             let emb_vec = precomputed_embedding.as_deref()
                 .ok_or_else(|| DbError::Other("Hybrid mode requires embedder — model not loaded".into()))?;
-            search_hybrid(db, tokenizer, emb_vec, query, limit, vec_fetch_limit, min_score, vault_filter, tag_filter, since_date, user_dictionary, synonyms, fuzzy, alpha, include_embeddings)?
+            search_hybrid(db, tokenizer, emb_vec, req.query, req.limit, vec_fetch_limit, req.min_score, req.vault_filter, req.tag_filter, req.since_date, req.user_dictionary, req.synonyms, req.fuzzy, req.hybrid_alpha, include_embeddings)?
         }
     };
 
     // MMR post-processing for Vec and Hybrid modes.
     // Uses embeddings from vec_search (no extra DB round-trip needed).
-    if mmr && effective_mode != SearchMode::Fts {
+    if req.mmr && effective_mode != SearchMode::Fts {
         if let Some(query_vec) = &precomputed_embedding {
             if !vec_emb_map.is_empty() {
-                results = mmr_rerank(results, query_vec, &vec_emb_map, lambda.clamp(0.0, 1.0), limit);
+                results = mmr_rerank(results, query_vec, &vec_emb_map, req.lambda.clamp(0.0, 1.0), req.limit);
             }
         }
     }
 
     // Apply backlink scoring boost
-    if backlink_scoring && !results.is_empty() {
+    if req.backlink_scoring && !results.is_empty() {
         let chunk_ids: Vec<i64> = results.iter().map(|r| r.chunk_id).collect();
         if let Ok(backlink_map) = db.get_backlink_counts_for_chunks(&chunk_ids) {
             for r in &mut results {
@@ -749,6 +755,32 @@ mod tests {
     use crate::db::NoteDatabase;
     use crate::models::Chunk;
 
+    fn req<'a>(
+        query: &'a str,
+        limit: usize,
+        mode: SearchMode,
+    ) -> SearchRequest<'a> {
+        static EMPTY_SYNONYMS: std::sync::OnceLock<HashMap<String, Vec<String>>> = std::sync::OnceLock::new();
+        let synonyms = EMPTY_SYNONYMS.get_or_init(HashMap::new);
+        SearchRequest {
+            query,
+            limit,
+            mode,
+            embedder: None,
+            min_score: None,
+            vault_filter: None,
+            tag_filter: None,
+            since_date: None,
+            user_dictionary: &[],
+            synonyms,
+            fuzzy: false,
+            hybrid_alpha: None,
+            mmr: false,
+            lambda: 0.5,
+            backlink_scoring: false,
+        }
+    }
+
     #[test]
     fn test_extract_snippet_found() {
         let text = "Line one\nLine two\nLine three\nLine four\nLine five";
@@ -797,7 +829,24 @@ mod tests {
         }];
         db.insert_chunks(&chunks).unwrap();
 
-        let results = search(&db, &tokenizer, "search engine", 10, SearchMode::Fts, None, None, None, None, None, &[], &HashMap::new(), false, None, false, 0.5, false).unwrap();
+        let req = SearchRequest {
+            query: "search engine",
+            limit: 10,
+            mode: SearchMode::Fts,
+            embedder: None,
+            min_score: None,
+            vault_filter: None,
+            tag_filter: None,
+            since_date: None,
+            user_dictionary: &[],
+            synonyms: &HashMap::new(),
+            fuzzy: false,
+            hybrid_alpha: None,
+            mmr: false,
+            lambda: 0.5,
+            backlink_scoring: false,
+        };
+        let results = search(&db, &tokenizer, &req).unwrap();
         assert!(!results.is_empty());
         assert_eq!(results[0].file_path, "test.md");
         assert!(matches!(results[0].search_mode, SearchMode::Fts));
@@ -839,19 +888,25 @@ mod tests {
         db.insert_chunks(&chunks).unwrap();
 
         // Filter by "work" vault
-        let results = search(&db, &tokenizer, "alpha", 10, SearchMode::Fts, None, None, Some("work"), None, None, &[], &HashMap::new(), false, None, false, 0.5, false).unwrap();
+        let results = search(&db, &tokenizer, &SearchRequest {
+            vault_filter: Some("work"),
+            ..req("alpha", 10, SearchMode::Fts)
+        }).unwrap();
         assert_eq!(results.len(), 1, "expected 1 result in work vault");
         assert_eq!(results[0].vault_name, "work");
         assert_eq!(results[0].file_path, "vault_a.md");
 
         // Filter by "personal" vault
-        let results = search(&db, &tokenizer, "alpha", 10, SearchMode::Fts, None, None, Some("personal"), None, None, &[], &HashMap::new(), false, None, false, 0.5, false).unwrap();
+        let results = search(&db, &tokenizer, &SearchRequest {
+            vault_filter: Some("personal"),
+            ..req("alpha", 10, SearchMode::Fts)
+        }).unwrap();
         assert_eq!(results.len(), 1, "expected 1 result in personal vault");
         assert_eq!(results[0].vault_name, "personal");
         assert_eq!(results[0].file_path, "vault_b.md");
 
         // No filter → both
-        let results = search(&db, &tokenizer, "alpha", 10, SearchMode::Fts, None, None, None, None, None, &[], &HashMap::new(), false, None, false, 0.5, false).unwrap();
+        let results = search(&db, &tokenizer, &req("alpha", 10, SearchMode::Fts)).unwrap();
         assert_eq!(results.len(), 2, "expected 2 results across all vaults");
     }
 
@@ -859,7 +914,7 @@ mod tests {
     fn test_search_empty_query_returns_empty() {
         let db = NoteDatabase::open_in_memory().unwrap();
         let tokenizer = crate::require_tokenizer!(crate::tokenizer::TokenizerConfig::default());
-        let results = search(&db, &tokenizer, "  ", 10, SearchMode::Fts, None, None, None, None, None, &[], &HashMap::new(), false, None, false, 0.5, false).unwrap();
+        let results = search(&db, &tokenizer, &req("  ", 10, SearchMode::Fts)).unwrap();
         assert!(results.is_empty());
     }
 
@@ -883,7 +938,7 @@ mod tests {
         db.insert_chunks(&chunks).unwrap();
 
         // Hybrid with no embedder → falls back to FTS
-        let results = search(&db, &tokenizer, "hybrid fallback", 10, SearchMode::Hybrid, None, None, None, None, None, &[], &HashMap::new(), false, None, false, 0.5, false).unwrap();
+        let results = search(&db, &tokenizer, &req("hybrid fallback", 10, SearchMode::Hybrid)).unwrap();
         assert!(!results.is_empty());
         assert!(matches!(results[0].search_mode, SearchMode::Fts));
     }
@@ -1231,7 +1286,7 @@ mod tests {
             Ok(tok) => tok,
             Err(_) => return,
         };
-        let result = search(&db, &tokenizer, "test", 10, SearchMode::Vec, None, None, None, None, None, &[], &HashMap::new(), false, None, false, 0.5, false);
+        let result = search(&db, &tokenizer, &req("test", 10, SearchMode::Vec));
         match result {
             Err(crate::db::DbError::Other(msg)) => {
                 assert!(msg.contains("embedder"), "error should mention embedder");
@@ -1247,7 +1302,7 @@ mod tests {
             Ok(tok) => tok,
             Err(_) => return,
         };
-        let result = search(&db, &tokenizer, "test", 10, SearchMode::Hybrid, None, None, None, None, None, &[], &HashMap::new(), false, None, false, 0.5, false);
+        let result = search(&db, &tokenizer, &req("test", 10, SearchMode::Hybrid));
         assert!(result.is_ok(), "Hybrid without embedder should fall back to FTS, got error");
     }
 
@@ -1258,7 +1313,7 @@ mod tests {
             Ok(tok) => tok,
             Err(_) => return,
         };
-        let result = search(&db, &tokenizer, "test", 10, SearchMode::Fts, None, None, None, None, None, &[], &HashMap::new(), false, None, false, 0.5, false);
+        let result = search(&db, &tokenizer, &req("test", 10, SearchMode::Fts));
         assert!(result.is_ok());
     }
 
@@ -1276,15 +1331,15 @@ mod tests {
         };
 
         // FTS mode with min_score=0.0 should exclude all positive-score results
-        let result = search(&db, &tokenizer, "test", 10, SearchMode::Fts, None, Some(0.0), None, None, None, &[], &HashMap::new(), false, None, false, 0.5, false);
+        let result = search(&db, &tokenizer, &SearchRequest { min_score: Some(0.0), ..req("test", 10, SearchMode::Fts) });
         assert!(result.is_ok(), "FTS + min_score should not error");
 
         // Vec mode with min_score=0.0 should not error (no data, so empty results)
-        let result = search(&db, &tokenizer, "test", 10, SearchMode::Vec, None, Some(0.0), None, None, None, &[], &HashMap::new(), false, None, false, 0.5, false);
+        let result = search(&db, &tokenizer, &SearchRequest { min_score: Some(0.0), ..req("test", 10, SearchMode::Vec) });
         assert!(result.is_ok(), "Vec + min_score should not error");
 
         // Hybrid mode with min_score=0.0 should not error
-        let result = search(&db, &tokenizer, "test", 10, SearchMode::Hybrid, None, Some(0.0), None, None, None, &[], &HashMap::new(), false, None, false, 0.5, false);
+        let result = search(&db, &tokenizer, &SearchRequest { min_score: Some(0.0), ..req("test", 10, SearchMode::Hybrid) });
         assert!(result.is_ok(), "Hybrid + min_score should not error");
     }
 
@@ -1317,11 +1372,11 @@ mod tests {
         db.insert_chunks(&chunks).unwrap();
 
         // fuzzy=false with uppercase query → no match (case-sensitive FTS5)
-        let results = search(&db, &tokenizer, "HELLO", 10, SearchMode::Fts, None, None, None, None, None, &[], &HashMap::new(), false, None, false, 0.5, false).unwrap();
+        let results = search(&db, &tokenizer, &req("HELLO", 10, SearchMode::Fts)).unwrap();
         assert!(results.is_empty(), "non-fuzzy search should not match uppercase 'HELLO' against 'hello'");
 
         // fuzzy=true → query is normalized to lowercase → matches
-        let results = search(&db, &tokenizer, "HELLO", 10, SearchMode::Fts, None, None, None, None, None, &[], &HashMap::new(), true, None, false, 0.5, false).unwrap();
+        let results = search(&db, &tokenizer, &SearchRequest { fuzzy: true, ..req("HELLO", 10, SearchMode::Fts) }).unwrap();
         assert!(!results.is_empty(), "fuzzy search should match 'HELLO' against 'hello'");
         assert_eq!(results[0].file_path, "test.md");
     }
@@ -1353,7 +1408,7 @@ mod tests {
         db.insert_chunks(&chunks).unwrap();
 
         // fuzzy=true with fullwidth query → normalized to "apple" → matches
-        let results = search(&db, &tokenizer, "ａｐｐｌｅ", 10, SearchMode::Fts, None, None, None, None, None, &[], &HashMap::new(), true, None, false, 0.5, false).unwrap();
+        let results = search(&db, &tokenizer, &SearchRequest { fuzzy: true, ..req("ａｐｐｌｅ", 10, SearchMode::Fts) }).unwrap();
         assert!(!results.is_empty(), "fuzzy search should match fullwidth 'ａｐｐｌｅ' against 'apple'");
     }
 
@@ -1384,11 +1439,11 @@ mod tests {
         db.insert_chunks(&chunks).unwrap();
 
         // fuzzy=false with exact case → matches
-        let results = search(&db, &tokenizer, "Hello", 10, SearchMode::Fts, None, None, None, None, None, &[], &HashMap::new(), false, None, false, 0.5, false).unwrap();
+        let results = search(&db, &tokenizer, &req("Hello", 10, SearchMode::Fts)).unwrap();
         assert!(!results.is_empty(), "non-fuzzy should match exact case 'Hello'");
 
         // fuzzy=false with different case → no match
-        let results = search(&db, &tokenizer, "hello", 10, SearchMode::Fts, None, None, None, None, None, &[], &HashMap::new(), false, None, false, 0.5, false).unwrap();
+        let results = search(&db, &tokenizer, &req("hello", 10, SearchMode::Fts)).unwrap();
         assert!(results.is_empty(), "non-fuzzy should not match different case 'hello' against 'Hello'");
     }
 
@@ -1679,7 +1734,7 @@ mod tests {
         ).unwrap();
 
         // FTS mode: lower score = better. Backlink boost should make popular.md score lower.
-        let results = search(&db, &tokenizer, "test content", 10, SearchMode::Fts, None, None, None, None, None, &[], &HashMap::new(), false, None, false, 0.5, true).unwrap();
+        let results = search(&db, &tokenizer, &SearchRequest { backlink_scoring: true, ..req("test content", 10, SearchMode::Fts) }).unwrap();
         assert_eq!(results.len(), 2, "both chunks should be found");
         assert_eq!(results[0].file_path, "popular.md", "popular.md should rank first (lower FTS score)");
         // The score for popular.md should be strictly less than unpopular.md
@@ -1708,7 +1763,7 @@ mod tests {
         ).unwrap();
 
         // backlink_scoring=false should not apply the boost
-        let results = search(&db, &tokenizer, "test content", 10, SearchMode::Fts, None, None, None, None, None, &[], &HashMap::new(), false, None, false, 0.5, false).unwrap();
+        let results = search(&db, &tokenizer, &req("test content", 10, SearchMode::Fts)).unwrap();
         assert!(!results.is_empty());
         // Score should be the raw BM25 score without backlink adjustment
         let hit = &results[0];
@@ -1751,11 +1806,11 @@ mod tests {
         ).unwrap();
 
         // With backlink_scoring=false: order should be natural (no backlink influence)
-        let results_no_score = search(&db, &tokenizer, "alpha", 10, SearchMode::Fts, None, None, None, None, None, &[], &HashMap::new(), false, None, false, 0.5, false).unwrap();
+        let results_no_score = search(&db, &tokenizer, &req("alpha", 10, SearchMode::Fts)).unwrap();
         assert_eq!(results_no_score.len(), 2);
 
         // With backlink_scoring=true: a.md (5 backlinks) should rank better than b.md (1 backlink)
-        let results_scored = search(&db, &tokenizer, "alpha", 10, SearchMode::Fts, None, None, None, None, None, &[], &HashMap::new(), false, None, false, 0.5, true).unwrap();
+        let results_scored = search(&db, &tokenizer, &SearchRequest { backlink_scoring: true, ..req("alpha", 10, SearchMode::Fts) }).unwrap();
         assert_eq!(results_scored.len(), 2);
         // FTS: lower score = better, so popular file should have lower score
         assert!(results_scored[0].score <= results_scored[1].score,
@@ -1787,7 +1842,7 @@ mod tests {
         // Hybrid mode with no embedder falls back to FTS, which doesn't exercise the hybrid path.
         // We test the FTS path (which is also lower=better) separately.
         // This test verifies the code path exists and doesn't crash.
-        let results = search(&db, &tokenizer, "test", 10, SearchMode::Hybrid, None, None, None, None, None, &[], &HashMap::new(), false, None, false, 0.5, true).unwrap();
+        let results = search(&db, &tokenizer, &SearchRequest { backlink_scoring: true, ..req("test", 10, SearchMode::Hybrid) }).unwrap();
         // Hybrid without embedder falls back to FTS, so search should still work
         assert!(!results.is_empty() || results.is_empty());
     }

@@ -976,6 +976,35 @@ impl NoteDatabase {
         rows.collect::<SqliteResult<Vec<_>>>().map_err(DbError::Sqlite)
     }
 
+    /// Get all chunks for a file, ordered by chunk_index.
+    /// Used as a fallback when the file no longer exists on disk.
+    pub fn get_chunks_for_file(
+        &self,
+        vault_name: &str,
+        file_path: &str,
+    ) -> Result<Vec<Chunk>, DbError> {
+        let conn = self.write_conn.borrow();
+        let mut stmt = conn.prepare(
+            "SELECT id, file_path, chunk_index, parent_header, content, tokenized_content, vault_name, tags, frontmatter_date, title, emphasized_text FROM chunks WHERE vault_name = ?1 AND file_path = ?2 ORDER BY chunk_index"
+        )?;
+        let rows = stmt.query_map(params![vault_name, file_path], |r| {
+            Ok(Chunk {
+                id: Some(r.get(0)?),
+                file_path: r.get(1)?,
+                chunk_index: r.get(2)?,
+                parent_header: r.get(3)?,
+                content: r.get(4)?,
+                tokenized_content: r.get(5)?,
+                vault_name: r.get(6)?,
+                tags: r.get(7)?,
+                frontmatter_date: r.get(8)?,
+                title: r.get(9)?,
+                emphasized_text: r.get(10)?,
+            })
+        })?;
+        rows.collect::<SqliteResult<Vec<_>>>().map_err(DbError::Sqlite)
+    }
+
     /// Insert note_links for a source file within a transaction.
     /// The caller is responsible for deleting old links first.
     pub fn insert_note_links(

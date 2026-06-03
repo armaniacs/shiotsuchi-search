@@ -1,7 +1,7 @@
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::json;
 
 /// Structured API error type.
@@ -36,11 +36,19 @@ impl IntoResponse for ApiError {
 // --- Query Parameters ---
 
 #[derive(Deserialize)]
+pub struct ReadParams {
+    /// File path relative to vault (required)
+    pub path: String,
+    /// Vault name (default: "default")
+    pub vault: Option<String>,
+}
+
+#[derive(Deserialize)]
 pub struct SearchParams {
     /// Search query (required)
     pub q: String,
-    /// Maximum results to return (default: 20)
-    #[serde(default = "default_limit")]
+    /// Maximum results to return (default: 20, max: 200)
+    #[serde(default = "default_limit", deserialize_with = "deserialize_clamped_limit")]
     pub limit: usize,
     /// Search mode: "fts", "vec", or "hybrid" (default: "hybrid")
     #[serde(default = "default_mode")]
@@ -55,6 +63,14 @@ pub struct SearchParams {
 
 fn default_limit() -> usize {
     20
+}
+
+fn deserialize_clamped_limit<'de, D>(deserializer: D) -> Result<usize, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let val = usize::deserialize(deserializer)?;
+    Ok(val.min(200))
 }
 
 fn default_mode() -> String {

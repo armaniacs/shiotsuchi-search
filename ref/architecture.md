@@ -26,6 +26,12 @@ shiotsuchi-search/
 │   │   ├── pdf.rs      # PDF text extraction via pdfium-render (XY-cut algorithm)
 │   │   ├── vlm.rs      # VLM API text extraction (feature-gated)
 │   │   ├── watcher.rs  # File change watcher
+│   │   ├── server/     # HTTP API server
+│   │   │   ├── mod.rs      # AppState, create_router()
+│   │   │   ├── handlers.rs # REST API handlers (health, search, stats, list, read)
+│   │   │   ├── types.rs    # API types (SearchParams, ApiError, response types)
+│   │   │   ├── cors.rs     # CORS middleware
+│   │   │   └── ui.html     # Browser-based search UI (embedded)
 │   │   ├── build_info.rs # Compile-time constants (embedded hash, features)
 │   │   ├── paths.rs    # XDG path resolution
 │   │   └── constants.rs # Build-time constants (embedded model hash)
@@ -111,7 +117,7 @@ Search flow:
 
 | Binary | File | Purpose |
 |--------|------|---------|
-| `shiotsuchi` | `cli/src/main.rs` | CLI tool (index, search, watch, stats, prune, list, clean, config-migrate, init, setup, delete, doctor, synonym, tasks, check-ignore) |
+| `shiotsuchi` | `cli/src/main.rs` | CLI tool (index, search, watch, stats, prune, list, clean, config-migrate, init, setup, delete, doctor, synonym, tasks, check-ignore, serve) |
 | `shiotsuchi-mcp` | `mcp/src/main.rs` | MCP server for Claude Desktop (tokio async) |
 
 ## Crate Dependencies

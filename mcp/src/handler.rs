@@ -2,7 +2,7 @@ use serde_json::{json, Value};
 use shiotsuchi_core::{
     db::NoteDatabase,
     models::SearchMode,
-    search::{extract_snippet, search},
+    search::{extract_snippet, search, SearchRequest},
     tokenizer::get_tokenizer,
 };
 use std::collections::{HashMap, VecDeque};
@@ -143,7 +143,24 @@ pub fn call_tool(
                     "content": [{"type": "text", "text": "Full-text search requires a tokenizer model. Run 'shiotsuchi setup' to configure one, or set SHIOTSUCHI_MODEL_PATH."}]
                 })),
             };
-            let results = search(&db, &tokenizer, &query, limit, mode, None, min_score, vault_filter, None, None, &[], &HashMap::new(), false, None, false, 0.5, backlink_scoring)?;
+            let request = SearchRequest {
+                query: &query,
+                limit,
+                mode,
+                embedder: None,
+                min_score,
+                vault_filter,
+                tag_filter: None,
+                since_date: None,
+                user_dictionary: &[],
+                synonyms: &HashMap::new(),
+                fuzzy: false,
+                hybrid_alpha: None,
+                mmr: false,
+                lambda: 0.5,
+                backlink_scoring,
+            };
+            let results = search(&db, &tokenizer, &request)?;
 
             let markdown = format_results_markdown(&results, &query);
             Ok(json!({

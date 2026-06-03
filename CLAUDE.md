@@ -28,6 +28,8 @@ High-performance Japanese-aware search engine for Markdown note vaults, powered 
 | [core/src/search.rs](core/src/search.rs) | Search + snippet extraction |
 | [cli/src/main.rs](cli/src/main.rs) | CLI entry point |
 | [cli/src/config.rs](cli/src/config.rs) | Config loading (XDG dirs) |
+| [core/src/server/handlers.rs](core/src/server/handlers.rs) | HTTP API server handlers |
+| [core/src/server/ui.html](core/src/server/ui.html) | Browser-based search UI |
 | [mcp/src/main.rs](mcp/src/main.rs) | MCP server stdio loop |
 | [mcp/src/handler.rs](mcp/src/handler.rs) | MCP tool handlers |
 
@@ -55,6 +57,9 @@ shiotsuchi search "project plan"
 
 # Watch
 shiotsuchi watch --notes-dir ~/Notes
+
+# HTTP server
+shiotsuchi serve --port 7171
 ```
 
 ## Linear CLI
@@ -81,4 +86,6 @@ linear issue list
 - WAL mode enabled for concurrent CLI + MCP access
 - Transactions wrap FTS + meta updates
 - Path traversal protection on both search snippets and MCP `read_full_note`
+- HTTP server (`shiotsuchi serve`) provides REST API + browser UI at `/ui`
+- WAL mode allows concurrent CLI + MCP + HTTP server access
 - Model embedding at compile time via `core/build.rs` and `SHIOTSUCHI_MODEL_PATH`

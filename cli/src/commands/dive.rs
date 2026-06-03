@@ -6,7 +6,7 @@ use shiotsuchi_core::{
     db::NoteDatabase,
     embedder::{resolve_model_path, Embedder},
     models::{ChunkSearchResult, SearchMode},
-    search::{extract_snippet, search},
+    search::{extract_snippet, search, SearchRequest},
     tokenizer::get_tokenizer,
 };
 use std::collections::HashMap;
@@ -157,24 +157,27 @@ pub fn run_dive(
         return Err(messages::ERR_VEC_NO_MODEL.into());
     }
 
-    let results = search(
-        &db,
-        &tokenizer,
-        &args.query,
-        args.limit,
-        search_mode,
-        embedder.as_ref(),
-        threshold,
-        args.vault.as_deref(),
-        args.tag.as_deref(),
-        args.since.as_deref(),
+    let request = SearchRequest {
+        query: &args.query,
+        limit: args.limit,
+        mode: search_mode,
+        embedder: embedder.as_ref(),
+        min_score: threshold,
+        vault_filter: args.vault.as_deref(),
+        tag_filter: args.tag.as_deref(),
+        since_date: args.since.as_deref(),
         user_dictionary,
         synonyms,
         fuzzy,
-        alpha,
+        hybrid_alpha: alpha,
         mmr,
         lambda,
         backlink_scoring,
+    };
+    let results = search(
+        &db,
+        &tokenizer,
+        &request,
     )?;
     Ok(results)
 }
