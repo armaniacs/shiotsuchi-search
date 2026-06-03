@@ -82,11 +82,23 @@ Then open http://localhost:7171/ui in your browser.
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/ui` | Browser-based search UI |
-| GET | `/api/v1/health` | Health check |
+| GET | `/api/v1/health` | Health check (no auth required) |
 | GET | `/api/v1/search?q=<query>&mode=<mode>&limit=<n>` | Search notes |
 | GET | `/api/v1/stats` | Index statistics |
-| GET | `/api/v1/list` | Indexed file list |
+| GET | `/api/v1/list?offset=<n>&limit=<n>` | Indexed file list (paginated) |
 | GET | `/api/v1/read?path=<path>&vault=<vault>` | Read file content |
+
+### Authentication
+
+When exposing the server to a network, enable API key authentication:
+
+```bash
+SHIOTSUCHI_SERVER_API_KEY=my-secret-key shiotsuchi serve --host 0.0.0.0
+# or
+shiotsuchi serve --host 0.0.0.0 --api-key my-secret-key
+```
+
+Requests must include `X-API-Key: <key>` or `Authorization: Bearer <key>` header. `/api/v1/health` and `/ui` are always unauthenticated.
 
 ### Configuration
 

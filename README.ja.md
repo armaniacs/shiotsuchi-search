@@ -82,11 +82,23 @@ shiotsuchi serve --port 7171
 | メソッド | パス | 説明 |
 |---------|------|------|
 | GET | `/ui` | ブラウザベースの検索 UI |
-| GET | `/api/v1/health` | ヘルスチェック |
+| GET | `/api/v1/health` | ヘルスチェック（認証不要） |
 | GET | `/api/v1/search?q=<query>&mode=<mode>&limit=<n>` | ノート検索 |
 | GET | `/api/v1/stats` | インデックス統計情報 |
-| GET | `/api/v1/list` | インデックス済みファイル一覧 |
+| GET | `/api/v1/list?offset=<n>&limit=<n>` | インデックス済みファイル一覧（ページネーション対応） |
 | GET | `/api/v1/read?path=<path>&vault=<vault>` | ファイル内容の読み取り |
+
+### 認証
+
+外部ネットワーク公開時は API キー認証を設定できます：
+
+```bash
+SHIOTSUCHI_SERVER_API_KEY=my-secret-key shiotsuchi serve --host 0.0.0.0
+# または
+shiotsuchi serve --host 0.0.0.0 --api-key my-secret-key
+```
+
+認証設定時は `X-API-Key` ヘッダーまたは `Authorization: Bearer <key>` ヘッダーでリクエストする必要があります。`/api/v1/health` と `/ui` は認証不要です。
 
 ### 設定
 

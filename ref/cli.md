@@ -28,13 +28,15 @@ Running `shiotsuchi` without a subcommand opens an interactive welcome screen wi
 | `synonym` | `add/remove/list` | Manage thesaurus entries via CLI (synonym add/remove/list) |
 | `tasks` | `[<keyword>]` `[--all]` | Cross-vault task checkbox search (incomplete `- [ ]` and completed `- [x]`) |
 | `support` | (no subcommands) | Display build info, dependency versions, and system information |
-| `serve` | `[--port]` `[--host]` | Start HTTP API server with browser-based search UI (default port: 7171) |
+| `serve` | `[--port]` `[--host]` `[--api-key]` | Start HTTP API server with browser-based search UI (default port: 7171) |
 
 ## Global Options
 
 All commands accept (via CLI flag or environment variable):
 - `--notes-dir` / `SHIOTSUCHI_NOTES_DIR` — Vault root directory
 - `--db-path` / `SHIOTSUCHI_DB_PATH` — SQLite database path
+- `SHIOTSUCHI_API_KEY` — API key for VLM/embedding providers
+- `SHIOTSUCHI_SERVER_API_KEY` — API key for HTTP server authentication (`serve` only)
 - `--verbose` — Enable logging
 
 ## Configuration File
@@ -235,11 +237,11 @@ cors_origins = ["http://localhost", "http://localhost:3000"]
 
 The HTTP server provides:
 - `/ui` — Browser-based search UI
-- `/api/v1/health` — Health check
-- `/api/v1/search` — Search notes
-- `/api/v1/stats` — Index statistics
-- `/api/v1/list` — Indexed file list
-- `/api/v1/read` — Read file content
+- `/api/v1/health` — Health check (no auth required)
+- `/api/v1/search` — Search notes (auth required when `--api-key` set)
+- `/api/v1/stats` — Index statistics (auth required when `--api-key` set)
+- `/api/v1/list?offset=<n>&limit=<n>` — Indexed file list with pagination (auth required when `--api-key` set)
+- `/api/v1/read` — Read file content (auth required when `--api-key` set)
 
 ## Config Migration (v0.2.9)
 

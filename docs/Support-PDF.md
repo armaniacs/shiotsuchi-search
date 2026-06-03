@@ -127,6 +127,18 @@ Text extraction → SHA-256 hash computation
     └── Hash differs → Chunk split → Update index
 ```
 
+### VLM Extraction Cache
+
+VLM API extraction results are also cached in the `file_cache.vlm_hash` column. When the PDF binary hasn't changed on re-index, VLM API calls are skipped entirely.
+
+```
+PDF binary SHA-256 → compare with file_cache.vlm_hash
+    ├── Match → Skip VLM API call (reconstruct from existing chunks)
+    └── Mismatch → Call VLM API → Index result + store hash
+```
+
+This eliminates redundant VLM API costs during incremental re-indexing.
+
 ### Chunk Splitting
 
 Extracted text is split by the existing Markdown chunker:
