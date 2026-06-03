@@ -1,6 +1,6 @@
 //! Build-time information display helpers for the CLI.
 
-use shiotsuchi_core::build_info::{FEATURE_ASYNC_INDEX, FEATURE_WATCHER, HAS_MODEL_EMBEDDED};
+use shiotsuchi_core::build_info::{FEATURE_ASYNC_INDEX, FEATURE_PDF, FEATURE_VLM, FEATURE_WATCHER, HAS_MODEL_EMBEDDED};
 
 fn watcher_status() -> &'static str {
     if FEATURE_WATCHER {
@@ -26,23 +26,43 @@ fn model_embedded_status() -> &'static str {
     }
 }
 
+fn pdf_status() -> &'static str {
+    if FEATURE_PDF {
+        "enabled"
+    } else {
+        "disabled"
+    }
+}
+
+fn vlm_status() -> &'static str {
+    if FEATURE_VLM {
+        "enabled"
+    } else {
+        "disabled"
+    }
+}
+
 pub fn help_footer() -> &'static str {
     let s = format!(
-        "Build features: watcher={}, async-index={}, model-embedded={}",
+        "Build features: watcher={}, async-index={}, model-embedded={}, pdf={}, vlm={}",
         watcher_status(),
         async_index_status(),
-        model_embedded_status()
+        model_embedded_status(),
+        pdf_status(),
+        vlm_status()
     );
     Box::leak(s.into_boxed_str())
 }
 
 pub fn long_version() -> &'static str {
     let s = format!(
-        "{}\nGuiding your path through the data tide.\nBuild features: watcher={}, async-index={}, model-embedded={}",
+        "{}\nGuiding your path through the data tide.\nBuild features: watcher={}, async-index={}, model-embedded={}, pdf={}, vlm={}",
         env!("CARGO_PKG_VERSION"),
         watcher_status(),
         async_index_status(),
-        model_embedded_status()
+        model_embedded_status(),
+        pdf_status(),
+        vlm_status()
     );
     Box::leak(s.into_boxed_str())
 }

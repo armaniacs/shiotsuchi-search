@@ -39,6 +39,8 @@ struct BuildFeatures {
     async_index: bool,
     model_embedded: bool,
     model_hash: String,
+    pdf: bool,
+    vlm: bool,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -105,6 +107,8 @@ impl BuildInfo {
                 async_index: shiotsuchi_core::build_info::FEATURE_ASYNC_INDEX,
                 model_embedded: HAS_MODEL_EMBEDDED,
                 model_hash: shiotsuchi_core::build_info::EMBEDDED_MODEL_HASH.into(),
+                pdf: shiotsuchi_core::build_info::FEATURE_PDF,
+                vlm: shiotsuchi_core::build_info::FEATURE_VLM,
             },
             dependencies: DependencyFeatures {
                 ort_download_binaries: shiotsuchi_core::build_info::DEP_ORT_DOWNLOAD_BINARIES,
@@ -143,6 +147,8 @@ impl BuildInfo {
         println!("  watcher:       {}", self.build.watcher);
         println!("  async-index:   {}", self.build.async_index);
         println!("  model-embedded:{}", self.build.model_embedded);
+        println!("  pdf:           {}", self.build.pdf);
+        println!("  vlm:           {}", self.build.vlm);
         if !self.build.model_hash.is_empty() {
             println!("  model-hash:    {}", self.build.model_hash);
         }

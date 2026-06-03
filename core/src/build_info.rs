@@ -18,6 +18,8 @@ pub const EMBEDDED_MODEL_HASH: &str = EMBEDDED_PREDICTOR_HASH;
 
 pub const FEATURE_WATCHER: bool = cfg!(feature = "watcher");
 pub const FEATURE_ASYNC_INDEX: bool = cfg!(feature = "async-index");
+pub const FEATURE_PDF: bool = cfg!(feature = "pdf");
+pub const FEATURE_VLM: bool = cfg!(feature = "vlm");
 
 // ── Transitive dependency features ───────────────────────────────────────────
 // cfg!(feature = "...") only resolves features declared in THIS crate.
