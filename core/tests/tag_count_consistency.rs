@@ -45,6 +45,7 @@ fn test_tag_count_decrement_with_count_zero_guard() {
         file_size: 10,
         tasks: &[],
         note_link_targets: &[],
+        vlm_hash: None,
     }).unwrap();
 
     let stats = db.tag_stats(100).unwrap();
@@ -63,6 +64,7 @@ fn test_tag_count_decrement_with_count_zero_guard() {
         file_size: 10,
         tasks: &[],
         note_link_targets: &[],
+        vlm_hash: None,
     }).unwrap();
 
     let stats = db.tag_stats(100).unwrap();
@@ -91,6 +93,7 @@ fn test_tag_count_increment_decrement_balance() {
         file_size: 10,
         tasks: &[],
         note_link_targets: &[],
+        vlm_hash: None,
     }).unwrap();
 
     let chunks2 = vec![make_chunk("b.md", "content", "tag1,tag3")];
@@ -105,6 +108,7 @@ fn test_tag_count_increment_decrement_balance() {
         file_size: 10,
         tasks: &[],
         note_link_targets: &[],
+        vlm_hash: None,
     }).unwrap();
 
     let stats = db.tag_stats(100).unwrap();
@@ -125,6 +129,7 @@ fn test_tag_count_increment_decrement_balance() {
         file_size: 10,
         tasks: &[],
         note_link_targets: &[],
+        vlm_hash: None,
     }).unwrap();
 
     let stats = db.tag_stats(100).unwrap();
@@ -155,6 +160,7 @@ fn test_char_count_is_unicode_chars_not_bytes() {
         file_size: japanese.len() as i64,
         tasks: &[],
         note_link_targets: &[],
+        vlm_hash: None,
     }).unwrap();
 
     let stats = db.stats().unwrap();
@@ -236,6 +242,7 @@ fn test_multiple_chunks_tag_aggregation() {
         file_size: 30,
         tasks: &[],
         note_link_targets: &[],
+        vlm_hash: None,
     }).unwrap();
 
     let stats = db.tag_stats(100).unwrap();
@@ -259,6 +266,7 @@ fn test_multiple_chunks_tag_aggregation() {
         file_size: 20,
         tasks: &[],
         note_link_targets: &[],
+        vlm_hash: None,
     }).unwrap();
 
     let stats = db.tag_stats(100).unwrap();
@@ -285,6 +293,7 @@ fn test_char_count_ascii() {
         file_size: 11,
         tasks: &[],
         note_link_targets: &[],
+        vlm_hash: None,
     }).unwrap();
 
     let stats = db.stats().unwrap();
@@ -308,6 +317,7 @@ fn test_tag_count_idempotent_reindex() {
         file_size: 10,
         tasks: &[],
         note_link_targets: &[],
+        vlm_hash: None,
     }).unwrap();
     db.reindex_file(&ReindexParams {
         vault_name: vault,
@@ -320,6 +330,7 @@ fn test_tag_count_idempotent_reindex() {
         file_size: 10,
         tasks: &[],
         note_link_targets: &[],
+        vlm_hash: None,
     }).unwrap();
 
     let stats = db.tag_stats(100).unwrap();
@@ -344,6 +355,7 @@ fn test_tag_count_empty_tags_handling() {
         file_size: 10,
         tasks: &[],
         note_link_targets: &[],
+        vlm_hash: None,
     }).unwrap();
 
     let stats = db.tag_stats(100).unwrap();
@@ -370,6 +382,7 @@ fn test_tag_count_no_double_decrement_on_reindex_without_tags() {
         file_size: 10,
         tasks: &[],
         note_link_targets: &[],
+        vlm_hash: None,
     }).unwrap();
 
     let chunks_b = vec![make_chunk("b.md", "content", "shared-tag")];
@@ -384,6 +397,7 @@ fn test_tag_count_no_double_decrement_on_reindex_without_tags() {
         file_size: 10,
         tasks: &[],
         note_link_targets: &[],
+        vlm_hash: None,
     }).unwrap();
 
     let chunks_a_no_tag = vec![make_chunk("a.md", "content", "")];
@@ -398,6 +412,7 @@ fn test_tag_count_no_double_decrement_on_reindex_without_tags() {
         file_size: 10,
         tasks: &[],
         note_link_targets: &[],
+        vlm_hash: None,
     }).unwrap();
 
     let stats = db.tag_stats(100).unwrap();

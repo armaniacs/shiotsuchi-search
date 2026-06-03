@@ -344,6 +344,21 @@ impl NoteDatabase {
             conn.execute_batch("COMMIT")?;
         }
 
+        if version < 11 {
+            // v10→v11: add vlm_hash column to file_cache for VLM extraction caching.
+            let fc_cols: Vec<String> = {
+                let mut stmt = conn.prepare("PRAGMA table_info(file_cache)")?;
+                let rows = stmt.query_map([], |r| r.get::<_, String>(1))?;
+                rows.collect::<Result<Vec<_>, _>>()?
+            };
+            if !fc_cols.iter().any(|c| c == "vlm_hash") {
+                conn.execute_batch(
+                    "ALTER TABLE file_cache ADD COLUMN vlm_hash TEXT",
+                )?;
+            }
+            conn.execute_batch("PRAGMA user_version = 11")?;
+        }
+
         Ok(())
     }
 
@@ -358,6 +373,7 @@ impl NoteDatabase {
                 file_size       INTEGER NOT NULL DEFAULT 0,
                 backlink_count  INTEGER NOT NULL DEFAULT 0,
                 char_count      INTEGER NOT NULL DEFAULT 0,
+                vlm_hash        TEXT,
                 PRIMARY KEY (vault_name, path)
             );
 
@@ -548,14 +564,15 @@ impl NoteDatabase {
         model_id: &str,
         file_size: i64,
         char_count: i64,
+        vlm_hash: Option<&str>,
     ) -> Result<(), DbError> {
         self.write_conn.borrow().execute(
-            "INSERT INTO file_cache (vault_name, path, hash, mtime, model_id, file_size, char_count)
-             VALUES (?1,?2,?3,?4,?5,?6,?7)
+            "INSERT INTO file_cache (vault_name, path, hash, mtime, model_id, file_size, char_count, vlm_hash)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8)
              ON CONFLICT(vault_name, path) DO UPDATE SET
                  hash=excluded.hash, mtime=excluded.mtime, model_id=excluded.model_id,
-                 file_size=excluded.file_size, char_count=excluded.char_count",
-            params![vault_name, path, hash, mtime, model_id, file_size, char_count],
+                 file_size=excluded.file_size, char_count=excluded.char_count, vlm_hash=excluded.vlm_hash",
+            params![vault_name, path, hash, mtime, model_id, file_size, char_count, vlm_hash],
         )?;
         Ok(())
     }
@@ -565,7 +582,7 @@ impl NoteDatabase {
     /// Takes ownership of the embedding results (one per chunk, or None for failed ones).
     /// On any SQL error the entire transaction is rolled back to maintain data integrity.
     pub fn reindex_file(&self, p: &ReindexParams<'_>) -> Result<(), DbError> {
-        let ReindexParams { vault_name, relative_path, hash, mtime, model_id, chunks, embeddings, file_size, tasks, note_link_targets } = *p;
+        let ReindexParams { vault_name, relative_path, hash, mtime, model_id, chunks, embeddings, file_size, tasks, note_link_targets, vlm_hash } = *p;
         let mut conn = self.write_conn.borrow_mut();
         let tx = conn.transaction()?;
 
@@ -686,12 +703,12 @@ impl NoteDatabase {
 
         // 6. Upsert file cache
         tx.execute(
-            "INSERT INTO file_cache (vault_name, path, hash, mtime, model_id, file_size, char_count)
-             VALUES (?1,?2,?3,?4,?5,?6,?7)
+            "INSERT INTO file_cache (vault_name, path, hash, mtime, model_id, file_size, char_count, vlm_hash)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8)
              ON CONFLICT(vault_name, path) DO UPDATE SET
                  hash=excluded.hash, mtime=excluded.mtime, model_id=excluded.model_id,
-                 file_size=excluded.file_size, char_count=excluded.char_count",
-            params![vault_name, relative_path, hash, mtime, model_id, file_size, char_count],
+                 file_size=excluded.file_size, char_count=excluded.char_count, vlm_hash=excluded.vlm_hash",
+            params![vault_name, relative_path, hash, mtime, model_id, file_size, char_count, vlm_hash],
         )?;
 
         tx.commit()?;
@@ -735,6 +752,20 @@ impl NoteDatabase {
             |r| r.get(0),
         ) {
             Ok(s) => Ok(Some(s)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(DbError::Sqlite(e)),
+        }
+    }
+
+    /// Read cached vlm_hash for a file. Returns None if not set.
+    pub fn cached_vlm_hash(&self, vault_name: &str, path: &str) -> Result<Option<String>, DbError> {
+        let conn = self.write_conn.borrow();
+        match conn.query_row(
+            "SELECT vlm_hash FROM file_cache WHERE vault_name = ?1 AND path = ?2",
+            params![vault_name, path],
+            |r| r.get(0),
+        ) {
+            Ok(h) => Ok(h),
             Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
             Err(e) => Err(DbError::Sqlite(e)),
         }
@@ -1308,10 +1339,10 @@ mod tests {
     #[test]
     fn test_file_cache_upsert_and_lookup() {
         let db = NoteDatabase::open_in_memory().unwrap();
-        db.upsert_file_cache("default", "a.md", "hash1", 1000, "none", 42, 0).unwrap();
+        db.upsert_file_cache("default", "a.md", "hash1", 1000, "none", 42, 0, None).unwrap();
         assert_eq!(db.cached_hash("default", "a.md").unwrap(), Some("hash1".to_string()));
         // Upsert again with new hash
-        db.upsert_file_cache("default", "a.md", "hash2", 2000, "none", 99, 0).unwrap();
+        db.upsert_file_cache("default", "a.md", "hash2", 2000, "none", 99, 0, None).unwrap();
         assert_eq!(db.cached_hash("default", "a.md").unwrap(), Some("hash2".to_string()));
         // Unknown path
         assert_eq!(db.cached_hash("default", "missing.md").unwrap(), None);
@@ -1320,7 +1351,7 @@ mod tests {
     #[test]
     fn test_cached_mtime_returns_saved_mtime() {
         let db = NoteDatabase::open_in_memory().unwrap();
-        db.upsert_file_cache("default", "a.md", "hash1", 12345, "none", 42, 0).unwrap();
+        db.upsert_file_cache("default", "a.md", "hash1", 12345, "none", 42, 0, None).unwrap();
         let mtime = db.cached_mtime("default", "a.md").unwrap();
         assert_eq!(mtime, Some(12345));
     }
@@ -1335,17 +1366,17 @@ mod tests {
     #[test]
     fn test_cached_mtime_updates_on_upsert() {
         let db = NoteDatabase::open_in_memory().unwrap();
-        db.upsert_file_cache("default", "a.md", "hash1", 1000, "none", 42, 0).unwrap();
+        db.upsert_file_cache("default", "a.md", "hash1", 1000, "none", 42, 0, None).unwrap();
         assert_eq!(db.cached_mtime("default", "a.md").unwrap(), Some(1000));
-        db.upsert_file_cache("default", "a.md", "hash2", 2000, "none", 99, 0).unwrap();
+        db.upsert_file_cache("default", "a.md", "hash2", 2000, "none", 99, 0, None).unwrap();
         assert_eq!(db.cached_mtime("default", "a.md").unwrap(), Some(2000));
     }
 
     #[test]
     fn test_get_dominant_model_id_single_model() {
         let db = NoteDatabase::open_in_memory().unwrap();
-        db.upsert_file_cache("default", "a.md", "hash", 1000, "model-alpha", 42, 0).unwrap();
-        db.upsert_file_cache("default", "b.md", "hash", 1000, "model-alpha", 42, 0).unwrap();
+        db.upsert_file_cache("default", "a.md", "hash", 1000, "model-alpha", 42, 0, None).unwrap();
+        db.upsert_file_cache("default", "b.md", "hash", 1000, "model-alpha", 42, 0, None).unwrap();
         let result = db.get_dominant_model_id().unwrap();
         assert_eq!(result, Some("model-alpha".to_string()));
     }
@@ -1353,9 +1384,9 @@ mod tests {
     #[test]
     fn test_get_dominant_model_id_returns_most_frequent() {
         let db = NoteDatabase::open_in_memory().unwrap();
-        db.upsert_file_cache("default", "a.md", "hash", 1000, "model-alpha", 42, 0).unwrap();
-        db.upsert_file_cache("default", "b.md", "hash", 1000, "model-alpha", 42, 0).unwrap();
-        db.upsert_file_cache("default", "c.md", "hash", 1000, "model-beta", 42, 0).unwrap();
+        db.upsert_file_cache("default", "a.md", "hash", 1000, "model-alpha", 42, 0, None).unwrap();
+        db.upsert_file_cache("default", "b.md", "hash", 1000, "model-alpha", 42, 0, None).unwrap();
+        db.upsert_file_cache("default", "c.md", "hash", 1000, "model-beta", 42, 0, None).unwrap();
         let result = db.get_dominant_model_id().unwrap();
         assert_eq!(result, Some("model-alpha".to_string()));
     }
@@ -1363,8 +1394,8 @@ mod tests {
     #[test]
     fn test_get_dominant_model_id_excludes_none() {
         let db = NoteDatabase::open_in_memory().unwrap();
-        db.upsert_file_cache("default", "a.md", "hash", 1000, "none", 42, 0).unwrap();
-        db.upsert_file_cache("default", "b.md", "hash", 1000, "none", 42, 0).unwrap();
+        db.upsert_file_cache("default", "a.md", "hash", 1000, "none", 42, 0, None).unwrap();
+        db.upsert_file_cache("default", "b.md", "hash", 1000, "none", 42, 0, None).unwrap();
         let result = db.get_dominant_model_id().unwrap();
         assert_eq!(result, None);
     }
@@ -1373,8 +1404,8 @@ mod tests {
     fn test_get_dominant_model_id_tie_breaks_deterministically() {
         let db = NoteDatabase::open_in_memory().unwrap();
         // Equal frequency for both
-        db.upsert_file_cache("default", "a.md", "hash", 1000, "model-beta", 42, 0).unwrap();
-        db.upsert_file_cache("default", "b.md", "hash", 1000, "model-alpha", 42, 0).unwrap();
+        db.upsert_file_cache("default", "a.md", "hash", 1000, "model-beta", 42, 0, None).unwrap();
+        db.upsert_file_cache("default", "b.md", "hash", 1000, "model-alpha", 42, 0, None).unwrap();
         let result = db.get_dominant_model_id().unwrap();
         // ASC tie-breaker should pick model-alpha alphabetically
         assert_eq!(result, Some("model-alpha".to_string()));
@@ -1390,7 +1421,7 @@ mod tests {
     #[test]
     fn test_cached_file_size_returns_saved_size() {
         let db = NoteDatabase::open_in_memory().unwrap();
-        db.upsert_file_cache("default", "a.md", "hash1", 1000, "none", 2048, 0).unwrap();
+        db.upsert_file_cache("default", "a.md", "hash1", 1000, "none", 2048, 0, None).unwrap();
         let size = db.cached_file_size("default", "a.md").unwrap();
         assert_eq!(size, Some(2048));
     }
@@ -1405,9 +1436,9 @@ mod tests {
     #[test]
     fn test_cached_file_size_updates_on_upsert() {
         let db = NoteDatabase::open_in_memory().unwrap();
-        db.upsert_file_cache("default", "a.md", "hash1", 1000, "none", 42, 0).unwrap();
+        db.upsert_file_cache("default", "a.md", "hash1", 1000, "none", 42, 0, None).unwrap();
         assert_eq!(db.cached_file_size("default", "a.md").unwrap(), Some(42));
-        db.upsert_file_cache("default", "a.md", "hash2", 2000, "none", 99, 0).unwrap();
+        db.upsert_file_cache("default", "a.md", "hash2", 2000, "none", 99, 0, None).unwrap();
         assert_eq!(db.cached_file_size("default", "a.md").unwrap(), Some(99));
     }
 
@@ -1520,7 +1551,7 @@ mod tests {
         let db = NoteDatabase::open(&db_path).unwrap();
 
         // Perform a write to trigger WAL creation
-        db.upsert_file_cache("default", "test.md", "hash", 1000, "none", 0, 0).unwrap();
+        db.upsert_file_cache("default", "test.md", "hash", 1000, "none", 0, 0, None).unwrap();
 
         // Check companion files while db is alive (SQLite may remove -wal on close
         // via autocheckpoint).
@@ -1615,6 +1646,7 @@ mod tests {
             file_size: 100,
             tasks: &[],
             note_link_targets: &[],
+            vlm_hash: None,
         }).unwrap();
 
         // Verify old task is gone
@@ -1671,6 +1703,7 @@ mod tests {
             file_size: 100,
             tasks: &[],
             note_link_targets: &[],
+            vlm_hash: None,
         }).unwrap();
 
         // Old content should not be findable
@@ -1689,7 +1722,7 @@ mod tests {
                 .pragma_query_value(None, "journal_mode", |r| r.get(0))
                 .unwrap();
             assert_eq!(journal.to_lowercase(), "wal", "journal mode should be WAL on fresh DB");
-            db.upsert_file_cache("default", "test.md", "hash", 1000, "none", 0, 0).unwrap();
+            db.upsert_file_cache("default", "test.md", "hash", 1000, "none", 0, 0, None).unwrap();
         }
 
         let db2 = NoteDatabase::open(&db_path).unwrap();
@@ -1838,7 +1871,7 @@ mod tests {
         let stats = db.stats().unwrap();
         assert!(stats.total_chunks == 0, "migration should be idempotent");
         // Insert something and verify DB works
-        db.upsert_file_cache("default", "test.md", "hash", 1000, "none", 0, 0).unwrap();
+        db.upsert_file_cache("default", "test.md", "hash", 1000, "none", 0, 0, None).unwrap();
         assert_eq!(db.cached_hash("default", "test.md").unwrap(), Some("hash".to_string()));
     }
 
@@ -1880,7 +1913,7 @@ mod tests {
     #[test]
     fn test_metadata_consistency_after_chunk_insert() {
         let db = NoteDatabase::open_in_memory().unwrap();
-        db.upsert_file_cache("default", "test.md", "abcd1234", 1000, "hash", 0, 0).unwrap();
+        db.upsert_file_cache("default", "test.md", "abcd1234", 1000, "hash", 0, 0, None).unwrap();
 
         let chunk = Chunk {
             id: None,
@@ -2014,9 +2047,9 @@ mod tests {
         let db = NoteDatabase::open_in_memory().unwrap();
 
         // Set up file_cache entries
-        db.upsert_file_cache("default", "hub.md", "hash1", 1000, "none", 100, 0).unwrap();
-        db.upsert_file_cache("default", "a.md", "hash2", 1000, "none", 100, 0).unwrap();
-        db.upsert_file_cache("default", "b.md", "hash3", 1000, "none", 100, 0).unwrap();
+        db.upsert_file_cache("default", "hub.md", "hash1", 1000, "none", 100, 0, None).unwrap();
+        db.upsert_file_cache("default", "a.md", "hash2", 1000, "none", 100, 0, None).unwrap();
+        db.upsert_file_cache("default", "b.md", "hash3", 1000, "none", 100, 0, None).unwrap();
 
         // Insert note_links: a.md -> hub.md, b.md -> hub.md
         db.insert_note_links("a.md", "default", &["hub.md".to_string()]).unwrap();
@@ -2055,8 +2088,8 @@ mod tests {
     fn test_backlink_counts_vault_scoped() {
         let db = NoteDatabase::open_in_memory().unwrap();
 
-        db.upsert_file_cache("v1", "hub.md", "h1", 1000, "none", 100, 0).unwrap();
-        db.upsert_file_cache("v2", "hub.md", "h2", 1000, "none", 100, 0).unwrap();
+        db.upsert_file_cache("v1", "hub.md", "h1", 1000, "none", 100, 0, None).unwrap();
+        db.upsert_file_cache("v2", "hub.md", "h2", 1000, "none", 100, 0, None).unwrap();
 
         db.insert_note_links("a.md", "v1", &["hub.md".to_string()]).unwrap();
         db.insert_note_links("b.md", "v2", &["hub.md".to_string()]).unwrap();
@@ -2085,8 +2118,8 @@ mod tests {
         let db = NoteDatabase::open_in_memory().unwrap();
 
         // Insert file cache entries
-        db.upsert_file_cache("default", "hub.md", "h1", 1000, "none", 100, 0).unwrap();
-        db.upsert_file_cache("default", "leaf.md", "h2", 1000, "none", 100, 0).unwrap();
+        db.upsert_file_cache("default", "hub.md", "h1", 1000, "none", 100, 0, None).unwrap();
+        db.upsert_file_cache("default", "leaf.md", "h2", 1000, "none", 100, 0, None).unwrap();
 
         // Insert chunks
         let chunks = vec![
@@ -2149,6 +2182,7 @@ mod tests {
             file_size: 42,
             tasks: &[],
             note_link_targets: &[],
+            vlm_hash: None,
         }).unwrap();
 
         let stats = db.tag_stats(10).unwrap();
@@ -2184,6 +2218,7 @@ mod tests {
             file_size: 10,
             tasks: &[],
             note_link_targets: &[],
+            vlm_hash: None,
         }).unwrap();
         assert_eq!(db.tag_stats(10).unwrap().len(), 1, "should have old_tag");
 
@@ -2207,6 +2242,7 @@ mod tests {
             file_size: 10,
             tasks: &[],
             note_link_targets: &[],
+            vlm_hash: None,
         }).unwrap();
 
         let stats = db.tag_stats(10).unwrap();
@@ -2238,6 +2274,7 @@ mod tests {
             file_size: 10,
             tasks: &[],
             note_link_targets: &[],
+            vlm_hash: None,
         }).unwrap();
         assert!(db.tag_stats(10).unwrap().is_empty(), "empty tags should not create tag_counts rows");
     }
@@ -2274,6 +2311,7 @@ mod tests {
             file_size: 20,
             tasks: &[],
             note_link_targets: &[],
+            vlm_hash: None,
         }).unwrap();
         let stats = db.stats().unwrap();
         assert_eq!(stats.total_chars, 11, "hello(5) + world!(6) = 11 chars");

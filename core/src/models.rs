@@ -118,6 +118,7 @@ pub struct ReindexParams<'a> {
     pub file_size: i64,
     pub tasks: &'a [Task],
     pub note_link_targets: &'a [String],
+    pub vlm_hash: Option<&'a str>,
 }
 
 /// Parameters for `index_file_with_embedder()`.

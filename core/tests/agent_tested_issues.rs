@@ -52,6 +52,7 @@ fn test_migration_v10_backfill_char_count_is_unicode_not_bytes() {
         file_size: japanese.len() as i64,
         tasks: &[],
         note_link_targets: &[],
+        vlm_hash: None,
     }).unwrap();
 
     let conn = db.write_conn.borrow();
@@ -98,6 +99,7 @@ fn test_reindex_file_cleans_up_zero_count_tag_rows() {
         file_size: 10,
         tasks: &[],
         note_link_targets: &[],
+        vlm_hash: None,
     }).unwrap();
 
     {
@@ -122,6 +124,7 @@ fn test_reindex_file_cleans_up_zero_count_tag_rows() {
         file_size: 10,
         tasks: &[],
         note_link_targets: &[],
+        vlm_hash: None,
     }).unwrap();
 
     {
@@ -171,6 +174,7 @@ fn test_delete_file_fully_removes_incoming_note_links() {
         file_size: 10,
         tasks: &[],
         note_link_targets: &["target.md".to_string()],
+        vlm_hash: None,
     }).unwrap();
 
     // Index file "b.md" with a link TO "target.md"
@@ -186,6 +190,7 @@ fn test_delete_file_fully_removes_incoming_note_links() {
         file_size: 10,
         tasks: &[],
         note_link_targets: &["target.md".to_string()],
+        vlm_hash: None,
     }).unwrap();
 
     // Index "target.md" itself
@@ -201,6 +206,7 @@ fn test_delete_file_fully_removes_incoming_note_links() {
         file_size: 10,
         tasks: &[],
         note_link_targets: &[],
+        vlm_hash: None,
     }).unwrap();
 
     // Verify both incoming links exist
@@ -279,6 +285,7 @@ fn test_char_count_multi_chunk_japanese() {
         file_size: 20,
         tasks: &[],
         note_link_targets: &[],
+        vlm_hash: None,
     }).unwrap();
 
     let conn = db.write_conn.borrow();
@@ -311,6 +318,7 @@ fn test_delete_then_reindex_tag_consistency() {
         file_size: 10,
         tasks: &[],
         note_link_targets: &[],
+        vlm_hash: None,
     }).unwrap();
 
     let binding = db.tag_stats(100).unwrap();

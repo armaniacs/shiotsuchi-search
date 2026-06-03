@@ -127,6 +127,12 @@ fn sha256_hex(content: &str) -> String {
     hex::encode(hasher.finalize())
 }
 
+fn sha256_bytes(bytes: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    hex::encode(hasher.finalize())
+}
+
 fn file_mtime(path: &Path) -> i64 {
     fs::metadata(path)
         .and_then(|m| m.modified())
@@ -444,38 +450,64 @@ pub fn index_file_with_embedder(p: &IndexParams<'_>) -> IndexResult {
     };
 
     // If native PDF extraction returned empty text, try VLM for scanned PDFs
+    let mut vlm_hash: Option<String> = None;
     if ext == "pdf" && content.is_empty() && config.vlm_enabled {
-        use std::sync::atomic::{AtomicBool, Ordering};
-        static VLM_WARNING_SENT: AtomicBool = AtomicBool::new(false);
-        if !VLM_WARNING_SENT.swap(true, Ordering::Relaxed) {
-            log::warn!(
-                "VLM extraction enabled: PDF content will be sent to {} API for text extraction. \
-                 Set [vlm] enabled = false to disable.",
-                config.vlm_provider
-            );
-        }
+        // VLM cache: compute PDF binary hash and compare with cached value
+        let pdf_binary_hash = match std::fs::read(file_path) {
+            Ok(bytes) => sha256_bytes(&bytes),
+            Err(e) => return IndexResult::Error(format!("Read error: {}", e)),
+        };
+        vlm_hash = Some(pdf_binary_hash.clone());
 
-        #[cfg(feature = "vlm")]
-        {
-            use crate::config::VlmConfig;
-            let vlm_config = VlmConfig {
-                enabled: true,
-                provider: config.vlm_provider.clone(),
-                model: config.vlm_model.clone(),
-                max_pages_per_doc: config.vlm_max_pages_per_doc,
-            };
-            match crate::vlm::extract_text_with_vlm(file_path, &vlm_config) {
-                Ok(Some(text)) => content = text,
-                Ok(None) => {}, // VLM returned nothing, keep empty
-                Err(e) => {
-                    log::warn!("VLM extraction failed for {}: {}", relative_path, e);
-                    // keep empty, fall back to native result
+        let vlm_cache_hit = match db.cached_vlm_hash(vault_name, relative_path) {
+            Ok(Some(ref cached)) if *cached == pdf_binary_hash => {
+                // VLM cache hit: content unchanged since last VLM extraction.
+                // Re-read the previously extracted text from chunks.
+                match db.get_chunks_for_file(vault_name, relative_path) {
+                    Ok(chunks) if !chunks.is_empty() => {
+                        content = chunks.iter().map(|c| c.content.as_str()).collect::<Vec<_>>().join("\n");
+                        true
+                    }
+                    _ => false, // No cached chunks, need to call VLM
                 }
             }
-        }
-        #[cfg(not(feature = "vlm"))]
-        {
-            // VLM feature not compiled, keep empty
+            _ => false,
+        };
+
+        if !vlm_cache_hit {
+            // VLM cache miss: call the API
+            use std::sync::atomic::{AtomicBool, Ordering};
+            static VLM_WARNING_SENT: AtomicBool = AtomicBool::new(false);
+            if !VLM_WARNING_SENT.swap(true, Ordering::Relaxed) {
+                log::warn!(
+                    "VLM extraction enabled: PDF content will be sent to {} API for text extraction. \
+                     Set [vlm] enabled = false to disable.",
+                    config.vlm_provider
+                );
+            }
+
+            #[cfg(feature = "vlm")]
+            {
+                use crate::config::VlmConfig;
+                let vlm_config = VlmConfig {
+                    enabled: true,
+                    provider: config.vlm_provider.clone(),
+                    model: config.vlm_model.clone(),
+                    max_pages_per_doc: config.vlm_max_pages_per_doc,
+                };
+                match crate::vlm::extract_text_with_vlm(file_path, &vlm_config) {
+                    Ok(Some(text)) => content = text,
+                    Ok(None) => {}, // VLM returned nothing, keep empty
+                    Err(e) => {
+                        log::warn!("VLM extraction failed for {}: {}", relative_path, e);
+                        // keep empty, fall back to native result
+                    }
+                }
+            }
+            #[cfg(not(feature = "vlm"))]
+            {
+                // VLM feature not compiled, keep empty
+            }
         }
     }
 
@@ -552,6 +584,7 @@ pub fn index_file_with_embedder(p: &IndexParams<'_>) -> IndexResult {
         file_size,
         tasks: &task_records,
         note_link_targets: &note_link_targets,
+        vlm_hash: vlm_hash.as_deref(),
     }) {
         return IndexResult::Error(e.to_string());
     }
