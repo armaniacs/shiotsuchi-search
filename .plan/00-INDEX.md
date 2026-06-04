@@ -92,4 +92,6 @@
 | `2026-05-25-21-backlog-ocr-pdf-image-search.md` | PBI-21: PDF テキスト抽出検索 Phase A — pdfium-auto + XY-Cut 完了、画像 OCR は PBI-28 へ移動 |
 | `2026-05-25-18-backlog-backlink-pagerank-scoring.md` | PBI-18: Backlink / PageRank スコアリング — v0.4.15 完了 |
 | `2026-06-04-49-backlog-mcp-calltool-split.md` | PBI-49: MCP call_tool ツール別分割 — コード上で既に実装完了 |
+| `2026-06-04-55-backlog-exclude-patterns-compat.md` | PBI-55: exclude_patterns → exclude_dirs 後方互換性 — 明示的拒否方式で解決済み |
+| `2026-06-04-56-backlog-mcp-search-compat.md` | PBI-56: search() → SearchRequest 移行に伴うMCP互換性 — 内部移行のみ、外部互換レイヤー不要 |
 
