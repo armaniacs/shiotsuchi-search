@@ -548,14 +548,14 @@ impl NoteDatabase {
         Ok(())
     }
 
-    /// Upsert file_cache entry.
     /// Upsert a file cache entry.
     ///
     /// NOTE: For production code, prefer `reindex_file()` which computes and writes
     /// `char_count` from chunk content lengths atomically. This method requires
     /// `char_count` to be provided by the caller to prevent accidental zero values
     /// that would cause `stats().total_chars` to undercount.
-    pub fn upsert_file_cache(
+    #[allow(dead_code)]
+    pub(crate) fn upsert_file_cache(
         &self,
         vault_name: &str,
         path: &str,
@@ -575,6 +575,21 @@ impl NoteDatabase {
             params![vault_name, path, hash, mtime, model_id, file_size, char_count, vlm_hash],
         )?;
         Ok(())
+    }
+
+    /// Public accessor for integration tests only.
+    /// Production callers should use `reindex_file` or other public APIs.
+    #[doc(hidden)]
+    #[doc(hidden)]
+    pub fn upsert_file_cache_for_tests(
+        &self,
+        vault_name: &str,
+        path: &str,
+        hash: &str,
+        mtime: i64,
+        model_id: &str,
+    ) -> Result<(), DbError> {
+        self.upsert_file_cache(vault_name, path, hash, mtime, model_id, 0, 0, None)
     }
 
     /// Reindex a single file: delete old chunks and insert new ones in a single transaction.
