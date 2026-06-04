@@ -7,6 +7,7 @@ pub mod build_info;
 pub mod config;
 pub mod constants;
 pub mod db;
+pub mod migration;
 pub mod chunker;
 pub mod frontmatter;
 pub mod indexer;
