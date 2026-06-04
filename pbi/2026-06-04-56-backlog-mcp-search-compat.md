@@ -18,7 +18,39 @@
 - **呼び出し元**: CLI (`dive`), MCP (`search_local_notes`), HTTP (`/api/v1/search`) を全て更新
 - **テスト**: 全テスト通過確認済み
 
-### 外部 API の影響
+## BDD 受け入れシナリオ
+
+```gherkin
+Scenario: MCP search_local_notes が正しく動作する
+  Given MCP サーバーが起動している
+  When search_local_notes ツールを呼び出す
+  Then 検索結果が返される
+
+Scenario: HTTP search API が正しく動作する
+  Given HTTP サーバーが起動している
+  When POST /api/v1/search?q=test をリクエストする
+  Then 検索結果が返される
+
+Scenario: CLI dive コマンドが正しく動作する
+  Given インデックスが存在する
+  When shiotsuchi dive test を実行する
+  Then 検索結果が表示される
+```
+
+## TDD アプローチ
+
+### Phase 1: 既存テストの確認（グリーン維持）
+
+```bash
+cargo test --workspace
+```
+
+全テストが通過することを確認。特に:
+- `core/tests/` の統合テスト
+- `mcp/src/handler.rs` の単体テスト
+- `core/src/server/handlers.rs` の HTTP API テスト
+
+### Phase 2: 外部 API の影響確認
 
 | API | 変更前 | 変更後 | 影響 |
 |-----|--------|--------|------|
@@ -26,7 +58,7 @@
 | HTTP `POST /api/v1/search` | クエリパラメータ | クエリパラメータ（変更なし） | なし |
 | CLI `shiotsuchi dive` | CLI フラグ | CLI フラグ（変更なし） | なし |
 
-### なぜ互換レイヤーが不要か
+### Phase 3: なぜ互換レイヤーが不要か
 
 - `SearchRequest` は **内部実装** の変更
 - 外部向け API（MCP ツール、HTTP エンドポイント）のシグネチャは維持

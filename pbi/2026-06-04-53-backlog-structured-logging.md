@@ -13,6 +13,103 @@
 - MCP サーバー: ツール呼び出しログなし
 - インデックス処理: 進捗表示は `indicatif` で行っているが、ログ出力なし
 
+## BDD 受け入れシナリオ
+
+```gherkin
+Scenario: HTTP リクエストにリクエストIDが付与される
+  Given HTTP サーバーが起動している
+  When クライアントがリクエストを送信する
+  Then レスポンスヘッダーにリクエストIDが含まれる
+  And ログにリクエストIDが記録される
+
+Scenario: 処理時間が計測される
+  Given HTTP サーバーが起動している
+  When クライアントがリクエストを送信する
+  Then ログに処理時間が記録される
+
+Scenario: MCP ツール呼び出しにコンテキストが付与される
+  Given MCP サーバーが起動している
+  When ツールが呼び出される
+  Then ログにツール名とパラメータが記録される
+```
+
+## TDD アプローチ
+
+### 方法1: tracing 導入（大規模）
+
+#### Phase 1: テスト追加（レッド）
+
+```rust
+#[tokio::test]
+async fn test_http_request_has_request_id() {
+    let app = create_test_app().await;
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/health")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // レスポンスヘッダーにリクエストIDが含まれることを確認
+    assert!(response.headers().contains_key("x-request-id"));
+}
+
+#[tokio::test]
+async fn test_http_request_logs_processing_time() {
+    // ログに出力されることを確認（実際のテストでは難しい）
+    // 代わりに、処理時間が計測されることを確認
+}
+```
+
+#### Phase 2: 実装（グリーン）
+
+```rust
+use tracing::{info, warn, error};
+use tracing_subscriber;
+
+// 初期化
+fn init_tracing() {
+    tracing_subscriber::fmt::init();
+}
+
+// リクエストID生成
+fn generate_request_id() -> String {
+    uuid::Uuid::new_v4().to_string()
+}
+```
+
+### 方法2: log + 手動コンテキスト（最小改善）
+
+#### Phase 1: テスト追加（レッド）
+
+```rust
+#[test]
+fn test_log_includes_context() {
+    // ログにコンテキスト情報が含まれることを確認
+}
+```
+
+#### Phase 2: 実装（グリーン）
+
+```rust
+// リクエストIDと処理時間を手動で付加
+log::info!(
+    request_id = %request_id,
+    processing_time_ms = elapsed.as_millis(),
+    "Request processed"
+);
+```
+
+### 方法3: 一旦保留（推奨）
+
+- 現在の規模では `log` で十分
+- 本番運用が必要になった時点で方法1を導入
+- **メリット**: 開発速度維持
+- **デメリット**: 障害時に後から大変
+
 ## 選択肢
 
 ### 方法1: tracing 導入（大規模）

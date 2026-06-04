@@ -12,6 +12,79 @@
 - 現状は検証なしでダウンロードされたバイナリを使用
 - サプライチェーン攻撃のリスク
 
+## BDD 受け入れシナリオ
+
+```gherkin
+Scenario: ONNX Runtime バイナリが正しく検証される
+  Given ONNX Runtime バイナリがダウンロードされている
+  When ビルドを実行する
+  Then バイナリの SHA-256 ハッシュが事前定義された値と一致する
+  And ビルドが成功する
+
+Scenario: ONNX Runtime バイナリが破損している
+  Given ONNX Runtime バイナリが破損している
+  When ビルドを実行する
+  Then ハッシュ不一致エラーが発生する
+  And ビルドが失敗する
+
+Scenario: ort crate が既に検証を行っている
+  Given ort crate の download-binaries が検証機能を提供している
+  When ビルドを実行する
+  Then 追加の検証は実行されない
+  And ビルドが成功する
+```
+
+## TDD アプローチ
+
+### Phase 1: 調査（テスト前）
+
+1. **ort crate のドキュメント確認**: `download-binaries` の検証機能を調査
+2. **リスク評価**: 実際のサプライチェーン攻撃リスクを評価
+3. **方針決定**: 検証が必要かどうかを判断
+
+### Phase 2: 検証が必要な場合（テスト追加 → 実装）
+
+```rust
+// build.rs
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_onnx_binary_hash_verification() {
+        // ONNX Runtime バイナリのハッシュが正しいことを確認
+        let binary_path = get_onnx_binary_path();
+        let hash = compute_sha256(&binary_path);
+        assert_eq!(hash, EXPECTED_ONNX_HASH);
+    }
+
+    #[test]
+    fn test_onnx_binary_hash_mismatch_detected() {
+        // ハッシュ不一致が検出されることを確認
+        let fake_path = Path::new("/tmp/fake_onnx_binary");
+        std::fs::write(&fake_path, b"fake binary").unwrap();
+        let hash = compute_sha256(&fake_path);
+        assert_ne!(hash, EXPECTED_ONNX_HASH);
+    }
+}
+```
+
+### Phase 3: 実装
+
+```rust
+// build.rs
+fn compute_sha256(path: &Path) -> String {
+    let bytes = std::fs::read(path).unwrap();
+    let hash = sha2::Sha256::digest(&bytes);
+    hex::encode(hash)
+}
+
+fn verify_onnx_binary(path: &Path) -> bool {
+    let hash = compute_sha256(path);
+    hash == EXPECTED_ONNX_HASH
+}
+```
+
 ## 実装方針
 
 ### 方法1: ort crate の標準検証（推奨）
