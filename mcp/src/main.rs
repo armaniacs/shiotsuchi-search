@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use shiotsuchi_core::config::{DatabaseConfig, VaultEntry};
 use shiotsuchi_core::paths::default_db_path as core_default_db_path;
+use shiotsuchi_core::sensitive::SensitiveDataConfig;
 use std::{
     collections::HashMap,
     ffi::OsString,
@@ -50,6 +51,7 @@ struct McpConfig {
     vault: Option<VaultEntry>,       // legacy
     notes_dir: PathBuf,              // legacy flat field (old config format)
     db_path: PathBuf,                // legacy flat field (old config format)
+    sensitive_data: SensitiveDataConfig,
 }
 
 impl Default for McpConfig {
@@ -60,6 +62,7 @@ impl Default for McpConfig {
             vault: None,
             notes_dir: PathBuf::from("."),
             db_path: core_default_db_path(),
+            sensitive_data: SensitiveDataConfig::default(),
         }
     }
 }
@@ -153,7 +156,12 @@ struct Cli {
     config: Option<PathBuf>,
 }
 
-pub fn dispatch(req: McpRequest, vaults: &[(String, PathBuf)], db_path: &Path) -> McpResponse {
+pub fn dispatch(
+    req: McpRequest,
+    vaults: &[(String, PathBuf)],
+    db_path: &Path,
+    sensitive_config: Option<&SensitiveDataConfig>,
+) -> McpResponse {
     let params = req.params.clone().unwrap_or(serde_json::Value::Null);
 
     match req.method.as_str() {
@@ -172,7 +180,7 @@ pub fn dispatch(req: McpRequest, vaults: &[(String, PathBuf)], db_path: &Path) -
         "tools/call" => {
             let name = params["name"].as_str().unwrap_or("");
             let args = &params["arguments"];
-            match handler::call_tool(name, args, vaults, db_path) {
+            match handler::call_tool(name, args, vaults, db_path, sensitive_config) {
                 Ok(result) => McpResponse::success(req.id, result),
                 Err(_) => McpResponse::error(req.id, -32000, "Internal tool execution error"),
             }
@@ -295,6 +303,7 @@ async fn main() {
         }
     }
     let db_path = resolve_path_env("SHIOTSUCHI_DB_PATH", cfg.resolved_db_path());
+    let sensitive_config = &cfg.sensitive_data;
 
     if let Some(parent) = db_path.parent() {
         if !parent.exists() {
@@ -340,10 +349,10 @@ async fn main() {
                             }),
                         )
                     } else {
-                        dispatch(req, &vaults, &db_path)
+                        dispatch(req, &vaults, &db_path, Some(sensitive_config))
                     }
                 } else {
-                    dispatch(req, &vaults, &db_path)
+                    dispatch(req, &vaults, &db_path, Some(sensitive_config))
                 }
             }
             Err(_) => McpResponse::error(0, -32700, "Parse error"),
@@ -516,6 +525,7 @@ notes_dir = "/tmp/partial-notes"
             req,
             &vaults,
             std::path::Path::new("/tmp/db"),
+            None, // no sensitive config in tests
         );
         let json = serde_json::to_string(&resp).unwrap();
         assert!(json.contains("search_local_notes"));
@@ -534,6 +544,7 @@ notes_dir = "/tmp/partial-notes"
             req,
             &vaults,
             std::path::Path::new("/tmp/db"),
+            None,
         );
         let json = serde_json::to_string(&resp).unwrap();
         assert!(json.contains("\"error\""));
@@ -552,6 +563,7 @@ notes_dir = "/tmp/partial-notes"
             req,
             &vaults,
             std::path::Path::new("/tmp/db"),
+            None,
         );
         let json = serde_json::to_string(&resp).unwrap();
         assert!(json.contains("protocolVersion"));
@@ -571,6 +583,7 @@ notes_dir = "/tmp/partial-notes"
             req,
             &vaults,
             std::path::Path::new("/tmp/db"),
+            None,
         );
         let json = serde_json::to_string(&resp).unwrap();
         assert!(json.contains("\"result\""));

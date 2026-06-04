@@ -73,6 +73,7 @@ pub struct ShiotsuchiConfig {
     pub vault: Option<VaultEntry>,
     pub indexing: IndexingConfig,
     pub watcher: WatcherConfig,
+    pub sensitive_data: crate::sensitive::SensitiveDataConfig,
 }
 
 impl ShiotsuchiConfig {

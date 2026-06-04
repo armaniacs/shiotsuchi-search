@@ -132,6 +132,7 @@ fn fix_config_old_vault_format(config_path: &Path) -> Result<(), Box<dyn std::er
         vault: None,
         indexing: old_cfg.indexing,
         watcher: old_cfg.watcher,
+        sensitive_data: Default::default(),
     };
 
     let backup_path = backup_config_file(config_path)?;

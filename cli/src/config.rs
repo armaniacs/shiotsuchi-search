@@ -164,6 +164,7 @@ mod tests {
             database: DatabaseConfig::default(),
             indexing: IndexingConfig::default(),
             watcher: WatcherConfig::default(),
+            sensitive_data: Default::default(),
         };
         let vaults = config.resolved_vaults();
         assert_eq!(vaults.len(), 2);
@@ -183,6 +184,7 @@ mod tests {
             vault: None,
             indexing: IndexingConfig::default(),
             watcher: WatcherConfig::default(),
+            sensitive_data: Default::default(),
         };
         assert_eq!(config.resolved_db_path(), PathBuf::from("/custom/db.sqlite"));
     }
@@ -198,6 +200,7 @@ mod tests {
             vaults: HashMap::new(),
             indexing: IndexingConfig::default(),
             watcher: WatcherConfig::default(),
+            sensitive_data: Default::default(),
         };
         assert_eq!(config.resolved_db_path(), PathBuf::from("/legacy/db.sqlite"));
     }
@@ -215,6 +218,7 @@ mod tests {
             vaults: HashMap::new(),
             indexing: IndexingConfig::default(),
             watcher: WatcherConfig::default(),
+            sensitive_data: Default::default(),
         };
         assert_eq!(config.resolved_db_path(), PathBuf::from("/new/db.sqlite"));
     }
