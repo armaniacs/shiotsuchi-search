@@ -87,8 +87,7 @@ fn test_delete_chunks_atomic() {
     assert_eq!(db.stats().unwrap().total_files, 2);
 
     // Delete a.md
-    db.delete_chunks_for_file("default", "a.md").unwrap();
-    db.delete_file_cache("default", "a.md").unwrap();
+    db.delete_file_fully("default", "a.md").unwrap();
 
     // a.md should be gone, b.md should remain
     assert_eq!(db.cached_hash("default", "a.md").unwrap(), None);

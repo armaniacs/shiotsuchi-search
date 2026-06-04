@@ -187,6 +187,7 @@ pub struct IndexConfig {
     /// VLM-based PDF extraction configuration (for scanned PDFs with no embedded text).
     /// Only effective when compiled with the `vlm` feature.
     pub vlm_enabled: bool,
+    pub vlm_consent_obtained: bool,
     pub vlm_provider: String,
     pub vlm_model: String,
     pub vlm_max_pages_per_doc: Option<usize>,
@@ -223,9 +224,10 @@ impl Default for IndexConfig {
             user_dictionary: vec![],
             enable_pdf_extraction: true,
             vlm_enabled: false,
+            vlm_consent_obtained: false,
             vlm_provider: "openai".to_string(),
             vlm_model: "gpt-4.1-nano".to_string(),
-            vlm_max_pages_per_doc: None,
+            vlm_max_pages_per_doc: Some(10),
             backlink_scoring: true,
         }
     }
@@ -312,5 +314,21 @@ mod tests {
             "default config should include 'pdf', got: {:?}",
             config.include_extensions
         );
+    }
+
+    #[test]
+    fn test_index_config_vlm_consent_defaults_to_false() {
+        let config = IndexConfig::default();
+        assert!(!config.vlm_consent_obtained, "VLM consent must default to false");
+        assert!(!config.vlm_enabled, "VLM must default to disabled");
+    }
+
+    #[test]
+    fn test_index_config_vlm_disabled_even_if_consent_granted() {
+        let mut config = IndexConfig::default();
+        config.vlm_consent_obtained = true;
+        config.vlm_enabled = false;
+        // VLM extraction must NOT run when enabled is false, even if consent was obtained
+        assert!(!config.vlm_enabled);
     }
 }

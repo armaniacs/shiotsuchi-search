@@ -3,6 +3,7 @@ use crate::msg_fmt;
 use clap::Args;
 use shiotsuchi_core::{db::NoteDatabase, indexer::cleanup_deleted, models::IndexConfig};
 use std::collections::HashMap;
+use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 
 #[derive(Args, Debug)]
@@ -18,6 +19,10 @@ pub struct DredgeArgs {
     /// Requires retention_days to be set in config; prints a message if not configured.
     #[arg(long)]
     pub expired: bool,
+
+    /// Clear all VLM extraction hashes and reprocess PDFs on next index.
+    #[arg(long)]
+    pub force_vlm_reprocess: bool,
 }
 
 pub fn run_dredge(
@@ -33,6 +38,14 @@ pub fn run_dredge(
     }
 
     let db = NoteDatabase::open(db_path)?;
+
+    // Handle --force-vlm-reprocess flag
+    if args.force_vlm_reprocess {
+        let count = db.clear_vlm_hashes()?;
+        println!("{}", msg_fmt!(messages::DREDGE_VLM_HASHES_CLEARED, count));
+        return Ok(());
+    }
+
     let config = IndexConfig {
         vaults: vaults.to_vec(),
         include_extensions: indexing_cfg.include_extensions.clone(),
@@ -44,6 +57,7 @@ pub fn run_dredge(
         enable_pdf_extraction: indexing_cfg.enable_pdf_extraction,
         backlink_scoring: indexing_cfg.backlink_scoring,
         vlm_enabled: vlm_cfg.enabled,
+        vlm_consent_obtained: vlm_cfg.consent_obtained,
         vlm_provider: vlm_cfg.provider.clone(),
         vlm_model: vlm_cfg.model.clone(),
         vlm_max_pages_per_doc: vlm_cfg.max_pages_per_doc,
@@ -57,14 +71,41 @@ pub fn run_dredge(
             for (vault_name, _) in vaults {
                 retention_map.insert(vault_name.clone(), *retention);
             }
-            let purged = db.purge_expired(&retention_map)?;
-            if purged == 0 {
-                println!("No expired files found.");
+
+            let total_expired = db.count_expired(&retention_map)?;
+
+            if args.dry_run {
+                if total_expired == 0 {
+                    println!("{}", messages::DREDGE_EXPIRED_NONE);
+                } else {
+                    println!("{}", msg_fmt!(messages::DREDGE_EXPIRED_DRY_RUN, total_expired));
+                }
             } else {
-                println!("Purged {} expired file(s).", purged);
+                if std::io::stdin().is_terminal() {
+                    let theme = crate::util::dialoguer_theme();
+                    let confirmed = dialoguer::Confirm::with_theme(&*theme)
+                        .with_prompt(msg_fmt!(
+                            messages::DREDGE_EXPIRED_CONFIRM,
+                            total_expired
+                        ))
+                        .default(false)
+                        .interact()?;
+
+                    if !confirmed {
+                        println!("{}", messages::DREDGE_ABORTED);
+                        return Ok(());
+                    }
+                }
+
+                let purged = db.purge_expired(&retention_map)?;
+                if purged == 0 {
+                    println!("{}", messages::DREDGE_EXPIRED_NONE);
+                } else {
+                    println!("{}", msg_fmt!(messages::DREDGE_EXPIRED_PURGED, purged));
+                }
             }
         } else {
-            println!("retention_days not configured. Set retention_days in config.toml to use --expired.");
+            println!("{}", messages::DREDGE_RETENTION_NOT_CONFIGURED);
         }
         return Ok(());
     }
@@ -111,6 +152,7 @@ mod tests {
             dry_run: false,
             vacuum: false,
             expired: false,
+            force_vlm_reprocess: false,
         };
         let idx_cfg = IndexingConfig::default();
         let result = run_dredge(&args, &[("default".to_string(), temp.path().to_path_buf())], &db_file, &idx_cfg, &Default::default());
@@ -127,6 +169,7 @@ mod tests {
             dry_run: true,
             vacuum: false,
             expired: false,
+            force_vlm_reprocess: false,
         };
         let idx_cfg = IndexingConfig::default();
         let result = run_dredge(&args, &[("default".to_string(), temp.path().to_path_buf())], &db_file, &idx_cfg, &Default::default());
@@ -145,6 +188,7 @@ mod tests {
             dry_run: false,
             vacuum: true,
             expired: false,
+            force_vlm_reprocess: false,
         };
         let idx_cfg = IndexingConfig::default();
         let result = run_dredge(&args, &[("default".to_string(), temp.path().to_path_buf())], &db_file, &idx_cfg, &Default::default());
@@ -161,10 +205,11 @@ mod tests {
             dry_run: false,
             vacuum: false,
             expired: true,
+            force_vlm_reprocess: false,
         };
         // Default config has retention_days = None
         let idx_cfg = IndexingConfig::default();
-        let result = run_dredge(&args, &[("default".to_string(), temp.path().to_path_buf())], &db_file, &idx_cfg);
+        let result = run_dredge(&args, &[("default".to_string(), temp.path().to_path_buf())], &db_file, &idx_cfg, &Default::default());
         assert!(result.is_ok());
     }
 
@@ -190,9 +235,13 @@ mod tests {
             content: "old content".into(),
             tokenized_content: "old content".into(),
             vault_name: "default".into(),
+            tags: String::new(),
+            frontmatter_date: String::new(),
+            title: String::new(),
+            emphasized_text: String::new(),
         };
         db.insert_chunks(&[chunk]).unwrap();
-        db.upsert_file_cache("default", "old.md", "hash_old", old_mtime, "none").unwrap();
+        db.upsert_file_cache_for_tests("default", "old.md", "hash_old", old_mtime, "none").unwrap();
 
         // Also insert a recent file (should not be purged)
         let recent_chunk = shiotsuchi_core::models::Chunk {
@@ -203,20 +252,25 @@ mod tests {
             content: "recent content".into(),
             tokenized_content: "recent content".into(),
             vault_name: "default".into(),
+            tags: String::new(),
+            frontmatter_date: String::new(),
+            title: String::new(),
+            emphasized_text: String::new(),
         };
         db.insert_chunks(&[recent_chunk]).unwrap();
-        db.upsert_file_cache("default", "recent.md", "hash_recent", now, "none").unwrap();
+        db.upsert_file_cache_for_tests("default", "recent.md", "hash_recent", now, "none").unwrap();
 
         let args = DredgeArgs {
             dry_run: false,
             vacuum: false,
             expired: true,
+            force_vlm_reprocess: false,
         };
         let idx_cfg = IndexingConfig {
             retention_days: Some(30), // 30 days retention
             ..Default::default()
         };
-        let result = run_dredge(&args, &[("default".to_string(), temp.path().to_path_buf())], &db_file, &idx_cfg);
+        let result = run_dredge(&args, &[("default".to_string(), temp.path().to_path_buf())], &db_file, &idx_cfg, &Default::default());
         assert!(result.is_ok());
 
         // Verify old file was purged, recent file remains

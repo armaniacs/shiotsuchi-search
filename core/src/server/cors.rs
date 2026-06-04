@@ -1,4 +1,4 @@
-use axum::http::{HeaderValue, Method};
+use axum::http::{header, HeaderValue, Method};
 use tower_http::cors::{AllowHeaders, CorsLayer};
 
 use crate::config::ServerConfig;
@@ -14,7 +14,11 @@ pub fn create_cors_layer(server_config: &ServerConfig) -> CorsLayer {
     CorsLayer::new()
         .allow_origin(origins)
         .allow_methods([Method::GET, Method::OPTIONS])
-        .allow_headers(AllowHeaders::any())
+        .allow_headers(AllowHeaders::list([
+            header::AUTHORIZATION,
+            header::CONTENT_TYPE,
+            header::HeaderName::from_static("x-api-key"),
+        ]))
 }
 
 #[cfg(test)]

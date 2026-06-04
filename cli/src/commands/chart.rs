@@ -43,6 +43,51 @@ pub fn run_chart(
     }
     let db = NoteDatabase::open(db_path)?;
     let tokenizer = get_tokenizer()?;
+
+    // --- VLM consent check (must happen BEFORE IndexConfig) ---
+    let (vlm_enabled_effective, vlm_consent_effective) =
+        if vlm_cfg.enabled && !vlm_cfg.consent_obtained {
+            use std::io::IsTerminal;
+            let is_tty = std::io::stdin().is_terminal() && std::io::stdout().is_terminal();
+            if is_tty {
+                let endpoint = vlm_cfg.resolved_endpoint();
+                let prompt = format!(
+                    "VLM is enabled (provider: {}, endpoint: {}). \
+                     Do you consent to sending document images to this endpoint?\n\
+                     Note: You can revoke consent later by setting `vlm.consent_obtained = false` in config.toml.",
+                    vlm_cfg.provider, endpoint
+                );
+                let theme = crate::util::dialoguer_theme();
+                let agreed = dialoguer::Confirm::with_theme(&*theme)
+                    .with_prompt(&prompt)
+                    .default(false)
+                    .interact()?;
+                if agreed {
+                    let cfg_path = crate::config::default_config_path();
+                    if let Ok(mut cfg) = shiotsuchi_core::config::ShiotsuchiConfig::load_from(&cfg_path) {
+                        cfg.vlm.consent_obtained = true;
+                        if let Err(e) = cfg.save_to(&cfg_path) {
+                            eprintln!("[warn] Failed to save config with VLM consent: {}", e);
+                        } else if !args.quiet {
+                            eprintln!("[info] VLM consent saved to config.toml.");
+                        }
+                    }
+                    (true, true)
+                } else {
+                    eprintln!("[warn] VLM consent declined — VLM features disabled for this run.");
+                    (false, false)
+                }
+            } else {
+                eprintln!(
+                    "[warn] VLM is enabled but this is not a TTY. \
+                     VLM features disabled for this run. Set `consent_obtained = true` in config.toml to persist consent."
+                );
+                (false, false)
+            }
+        } else {
+            (vlm_cfg.enabled, vlm_cfg.consent_obtained)
+        };
+
     let config = IndexConfig {
         vaults: vaults.to_vec(),
         include_extensions: indexing_cfg.include_extensions.clone(),
@@ -53,58 +98,12 @@ pub fn run_chart(
         user_dictionary: indexing_cfg.user_dictionary.clone(),
         enable_pdf_extraction: indexing_cfg.enable_pdf_extraction,
         backlink_scoring: indexing_cfg.backlink_scoring,
-        vlm_enabled: vlm_cfg.enabled,
+        vlm_enabled: vlm_enabled_effective,
+        vlm_consent_obtained: vlm_consent_effective,
         vlm_provider: vlm_cfg.provider.clone(),
         vlm_model: vlm_cfg.model.clone(),
         vlm_max_pages_per_doc: vlm_cfg.max_pages_per_doc,
     };
-
-    // --- VLM consent check ---
-    if vlm_cfg.enabled && !vlm_cfg.consent_obtained {
-        use std::io::IsTerminal;
-        let is_tty = std::io::stdin().is_terminal() && std::io::stdout().is_terminal();
-        if is_tty {
-            let endpoint = vlm_cfg.resolved_endpoint();
-            let prompt = format!(
-                "VLM is enabled (provider: {}, endpoint: {}). \
-                 Do you consent to sending document images to this endpoint?",
-                vlm_cfg.provider, endpoint
-            );
-            let theme = crate::util::dialoguer_theme();
-            let agreed = dialoguer::Confirm::with_theme(&*theme)
-                .with_prompt(&prompt)
-                .default(false)
-                .interact()?;
-            if agreed {
-                // Save consent to config
-                let cfg_path = crate::config::default_config_path();
-                if let Ok(mut cfg) = shiotsuchi_core::config::ShiotsuchiConfig::load_from(&cfg_path) {
-                    cfg.vlm.consent_obtained = true;
-                    if let Err(e) = cfg.save_to(&cfg_path) {
-                        eprintln!("[warn] Failed to save config with VLM consent: {}", e);
-                    } else if !args.quiet {
-                        eprintln!("[info] VLM consent saved to config.toml.");
-                    }
-                }
-            } else {
-                eprintln!("[warn] VLM consent declined — VLM features disabled for this run.");
-                // Disable VLM for this run by overwriting the config passed to IndexConfig
-                let mut disabled_vlm = vlm_cfg.clone();
-                disabled_vlm.enabled = false;
-                // We can't modify vlm_cfg directly since it's &, but index_config already captured it
-                // The IndexConfig was built above — VLM will still run. We need to override.
-                // Actually, the index_config is already built with vlm_enabled. 
-                // For this run we just skip — the VLM skip happens inside index_file_with_embedder.
-                // The user declined, so let's not disable VLM for the whole index run — 
-                // it would require rebuilding IndexConfig. The consent prompt is for future runs.
-            }
-        } else {
-            eprintln!(
-                "[warn] VLM is enabled but this is not a TTY. \
-                 VLM features disabled for this run. Set `consent_obtained = true` in config.toml to persist consent."
-            );
-        }
-    }
 
     let embedder = match embedder_cfg.create_embedder() {
         Ok(Some(e)) => {

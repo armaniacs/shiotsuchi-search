@@ -140,7 +140,7 @@ sudo make uninstall PREFIX=/usr/local
 ### ボルトをインデックス化
 
 ```sh
-shiotsuchi chart --notes-dir ~/Notes
+shiotsuchi index --notes-dir ~/Notes
 ```
 
 `~/Notes` を実際の Markdown ボルトのパスに置き換えてください。`.md` ファイルを走査し、内容をトークナイズして `~/.cache/shiotsuchi/db.sqlite3` に SQLite インデックスを書き込みます。

@@ -100,6 +100,19 @@ pub const TASKS_TOTAL: &str = "合計: {} 件のタスク";
 pub const TIDE_ABOUT: &str = "インデックスの統計情報（ファイル数・チャンク数・DB サイズ等）を表示する";
 
 // ──────────────────────────────────────────────
+// check_ignore.rs — 除外チェック
+// ──────────────────────────────────────────────
+
+pub const CHECK_IGNORE_VAULT_NOT_FOUND: &str = "ボールト '{}' が見つかりません";
+pub const CHECK_IGNORE_NO_VAULTS: &str = "ボールトが設定されていません";
+pub const CHECK_IGNORE_NOT_EXCLUDED: &str = "  ✓ 除外されていません: {}";
+pub const CHECK_IGNORE_EXCLUDED: &str = "  ✗ 除外されています: {}";
+pub const CHECK_IGNORE_REASON: &str = "    理由: {} にマッチ";
+pub const CHECK_IGNORE_SOURCE_SHIOTSUCHI: &str = ".shiotsuchiignore (パターン: {})";
+pub const CHECK_IGNORE_SOURCE_CONFIG: &str = "config.toml の exclude_dirs (パターン: {})";
+pub const CHECK_IGNORE_SOURCE_UNKNOWN: &str = "不明なソース (パターン: {})";
+
+// ──────────────────────────────────────────────
 // chart.rs — インデックス作成
 // ──────────────────────────────────────────────
 
@@ -135,6 +148,24 @@ pub const CLEAN_BACKUP_SAVED: &str = "バックアップを保存しました: {
 pub const CLEAN_REINDEXED: &str = "再インデックスしました: {} ファイル（{} スキップ、{} エラー）";
 
 // ──────────────────────────────────────────────
+// serve.rs — HTTP API サーバー
+// ──────────────────────────────────────────────
+
+pub const SERVE_ABOUT: &str = "HTTP API サーバーを起動する";
+pub const ERR_SERVE_DB_NOT_FOUND: &str = "エラー: データベースが見つかりません: {}。先に `shiotsuchi index` を実行してください";
+pub const ERR_SERVE_TOKENIZER: &str = "エラー: トークナイザーが利用できません: {}。`shiotsuchi setup` を実行してください";
+pub const SERVE_AUTH_ENABLED: &str = "✓ APIキー認証を有効化: X-API-Key ヘッダが必要です";
+pub const WARN_SERVE_BIND_NON_LOCALHOST: &str = "警告: '{}' にバインドしています。HTTP API に認証がありません";
+pub const WARN_SERVE_NETWORK_ACCESS: &str = "  ネットワーク上の誰でも http://{}:{}/ui からノートにアクセスできます";
+pub const WARN_SERVE_USE_LOCALHOST: &str = "  ローカルのみで使用するには --host 127.0.0.1 を指定してください";
+pub const WARN_SERVE_ENABLE_AUTH: &str = "  認証を有効にするには --api-key または SHIOTSUCHI_SERVER_API_KEY を設定してください";
+pub const SERVE_LISTENING: &str = "サーバーを起動しました http://{}";
+pub const ERR_SERVE_PORT_IN_USE: &str = "ポート {} は既に使用されています。--port で別のポートを指定してください";
+pub const ERR_SERVE_BIND_FAILED: &str = "{} へのバインドに失敗しました: {}";
+pub const SERVE_SHUTDOWN_GRACEFUL: &str = "サーバーを正常に停止しました";
+pub const SERVE_SHUTDOWN_SIGNAL: &str = "終了シグナルを受信しました。正常に停止しています...";
+
+// ──────────────────────────────────────────────
 // dredge.rs — スタイルエントリ削除
 // ──────────────────────────────────────────────
 
@@ -143,6 +174,13 @@ pub const DREDGE_NO_STALE: &str = "期限切れのエントリはありません
 pub const DREDGE_WOULD_REMOVE: &str = "{} 個の期限切れファイルを削除します:";
 pub const DREDGE_REMOVED: &str = "{} 個の期限切れファイルを削除しました:";
 pub const DREDGE_VACUUM_DONE: &str = "VACUUM 完了。";
+pub const DREDGE_EXPIRED_NONE: &str = "期限切れファイルは見つかりませんでした。";
+pub const DREDGE_EXPIRED_DRY_RUN: &str = "{} 個の期限切れファイルを削除します（ドライラン）";
+pub const DREDGE_EXPIRED_CONFIRM: &str = "{} 個の期限切れファイルを削除します。続行しますか？";
+pub const DREDGE_ABORTED: &str = "中止しました。";
+pub const DREDGE_EXPIRED_PURGED: &str = "{} 個の期限切れファイルを削除しました。";
+pub const DREDGE_RETENTION_NOT_CONFIGURED: &str = "retention_days が設定されていません。--expired を使用するには config.toml で retention_days を設定してください。";
+pub const DREDGE_VLM_HASHES_CLEARED: &str = "VLM 抽出ハッシュを {} 件クリアしました。";
 
 // ──────────────────────────────────────────────
 // tide.rs — 統計表示

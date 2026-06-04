@@ -1,6 +1,32 @@
 //! Build-time information display helpers for the CLI.
 
-use shiotsuchi_core::build_info::{FEATURE_ASYNC_INDEX, FEATURE_PDF, FEATURE_VLM, FEATURE_WATCHER, HAS_MODEL_EMBEDDED};
+use shiotsuchi_core::build_info::{
+    FEATURE_ASYNC_INDEX, FEATURE_PDF, FEATURE_VLM, FEATURE_WATCHER, HAS_MODEL_EMBEDDED,
+};
+use std::sync::LazyLock;
+
+static HELP_FOOTER: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "Build features: watcher={}, async-index={}, model-embedded={}, pdf={}, vlm={}",
+        watcher_status(),
+        async_index_status(),
+        model_embedded_status(),
+        pdf_status(),
+        vlm_status()
+    )
+});
+
+static LONG_VERSION: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "{}\nGuiding your path through the data tide.\nBuild features: watcher={}, async-index={}, model-embedded={}, pdf={}, vlm={}",
+        env!("CARGO_PKG_VERSION"),
+        watcher_status(),
+        async_index_status(),
+        model_embedded_status(),
+        pdf_status(),
+        vlm_status()
+    )
+});
 
 fn watcher_status() -> &'static str {
     if FEATURE_WATCHER {
@@ -43,28 +69,11 @@ fn vlm_status() -> &'static str {
 }
 
 pub fn help_footer() -> &'static str {
-    let s = format!(
-        "Build features: watcher={}, async-index={}, model-embedded={}, pdf={}, vlm={}",
-        watcher_status(),
-        async_index_status(),
-        model_embedded_status(),
-        pdf_status(),
-        vlm_status()
-    );
-    Box::leak(s.into_boxed_str())
+    &HELP_FOOTER
 }
 
 pub fn long_version() -> &'static str {
-    let s = format!(
-        "{}\nGuiding your path through the data tide.\nBuild features: watcher={}, async-index={}, model-embedded={}, pdf={}, vlm={}",
-        env!("CARGO_PKG_VERSION"),
-        watcher_status(),
-        async_index_status(),
-        model_embedded_status(),
-        pdf_status(),
-        vlm_status()
-    );
-    Box::leak(s.into_boxed_str())
+    &LONG_VERSION
 }
 
 #[cfg(test)]

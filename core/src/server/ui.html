@@ -317,7 +317,7 @@
           <input type="number" id="limit" value="20" min="1" max="100" style="width: 70px;">
         </div>
       </div>
-      <div id="searchResults"></div>
+      <div id="searchResults" aria-live="polite" role="region" aria-label="Search results"></div>
     </div>
 
     <!-- Stats Panel -->
@@ -327,7 +327,7 @@
 
     <!-- Files Panel -->
     <div id="files" class="panel" role="tabpanel" aria-labelledby="tab-files">
-      <div id="filesContent"></div>
+      <div id="filesContent" aria-live="polite" role="region" aria-label="Indexed files"></div>
     </div>
   </div>
 
@@ -477,7 +477,7 @@
           ${data.results.map(r => `
             <div class="result-card" role="button" tabindex="0"
                  onclick="openFile('${esc(r.file_path)}', '${esc(r.vault_name)}')"
-                 onkeydown="if(event.key==='Enter')openFile('${esc(r.file_path)}', '${esc(r.vault_name)}')">
+                 onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openFile('${esc(r.file_path)}', '${esc(r.vault_name)}')}">
               <div class="result-title">${esc(r.title || '(untitled)')}</div>
               <div class="result-path">${esc(r.file_path)}</div>
               <div class="result-snippet">${esc(r.snippet)}</div>
@@ -547,7 +547,7 @@
         const newItems = d.files.map(f => `
           <li class="file-item" role="button" tabindex="0"
               onclick="openFile('${esc(f.path)}', '${esc(f.vault_name)}')"
-              onkeydown="if(event.key==='Enter')openFile('${esc(f.path)}', '${esc(f.vault_name)}')">
+              onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openFile('${esc(f.path)}', '${esc(f.vault_name)}')}">
             <span class="file-name">${esc(f.path)}</span>
             <span class="file-vault">${esc(f.vault_name)}</span>
           </li>
@@ -599,6 +599,7 @@
 
       previousFocus = document.activeElement;
       title.textContent = path;
+      modal.setAttribute('aria-label', 'Note content: ' + path);
       body.innerHTML = '<div class="modal-loading">Loading...</div>';
       modal.classList.add('open');
       openModalFocusTrap();

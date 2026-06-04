@@ -140,7 +140,7 @@ sudo make uninstall PREFIX=/usr/local
 ### Index your vault
 
 ```sh
-shiotsuchi chart --notes-dir ~/Notes
+shiotsuchi index --notes-dir ~/Notes
 ```
 
 Replace `~/Notes` with the path to your Markdown vault. This walks every `.md` file, tokenizes the content, and writes a SQLite index to `~/.cache/shiotsuchi/db.sqlite3`.

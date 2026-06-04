@@ -9,7 +9,7 @@ Published name: `shiotsuchi-core`
 
 **Type**: `NoteDatabase { write_conn: RefCell<Connection> }`
 
-**Schema** (v10, created by `create_schema()` + migrations):
+**Schema** (v11, created by `create_schema()` + migrations):
 
 ```sql
 -- File cache for incremental indexing (hash + mtime + size + backlink tracking)
@@ -107,7 +107,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS vec_chunks USING vec0(
 - `query_tasks(keyword, include_checked)` — Search tasks with optional keyword filter
 - `get_tags_for_file(vault_name, path)` / `decrement_tag_count(vault_name, tag)` — Tag counts maintenance helpers
 - `update_backlink_counts_for_vault(vault_name)` — Recalculate backlink counts for all files in a vault
-- `migrate()` — Schema migration (v1→v10, crash-safe with versioned blocks)
+- `migrate()` — Schema migration (v1→v11, crash-safe with versioned blocks)
 
 **Error Type**: `DbError { Sqlite(rusqlite::Error), NotFound(String), Io(std::io::Error), Other(String) }`
 
@@ -287,9 +287,12 @@ Progress is cumulative: `(processed_so_far, total_across_all_vaults)`.
 
 | Feature | Default | Description |
 |---------|---------|-------------|
+| `default` | yes | Enables all default features (watcher, async-index, semantic, pdf) |
 | `watcher` | yes | Enables file system watcher via `notify` crate |
 | `async-index` | yes | Enables parallel indexing via `rayon` |
 | `semantic` | yes | Enables ONNX embedding/vector search via `ort` and `tokenizers` crates |
+| `pdf` | yes | Enables PDF text extraction via `pdfium-render` and `pdfium-auto` |
+| `vlm` | no | Enables VLM-based PDF markdown extraction via `edgequake-pdf2md` |
 
 ## Schema Migrations
 
@@ -305,8 +308,9 @@ Progress is cumulative: `(processed_so_far, total_across_all_vaults)`.
 | v8 | Defensive column adds (consolidated) |
 | v9 | Added `note_links` table and `backlink_count` column to `file_cache` |
 | v10 | Added `char_count` column to `file_cache` and `tag_counts` table for O(1) stats |
+| v11 | Added `vlm_hash` column to `file_cache` for VLM extraction caching |
 
-The v2→v3 migration is crash-safe: it checks for the column before adding it, and wraps the full migration in a transaction. Migrations v8→v9 and v9→v10 are also wrapped in transactions.
+The v2→v3 migration is crash-safe: it checks for the column before adding it, and wraps the full migration in a transaction. Migrations v8→v9, v9→v10, and v10→v11 are also wrapped in transactions.
 
 ## Testing Strategy
 

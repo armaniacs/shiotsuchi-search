@@ -3,7 +3,7 @@ members = ["core", "cli", "mcp", "e2e"]
 resolver = "2"
 
 [workspace.package]
-version = "0.4.17"
+version = "0.4.18"
 edition = "2021"
 authors = ["Shiotsuchi Contributors"]
 license = "Apache-2.0"

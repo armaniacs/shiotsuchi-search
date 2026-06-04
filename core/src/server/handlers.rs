@@ -1,6 +1,7 @@
 use crate::config::ShiotsuchiConfig;
 use crate::db::NoteDatabase;
 use crate::search::SearchRequest;
+use crate::sensitive::SensitiveDataConfig;
 use crate::server::types::*;
 use axum::extract::State;
 use axum::http::header;
@@ -9,8 +10,30 @@ use axum::middleware::Next;
 use axum::response::Response;
 use axum::routing::get;
 use axum::{Json, Router};
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::collections::{HashMap, VecDeque};
+use std::sync::{Arc, LazyLock, Mutex};
+use std::time::Instant;
+
+static HTTP_RATE_LIMITER: LazyLock<Mutex<VecDeque<Instant>>> = LazyLock::new(|| {
+    Mutex::new(VecDeque::new())
+});
+
+fn check_rate_limit() -> Result<(), ApiError> {
+    let mut timestamps = HTTP_RATE_LIMITER.lock().unwrap_or_else(|e| e.into_inner());
+    let now = Instant::now();
+    while let Some(&t) = timestamps.front() {
+        if t.elapsed().as_secs_f64() > 1.0 {
+            timestamps.pop_front();
+        } else {
+            break;
+        }
+    }
+    if timestamps.len() >= 30 {
+        return Err(ApiError::TooManyRequests("rate limit exceeded: 30 req/s".to_string()));
+    }
+    timestamps.push_back(now);
+    Ok(())
+}
 
 /// Shared application state.
 pub struct AppState {
@@ -21,6 +44,8 @@ pub struct AppState {
     pub config: Option<ShiotsuchiConfig>,
     /// API key for authentication. None = no auth required.
     pub api_key: Option<String>,
+    /// Sensitive data masking configuration. None = no masking applied.
+    pub sensitive_config: Option<SensitiveDataConfig>,
 }
 
 /// Authentication middleware — checks X-API-Key header against AppState.api_key.
@@ -48,7 +73,7 @@ pub async fn auth_middleware(
             });
 
         match provided_key {
-            Some(key) if key == expected_key.as_str() => Ok(next.run(req).await),
+            Some(key) if constant_time_eq(key, expected_key.as_str()) => Ok(next.run(req).await),
             _ => Err(ApiError::Unauthorized(
                 "Authentication required. Provide a valid API key via X-API-Key header.".to_string(),
             )),
@@ -63,7 +88,6 @@ pub async fn auth_middleware(
 pub async fn handle_health() -> Json<serde_json::Value> {
     Json(serde_json::json!({
         "status": "ok",
-        "version": env!("CARGO_PKG_VERSION"),
     }))
 }
 
@@ -72,6 +96,7 @@ pub async fn handle_search(
     State(state): State<Arc<AppState>>,
     params: Result<axum::extract::Query<SearchParams>, axum::extract::rejection::QueryRejection>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    check_rate_limit()?;
     let axum::extract::Query(params) =
         params.map_err(|e| ApiError::BadRequest(e.body_text()))?;
 
@@ -130,13 +155,18 @@ pub async fn handle_search(
 
     let items: Vec<SearchResultItem> = results
         .into_iter()
-        .map(|r| SearchResultItem {
-            file_path: r.file_path,
-            title: r.title,
-            parent_header: r.parent_header,
-            snippet: crate::search::extract_snippet(&r.content, &query, 5, 200),
-            score: r.score,
-            vault_name: r.vault_name,
+        .map(|r| {
+            let snippet = crate::search::extract_snippet(&r.content, &query, 5, 200);
+            let snippet =
+                crate::sensitive::mask_sensitive_data(&snippet, state.sensitive_config.as_ref());
+            SearchResultItem {
+                file_path: r.file_path,
+                title: r.title,
+                parent_header: r.parent_header,
+                snippet,
+                score: r.score,
+                vault_name: r.vault_name,
+            }
         })
         .collect();
 
@@ -151,6 +181,7 @@ pub async fn handle_search(
 pub async fn handle_stats(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    check_rate_limit()?;
     let db = state.db.lock().await;
     let stats = db
         .stats()
@@ -161,7 +192,6 @@ pub async fn handle_stats(
         "total_chunks": stats.total_chunks,
         "total_size_bytes": stats.total_size_bytes,
         "last_indexed_at": stats.last_indexed_at,
-        "db_path": stats.db_path.to_string_lossy(),
         "embedder_status": stats.embedder_status,
         "top_tags": stats.top_tags,
     })))
@@ -173,6 +203,7 @@ pub async fn handle_list(
     config: axum::extract::Extension<ShiotsuchiConfig>,
     params: Result<axum::extract::Query<ListParams>, axum::extract::rejection::QueryRejection>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    check_rate_limit()?;
     let params = params.map_err(|e| ApiError::BadRequest(e.body_text()))?;
     let offset = params.offset;
     let limit = params.limit.min(200); // cap at 200
@@ -229,10 +260,14 @@ pub async fn handle_read(
                 if let Ok(canonical_vault) = vault_path.canonicalize() {
                     if canonical.starts_with(&canonical_vault) {
                         if let Ok(content) = tokio::fs::read_to_string(&canonical).await {
+                            let masked = crate::sensitive::mask_sensitive_data(
+                                &content,
+                                state.sensitive_config.as_ref(),
+                            );
                             return Ok(Json(serde_json::json!({
                                 "path": file_path,
                                 "vault": vault_name,
-                                "content": content,
+                                "content": masked,
                                 "source": "disk",
                             })));
                         }
@@ -259,12 +294,26 @@ pub async fn handle_read(
         .collect::<Vec<_>>()
         .join("\n");
 
+    let masked = crate::sensitive::mask_sensitive_data(&content, state.sensitive_config.as_ref());
+
     Ok(Json(serde_json::json!({
         "path": file_path,
         "vault": vault_name,
-        "content": content,
+        "content": masked,
         "source": "index",
     })))
+}
+
+/// Constant-time string comparison to prevent timing side-channel attacks.
+fn constant_time_eq(a: &str, b: &str) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut result = 0u8;
+    for (ca, cb) in a.bytes().zip(b.bytes()) {
+        result |= ca ^ cb;
+    }
+    result == 0
 }
 
 /// Create the axum router with all routes.
@@ -316,6 +365,7 @@ mod tests {
             hybrid_alpha: None,
             config: Some(ShiotsuchiConfig::default()),
             api_key: None,
+            sensitive_config: None,
         });
         let router = create_router(state, &ShiotsuchiConfig::default());
         (router, tmp)
@@ -463,7 +513,40 @@ mod tests {
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert!(json.get("total_files").is_some());
         assert!(json.get("total_chunks").is_some());
-        assert!(json.get("db_path").is_some());
+        assert!(json.get("db_path").is_none(), "db_path must not be exposed in public API");
+    }
+
+    #[tokio::test]
+    async fn test_health_does_not_expose_version() {
+        let (router, _tmp) = setup_test_router();
+        let req = Request::builder()
+            .uri("/api/v1/health")
+            .body(Body::empty())
+            .unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["status"], "ok");
+        assert!(json.get("version").is_none(), "version must not be exposed on public endpoint");
+    }
+
+    #[tokio::test]
+    async fn test_stats_does_not_expose_db_path() {
+        let (router, _tmp) = setup_test_router();
+        let req = Request::builder()
+            .uri("/api/v1/stats")
+            .body(Body::empty())
+            .unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(json.get("db_path").is_none(), "db_path must not be exposed to unauthenticated users");
     }
 
     #[tokio::test]
@@ -549,6 +632,7 @@ mod tests {
             hybrid_alpha: None,
             config: Some(ShiotsuchiConfig::default()),
             api_key: Some(api_key.to_string()),
+            sensitive_config: None,
         });
         let router = create_router(state, &ShiotsuchiConfig::default());
         (router, tmp)
@@ -638,5 +722,40 @@ mod tests {
             .unwrap();
         let resp = router.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_search_limit_clamped_silently() {
+        let (router, _tmp) = setup_test_router();
+        let req = Request::builder()
+            .uri("/api/v1/search?q=test&limit=9999")
+            .body(Body::empty())
+            .unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_cors_rejects_custom_header_not_in_allow_list() {
+        let (router, _tmp) = setup_test_router();
+        let req = Request::builder()
+            .method("OPTIONS")
+            .uri("/api/v1/search")
+            .header("Origin", "http://localhost")
+            .header("Access-Control-Request-Method", "GET")
+            .header("Access-Control-Request-Headers", "X-Custom-Header")
+            .body(Body::empty())
+            .unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        // With restricted AllowHeaders, custom headers should not be allowed
+        let allow_headers = resp.headers().get("access-control-allow-headers");
+        match allow_headers {
+            Some(val) => {
+                let val_str = val.to_str().unwrap_or("");
+                assert!(!val_str.to_lowercase().contains("x-custom-header"),
+                    "CORS should not allow X-Custom-Header: {}", val_str);
+            }
+            None => {} // No allow-headers header means restrictive — acceptable
+        }
     }
 }

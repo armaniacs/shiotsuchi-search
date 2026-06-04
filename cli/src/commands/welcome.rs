@@ -74,6 +74,12 @@ fn menu_items(config_exists: bool, db_exists: bool) -> Vec<String> {
 
 /// Display the welcome banner with categorized command listing.
 /// Content adapts based on config/DB existence state.
+///
+/// Accessibility note: The ASCII box-drawing banner below is rendered via
+/// println! for a TUI terminal. Terminal screen readers typically handle
+/// box-drawing characters differently from web browsers, so hiding them
+/// is not standard practice in CLI environments. The surrounding text
+/// provides sufficient context for users relying on assistive technology.
 fn show_banner(config_exists: bool, db_exists: bool) {
     let version = format!("Shiotsuchi Search  v{}", env!("CARGO_PKG_VERSION"));
     let inner_w: usize = 50;

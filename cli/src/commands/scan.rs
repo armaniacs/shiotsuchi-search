@@ -69,6 +69,15 @@ pub fn run_scan(
         }
     }
 
+    // VLM consent check: scan is non-interactive, so just log a warning
+    if vlm_cfg.enabled && !vlm_cfg.consent_obtained {
+        eprintln!(
+            "[warn] VLM is enabled but consent has not been obtained. \
+             Run `shiotsuchi chart` interactively to grant consent, or set \
+             `vlm.consent_obtained = true` in config.toml."
+        );
+    }
+
     let tokenizer = get_tokenizer()?;
     let config = IndexConfig {
         vaults: vaults.to_vec(),
@@ -81,6 +90,7 @@ pub fn run_scan(
         enable_pdf_extraction: indexing_cfg.enable_pdf_extraction,
         backlink_scoring: indexing_cfg.backlink_scoring,
         vlm_enabled: vlm_cfg.enabled,
+        vlm_consent_obtained: vlm_cfg.consent_obtained,
         vlm_provider: vlm_cfg.provider.clone(),
         vlm_model: vlm_cfg.model.clone(),
         vlm_max_pages_per_doc: vlm_cfg.max_pages_per_doc,

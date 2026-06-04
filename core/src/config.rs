@@ -275,7 +275,7 @@ impl Default for VlmConfig {
             provider: "openai".to_string(),
             endpoint: None,
             model: "gpt-4.1-nano".to_string(),
-            max_pages_per_doc: None,
+            max_pages_per_doc: Some(10),
         }
     }
 }
@@ -596,5 +596,48 @@ mod tests {
         ";
         let config: ShiotsuchiConfig = toml::from_str(toml).unwrap();
         assert!(config.indexing.backlink_scoring, "omitted backlink_scoring should default to true");
+    }
+
+    #[test]
+    fn test_exclude_patterns_rename_backward_compat_denied() {
+        // deny_unknown_fields on IndexingConfig rejects the old key name
+        let toml = r#"
+            [indexing]
+            exclude_patterns = ["build"]
+        "#;
+        let result: Result<ShiotsuchiConfig, _> = toml::from_str(toml);
+        assert!(result.is_err(), "old `exclude_patterns` key must be rejected: {:?}", result.err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("exclude_patterns") || err.contains("unknown"), "error must mention the old key name");
+    }
+
+    #[test]
+    fn test_exclude_dirs_accepts_new_key() {
+        let toml = r#"
+            [indexing]
+            exclude_dirs = ["build"]
+        "#;
+        let config: ShiotsuchiConfig = toml::from_str(toml).unwrap();
+        assert_eq!(config.indexing.exclude_dirs, vec!["build"]);
+    }
+
+    #[test]
+    fn test_exclude_dirs_default_deserialize() {
+        let toml = r"
+            [indexing]
+        ";
+        let config: ShiotsuchiConfig = toml::from_str(toml).unwrap();
+        assert_eq!(config.indexing.exclude_dirs, vec!["node_modules"]);
+    }
+
+    #[test]
+    fn test_indexing_config_exclude_dirs_accepts_new_key_only() {
+        // Verify that deny_unknown_fields is active for IndexingConfig
+        let toml = r#"
+            [indexing]
+            exclude_dirs = ["dist"]
+        "#;
+        let config: ShiotsuchiConfig = toml::from_str(toml).unwrap();
+        assert_eq!(config.indexing.exclude_dirs, vec!["dist"]);
     }
 }

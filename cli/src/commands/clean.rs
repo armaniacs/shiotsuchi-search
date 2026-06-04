@@ -133,6 +133,7 @@ pub fn run_clean(
         enable_pdf_extraction: indexing_cfg.enable_pdf_extraction,
         backlink_scoring: indexing_cfg.backlink_scoring,
         vlm_enabled: vlm_cfg.enabled,
+        vlm_consent_obtained: vlm_cfg.consent_obtained,
         vlm_provider: vlm_cfg.provider.clone(),
         vlm_model: vlm_cfg.model.clone(),
         vlm_max_pages_per_doc: vlm_cfg.max_pages_per_doc,

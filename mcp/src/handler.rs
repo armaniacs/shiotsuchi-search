@@ -32,7 +32,7 @@ impl RateLimiter {
     /// in any rolling 1-second window, preventing burst violations at
     /// fixed-second boundaries.
     pub fn allow(&self) -> bool {
-        let mut timestamps = self.inner.lock().unwrap();
+        let mut timestamps = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         let now = Instant::now();
         // Remove timestamps older than 1 second
         while timestamps.front().is_some_and(|t| now.duration_since(*t).as_secs() >= 1) {

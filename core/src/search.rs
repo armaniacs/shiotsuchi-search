@@ -523,17 +523,17 @@ fn search_vec(
     Ok((apply_filters_and_boost(results, tag_filter, since_date, query, SearchMode::Vec), emb_map))
 }
 
-/// Compute Reciprocal Rank Fusion scores from FTS and vec search results.
+/// Internal RRF computation shared by `compute_rrf` and `compute_rrf_weighted`.
 ///
-/// `k` is the RRF constant (default 60.0). Higher RRF score = more relevant.
-/// Results are sorted by RRF score descending and truncated to `limit`.
-pub(crate) fn compute_rrf(
+/// `weight_fn` maps an FTS rank and a vec rank to a pair of (fts_weight, vec_weight).
+/// For standard RRF this is `(1.0, 1.0)`, for alpha-weighted it's `(alpha, 1.0 - alpha)`.
+fn compute_rrf_internal(
     fts_results: &[ChunkSearchResult],
     vec_results: &[ChunkSearchResult],
     limit: usize,
     k: f64,
+    weight_fn: impl Fn(usize, usize) -> (f64, f64),
 ) -> Vec<(i64, f64)> {
-    // Build rank maps: chunk_id → 1-based rank
     let fts_ranks: HashMap<i64, usize> = fts_results
         .iter()
         .enumerate()
@@ -545,25 +545,47 @@ pub(crate) fn compute_rrf(
         .map(|(i, r)| (r.chunk_id, i + 1))
         .collect();
 
-    // Collect all unique chunk ids
     let mut all_ids: Vec<i64> = fts_ranks.keys().chain(vec_ranks.keys()).copied().collect();
     all_ids.sort_unstable();
     all_ids.dedup();
 
-    // Compute RRF score
-    let mut rrf_scores: Vec<(i64, f64)> = all_ids
+    let mut scores: Vec<(i64, f64)> = all_ids
         .into_iter()
         .map(|id| {
-            let fts_contrib = fts_ranks.get(&id).map(|&r| 1.0 / (k + r as f64)).unwrap_or(0.0);
-            let vec_contrib = vec_ranks.get(&id).map(|&r| 1.0 / (k + r as f64)).unwrap_or(0.0);
-            (id, fts_contrib + vec_contrib)
+            let (fts_weight, vec_weight) = weight_fn(
+                fts_ranks.get(&id).copied().unwrap_or(usize::MAX),
+                vec_ranks.get(&id).copied().unwrap_or(usize::MAX),
+            );
+            let f = if fts_weight != 0.0 {
+                fts_ranks.get(&id).map(|&r| fts_weight / (k + r as f64)).unwrap_or(0.0)
+            } else {
+                0.0
+            };
+            let v = if vec_weight != 0.0 {
+                vec_ranks.get(&id).map(|&r| vec_weight / (k + r as f64)).unwrap_or(0.0)
+            } else {
+                0.0
+            };
+            (id, f + v)
         })
         .collect();
 
-    // Sort by RRF score descending (higher = more relevant)
-    rrf_scores.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-    rrf_scores.truncate(limit);
-    rrf_scores
+    scores.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    scores.truncate(limit);
+    scores
+}
+
+/// Compute Reciprocal Rank Fusion scores from FTS and vec search results.
+///
+/// `k` is the RRF constant (default 60.0). Higher RRF score = more relevant.
+/// Results are sorted by RRF score descending and truncated to `limit`.
+pub(crate) fn compute_rrf(
+    fts_results: &[ChunkSearchResult],
+    vec_results: &[ChunkSearchResult],
+    limit: usize,
+    k: f64,
+) -> Vec<(i64, f64)> {
+    compute_rrf_internal(fts_results, vec_results, limit, k, |_, _| (1.0, 1.0))
 }
 
 /// RRF with alpha weighting: `score = alpha * 1/(k + rank_fts) + (1-alpha) * 1/(k + rank_vec)`.
@@ -577,36 +599,9 @@ fn compute_rrf_weighted(
     k: f64,
     alpha: f64,
 ) -> Vec<(i64, f64)> {
-    let fts_ranks: HashMap<i64, usize> = fts_results
-        .iter()
-        .enumerate()
-        .map(|(i, r)| (r.chunk_id, i + 1))
-        .collect();
-    let vec_ranks: HashMap<i64, usize> = vec_results
-        .iter()
-        .enumerate()
-        .map(|(i, r)| (r.chunk_id, i + 1))
-        .collect();
-
-    let mut all_ids: Vec<i64> = fts_ranks.keys().chain(vec_ranks.keys()).copied().collect();
-    all_ids.sort_unstable();
-    all_ids.dedup();
-
     let fts_weight = alpha;
     let vec_weight = 1.0 - alpha;
-
-    let mut scores: Vec<(i64, f64)> = all_ids
-        .into_iter()
-        .map(|id| {
-            let f = fts_ranks.get(&id).map(|&r| fts_weight / (k + r as f64)).unwrap_or(0.0);
-            let v = vec_ranks.get(&id).map(|&r| vec_weight / (k + r as f64)).unwrap_or(0.0);
-            (id, f + v)
-        })
-        .collect();
-
-    scores.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-    scores.truncate(limit);
-    scores
+    compute_rrf_internal(fts_results, vec_results, limit, k, move |_, _| (fts_weight, vec_weight))
 }
 
 /// Hybrid search using Reciprocal Rank Fusion (RRF) to merge FTS + vec results.

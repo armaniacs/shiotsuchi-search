@@ -52,12 +52,16 @@ pub fn mask_sensitive_data(text: &str, config: Option<&SensitiveDataConfig>) -> 
 
     // Apply built-in patterns
     let regexes = get_builtin_regexes();
+    let patterns = get_builtin_patterns();
     for (i, re) in regexes.iter().enumerate() {
-        let placeholder = get_placeholder(i);
+        let placeholder = get_placeholder(&patterns, i);
         result = re.replace_all(&result, format!("[{}]", placeholder)).to_string();
     }
 
     // Apply custom patterns
+    // TODO: custom patterns are recompiled on every call. If users define many
+    // patterns, consider caching via OnceLock keyed on config fingerprint or
+    // a simple LRU cache. Impact is negligible for the common case (0-3 patterns).
     for pattern in &config.patterns {
         if let Ok(re) = Regex::new(pattern) {
             result = re.replace_all(&result, "[CUSTOM_SECRET]").to_string();
@@ -74,7 +78,7 @@ fn get_builtin_regexes() -> &'static [Regex] {
     REGEXES.get_or_init(|| {
         get_builtin_patterns()
             .into_iter()
-            .map(|p| {
+            .map(|(p, _)| {
                 Regex::new(p).unwrap_or_else(|e| {
                     panic!("Invalid built-in sensitive pattern: {} — error: {}", p, e)
                 })
@@ -223,5 +227,25 @@ mod tests {
         assert!(masked.contains("[EMAIL]"));
         assert!(masked.contains("[OPENAI_KEY]"));
         assert!(!masked.contains("user@example.com"));
+    }
+
+    #[test]
+    fn test_mask_file_path_with_sensitive_data() {
+        let text = "/home/user/production-aws-secret-key.md";
+        let config = make_config(true, vec![]);
+        let masked = mask_sensitive_data(text, Some(&config));
+        // file_path may or may not match patterns — the point is masking doesn't crash
+        // and the text is still returned (not empty or corrupted)
+        assert!(!masked.is_empty(), "masked file_path must not be empty");
+        assert!(masked.starts_with("/home"), "file_path prefix should be preserved");
+    }
+
+    #[test]
+    fn test_mask_title_with_sensitive_data() {
+        let text = "My email is user@example.com and API key is sk-12345678901234567890123456789012345678901234567890";
+        let config = make_config(true, vec![]);
+        let masked = mask_sensitive_data(text, Some(&config));
+        assert!(masked.contains("[EMAIL]"), "title should have email masked");
+        assert!(masked.contains("[OPENAI_KEY]"), "title should have API key masked");
     }
 }

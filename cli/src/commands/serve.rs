@@ -6,7 +6,7 @@ use shiotsuchi_core::tokenizer::get_tokenizer;
 use std::sync::Arc;
 
 #[derive(Parser, Debug)]
-#[command(about = "Start HTTP API server")]
+#[command(about = crate::messages::SERVE_ABOUT)]
 pub struct ServeArgs {
     /// Port to listen on (overrides config)
     #[arg(short, long)]
@@ -55,15 +55,15 @@ pub async fn run_serve(
     let db_path = config.resolved_db_path();
     if !db_path.exists() {
         eprintln!(
-            "Error: database not found at {}. Run 'shiotsuchi index' first.",
-            db_path.display()
+            "{}",
+            crate::msg_fmt!(crate::messages::ERR_SERVE_DB_NOT_FOUND, db_path.display())
         );
         std::process::exit(1);
     }
     let db = NoteDatabase::open(&db_path)?;
 
     let tokenizer = get_tokenizer().map_err(|e| {
-        eprintln!("Error: tokenizer not available: {}. Run 'shiotsuchi setup'.", e);
+        eprintln!("{}", crate::msg_fmt!(crate::messages::ERR_SERVE_TOKENIZER, e));
         e
     })?;
 
@@ -74,6 +74,7 @@ pub async fn run_serve(
         hybrid_alpha: config.hybrid_alpha,
         config: Some(config.clone()),
         api_key: api_key.clone(),
+        sensitive_config: Some(config.sensitive_data.clone()),
     });
 
     let app = create_router(state, config);
@@ -83,25 +84,22 @@ pub async fn run_serve(
     // Security warning for non-localhost binds
     if host != "127.0.0.1" && host != "localhost" && host != "::1" {
         if api_key.is_some() {
-            eprintln!("\x1b[32m✓ Authentication enabled: X-API-Key header required.\x1b[0m");
+            eprintln!("\x1b[32m{}\x1b[0m", crate::messages::SERVE_AUTH_ENABLED);
         } else {
-            eprintln!("\x1b[33m⚠ WARNING: Binding to '{}'. The HTTP API has NO authentication.\x1b[0m", host);
-            eprintln!("\x1b[33m  Anyone on the network can access your notes via http://{}:{}/ui\x1b[0m", host, port);
-            eprintln!("\x1b[33m  Use --host 127.0.0.1 for local-only access.\x1b[0m");
-            eprintln!("\x1b[33m  Or set --api-key / SHIOTSUCHI_SERVER_API_KEY to enable authentication.\x1b[0m\n");
+            eprintln!("\x1b[33m{}\x1b[0m", crate::msg_fmt!(crate::messages::WARN_SERVE_BIND_NON_LOCALHOST, host));
+            eprintln!("\x1b[33m{}\x1b[0m", crate::msg_fmt!(crate::messages::WARN_SERVE_NETWORK_ACCESS, host, port));
+            eprintln!("\x1b[33m{}\x1b[0m", crate::messages::WARN_SERVE_USE_LOCALHOST);
+            eprintln!("\x1b[33m{}\x1b[0m\n", crate::messages::WARN_SERVE_ENABLE_AUTH);
         }
     }
 
-    println!("shiotsuchi server listening on http://{}", addr);
+    println!("{}", crate::msg_fmt!(crate::messages::SERVE_LISTENING, addr));
 
     let listener = tokio::net::TcpListener::bind(&addr).await.map_err(|e| {
         if e.kind() == std::io::ErrorKind::AddrInUse {
-            format!(
-                "Port {} is already in use. Specify a different port with --port",
-                port
-            )
+            crate::msg_fmt!(crate::messages::ERR_SERVE_PORT_IN_USE, port)
         } else {
-            format!("Failed to bind to {}: {}", addr, e)
+            crate::msg_fmt!(crate::messages::ERR_SERVE_BIND_FAILED, addr, e)
         }
     })?;
 
@@ -109,7 +107,7 @@ pub async fn run_serve(
         .with_graceful_shutdown(shutdown_signal())
         .await?;
 
-    println!("Server shut down gracefully.");
+    println!("{}", crate::messages::SERVE_SHUTDOWN_GRACEFUL);
     Ok(())
 }
 
@@ -136,5 +134,5 @@ async fn shutdown_signal() {
         _ = terminate => {},
     }
 
-    println!("Shutdown signal received, starting graceful shutdown...");
+    println!("{}", crate::messages::SERVE_SHUTDOWN_SIGNAL);
 }

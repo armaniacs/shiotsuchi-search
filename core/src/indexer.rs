@@ -451,7 +451,7 @@ pub fn index_file_with_embedder(p: &IndexParams<'_>) -> IndexResult {
 
     // If native PDF extraction returned empty text, try VLM for scanned PDFs
     let mut vlm_hash: Option<String> = None;
-    if ext == "pdf" && content.is_empty() && config.vlm_enabled {
+    if ext == "pdf" && content.is_empty() && config.vlm_enabled && config.vlm_consent_obtained {
         // VLM cache: compute PDF binary hash and compare with cached value
         let pdf_binary_hash = match std::fs::read(file_path) {
             Ok(bytes) => sha256_bytes(&bytes),
@@ -491,7 +491,7 @@ pub fn index_file_with_embedder(p: &IndexParams<'_>) -> IndexResult {
                 use crate::config::VlmConfig;
                 let vlm_config = VlmConfig {
                     enabled: true,
-                    consent_obtained: true,
+                    consent_obtained: config.vlm_consent_obtained,
                     provider: config.vlm_provider.clone(),
                     endpoint: None,
                     model: config.vlm_model.clone(),

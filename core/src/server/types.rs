@@ -13,6 +13,8 @@ pub enum ApiError {
     Unauthorized(String),
     /// 404 — resource not found
     NotFound(String),
+    /// 429 — rate limit exceeded
+    TooManyRequests(String),
     /// 500 — internal server error
     Internal(String),
 }
@@ -23,6 +25,7 @@ impl IntoResponse for ApiError {
             ApiError::BadRequest(msg) => (StatusCode::BAD_REQUEST, "BAD_REQUEST", msg),
             ApiError::Unauthorized(msg) => (StatusCode::UNAUTHORIZED, "UNAUTHORIZED", msg),
             ApiError::NotFound(msg) => (StatusCode::NOT_FOUND, "NOT_FOUND", msg),
+            ApiError::TooManyRequests(msg) => (StatusCode::TOO_MANY_REQUESTS, "TOO_MANY_REQUESTS", msg),
             ApiError::Internal(msg) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "INTERNAL_ERROR",
@@ -73,6 +76,9 @@ where
     D: Deserializer<'de>,
 {
     let val = usize::deserialize(deserializer)?;
+    if val > 200 {
+        log::warn!("limit clamped from {} to 200", val);
+    }
     Ok(val.min(200))
 }
 
@@ -85,7 +91,6 @@ fn default_mode() -> String {
 #[derive(Serialize)]
 pub struct HealthResponse {
     pub status: &'static str,
-    pub version: &'static str,
 }
 
 #[derive(Serialize)]
@@ -110,7 +115,6 @@ pub struct StatsResponse {
     pub total_chunks: usize,
     pub total_size_bytes: usize,
     pub last_indexed_at: Option<i64>,
-    pub db_path: String,
     pub embedder_status: String,
     pub top_tags: Vec<(String, usize)>,
 }
@@ -140,4 +144,33 @@ fn default_list_limit() -> usize {
 pub struct FileItem {
     pub path: String,
     pub vault_name: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_deserialize_clamped_limit_normal() {
+        let val = serde_json::from_str::<SearchParams>("{\"q\":\"test\",\"limit\":50}").unwrap();
+        assert_eq!(val.limit, 50);
+    }
+
+    #[test]
+    fn test_deserialize_clamped_limit_exceeds_max() {
+        let val = serde_json::from_str::<SearchParams>("{\"q\":\"test\",\"limit\":9999}").unwrap();
+        assert_eq!(val.limit, 200, "limit > 200 must be silently clamped to 200");
+    }
+
+    #[test]
+    fn test_deserialize_clamped_limit_default() {
+        let val = serde_json::from_str::<SearchParams>("{\"q\":\"test\"}").unwrap();
+        assert_eq!(val.limit, 20);
+    }
+
+    #[test]
+    fn test_deserialize_clamped_limit_zero() {
+        let val = serde_json::from_str::<SearchParams>("{\"q\":\"test\",\"limit\":0}").unwrap();
+        assert_eq!(val.limit, 0, "limit=0 must not be clamped (0 < 200)");
+    }
 }

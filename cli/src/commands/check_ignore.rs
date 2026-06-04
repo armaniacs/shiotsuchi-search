@@ -1,3 +1,5 @@
+use crate::msg_fmt;
+use crate::messages;
 use clap::Args;
 use std::path::PathBuf;
 
@@ -28,11 +30,11 @@ pub fn run_check_ignore(
             .iter()
             .find(|(name, _)| name == vault_id)
             .map(|(_, dir)| dir.clone())
-            .ok_or_else(|| format!("Vault '{}' not found", vault_id))?
+            .ok_or_else(|| msg_fmt!(messages::CHECK_IGNORE_VAULT_NOT_FOUND, vault_id))?
     } else if let Some((_, dir)) = vaults.first() {
         dir.clone()
     } else {
-        return Err("No vaults configured".into());
+        return Err(messages::CHECK_IGNORE_NO_VAULTS.into());
     };
 
     // Load patterns: config exclude_dirs + .shiotsuchiignore
@@ -49,20 +51,20 @@ pub fn run_check_ignore(
 
     match check_ignore(check_path, &all_patterns) {
         Ok(()) => {
-            println!("  ✓ NOT excluded: {}", check_path);
+            println!("{}", msg_fmt!(messages::CHECK_IGNORE_NOT_EXCLUDED, check_path));
             Ok(())
         }
         Err(pattern) => {
             // Find which source
             let source = if ignore_patterns.contains(&pattern) {
-                format!(".shiotsuchiignore (pattern: {})", pattern)
+                msg_fmt!(messages::CHECK_IGNORE_SOURCE_SHIOTSUCHI, pattern)
             } else if config_patterns.contains(&pattern) {
-                format!("exclude_dirs in config.toml (pattern: {})", pattern)
+                msg_fmt!(messages::CHECK_IGNORE_SOURCE_CONFIG, pattern)
             } else {
-                format!("unknown source (pattern: {})", pattern)
+                msg_fmt!(messages::CHECK_IGNORE_SOURCE_UNKNOWN, pattern)
             };
-            println!("  ✗ EXCLUDED: {}", check_path);
-            println!("    Reason: matched {}", source);
+            println!("{}", msg_fmt!(messages::CHECK_IGNORE_EXCLUDED, check_path));
+            println!("{}", msg_fmt!(messages::CHECK_IGNORE_REASON, source));
             Ok(())
         }
     }

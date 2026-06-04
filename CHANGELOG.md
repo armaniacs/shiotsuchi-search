@@ -9,6 +9,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.18] - 2026-06-04
+
+### Added
+
+- **HTTP API rate limiting**: Sliding-window rate limiter (30 req/s) on all API endpoints. Returns `429 Too Many Requests` with `TooManyRequests` error type.
+- **VLM consent prompt** (`shiotsuchi chart`): Interactive TTY consent prompt before sending document images to VLM API endpoints. Consent is persisted to `config.toml` as `vlm.consent_obtained`. Non-TTY environments (CI, cron) disable VLM with a warning.
+- **`--force-vlm-reprocess` flag** (`shiotsuchi dredge`): Clears all VLM extraction hashes from `file_cache`, forcing PDF reprocessing on next index.
+- **Data retention dry-run** (`shiotsuchi dredge --expired --dry-run`): Shows which files would be deleted without removing them, with confirmation prompt for actual deletion.
+- **`exclude_dirs` backward compatibility test**: Config parser rejects old `exclude_patterns` key with a clear error message pointing to the new key name.
+- **~30 new i18n message constants**: Japanese messages for `serve`, `check-ignore`, and `dredge` commands extracted to `cli/src/messages.rs`.
+
+### Changed
+
+- **Constant-time API key comparison**: `auth_middleware` uses `constant_time_eq` instead of `==` to prevent timing attacks on API key validation.
+- **CORS header restriction**: Allowed headers narrowed from `any()` to explicit list (`Authorization`, `Content-Type`, `X-API-Key`).
+- **Health endpoint simplified**: Removed `version` field from `/api/v1/health` response.
+- **Stats endpoint simplified**: Removed `db_path` field from `/api/v1/stats` response (information leak).
+- **Sensitive data masking on server**: `AppState` now carries `SensitiveDataConfig`; server responses pass through masking before returning.
+- **MCP rate limiter poison resilience**: Mutex lock uses `unwrap_or_else(|e| e.into_inner())` to recover from poisoned mutex instead of panicking.
+- **Build info memory leak fix**: `help_footer()` and `long_version()` use `LazyLock` instead of `Box::leak`.
+- **VLM enforcement**: VLM extraction now requires both `vlm_enabled = true` AND `vlm_consent_obtained = true` (previously only checked `enabled`).
+- **`delete_file_fully` in tests**: Transaction safety test updated to use atomic `delete_file_fully()` instead of separate `delete_chunks_for_file` + `delete_file_cache`.
+- **`sensitive_patterns` refactored**: Built-in patterns now return `(regex, placeholder)` tuples instead of separate placeholder lookup.
+- **i18n in `check-ignore`**: All user-facing strings moved to message constants.
+- **i18n in `serve`**: Startup messages, error messages, and shutdown messages moved to message constants.
+- **Migration module split** (PBI-48): `migrate()` extracted from 245-line method in `db.rs` to `core/src/migration/` — dispatcher in `mod.rs`, one file per version (`v02.rs`–`v11.rs`). `create_schema()` moved from `NoteDatabase` method to free function in `migration/mod.rs`.
+
+### Fixed
+
+- **UI accessibility**: `aria-live="polite"` on search results and file list; `aria-label` on modal; keyboard Space support on result cards and file items.
+- **`VlmConfig` default**: `max_pages_per_doc` changed from `None` to `Some(10)` to prevent unbounded VLM processing.
+
+### Documentation
+
+- `docs/INSTALL.md` / `docs/INSTALL.ja.md`: `shiotsuchi chart` → `shiotsuchi index` command name
+- `ref/core.md`: Schema v10→v11, migration v11 entry, feature flags table expanded, `migrate()` description updated
+
 ## [0.4.17] - 2026-06-04
 
 ### Added (PBI-39)
