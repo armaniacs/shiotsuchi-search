@@ -13,6 +13,8 @@ pub mod indexer;
 pub mod models;
 pub mod paths;
 pub mod search;
+pub mod sensitive;
+pub mod sensitive_patterns;
 pub mod tokenizer;
 pub mod watcher;
 
@@ -32,7 +34,7 @@ mod api_embedder;
 pub mod embedder {
     //! Stub module — compiled only when the `semantic` feature is disabled.
     //! Provides minimal type stubs so that all other modules (search, indexer,
-    //! watcher, CLI commands) compile without changes.  Every method returns
+    //! watcher, CLI commands) compile without errors.  Every method returns
     //! an error or a no-op value.
     use crate::models::EmbedderStatus;
 
@@ -94,3 +96,4 @@ pub use models::{
     Chunk, ChunkSearchResult, EmbedderStatus, NoteMetadata, SearchConfig, SearchMode, Task, VaultStats,
 };
 pub use tokenizer::{JapaneseTokenizer, TokenizerConfig};
+pub use sensitive::SensitiveDataConfig;

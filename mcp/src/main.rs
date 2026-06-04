@@ -160,7 +160,7 @@ struct Cli {
     config: Option<PathBuf>,
 }
 
-pub fn dispatch(req: McpRequest, vaults: &[(String, PathBuf)], db_path: &Path, backlink_scoring: bool) -> McpResponse {
+pub fn dispatch(req: McpRequest, vaults: &[(String, PathBuf)], db_path: &Path, backlink_scoring: bool, sensitive_config: Option<&shiotsuchi_core::sensitive::SensitiveDataConfig>) -> McpResponse {
     let params = req.params.clone().unwrap_or(serde_json::Value::Null);
 
     match req.method.as_str() {
@@ -179,7 +179,7 @@ pub fn dispatch(req: McpRequest, vaults: &[(String, PathBuf)], db_path: &Path, b
         "tools/call" => {
             let name = params["name"].as_str().unwrap_or("");
             let args = &params["arguments"];
-            match handler::call_tool(name, args, vaults, db_path, backlink_scoring) {
+            match handler::call_tool(name, args, vaults, db_path, backlink_scoring, sensitive_config) {
                 Ok(result) => McpResponse::success(req.id, result),
                 Err(_) => McpResponse::error(req.id, -32000, "Internal tool execution error"),
             }
@@ -347,10 +347,10 @@ async fn main() {
                             }),
                         )
                     } else {
-                        dispatch(req, &vaults, &db_path, cfg.backlink_scoring)
+                        dispatch(req, &vaults, &db_path, cfg.backlink_scoring, None)
                     }
                 } else {
-                    dispatch(req, &vaults, &db_path, cfg.backlink_scoring)
+                    dispatch(req, &vaults, &db_path, cfg.backlink_scoring, None)
                 }
             }
             Err(_) => McpResponse::error(0, -32700, "Parse error"),
@@ -523,7 +523,7 @@ notes_dir = "/tmp/partial-notes"
             req,
             &vaults,
             std::path::Path::new("/tmp/db"),
-            true,
+            true, None,
         );
         let json = serde_json::to_string(&resp).unwrap();
         assert!(json.contains("search_local_notes"));
@@ -542,7 +542,7 @@ notes_dir = "/tmp/partial-notes"
             req,
             &vaults,
             std::path::Path::new("/tmp/db"),
-            true,
+            true, None,
         );
         let json = serde_json::to_string(&resp).unwrap();
         assert!(json.contains("\"error\""));
@@ -561,7 +561,7 @@ notes_dir = "/tmp/partial-notes"
             req,
             &vaults,
             std::path::Path::new("/tmp/db"),
-            true,
+            true, None,
         );
         let json = serde_json::to_string(&resp).unwrap();
         assert!(json.contains("protocolVersion"));
@@ -581,7 +581,7 @@ notes_dir = "/tmp/partial-notes"
             req,
             &vaults,
             std::path::Path::new("/tmp/db"),
-            true,
+            true, None,
         );
         let json = serde_json::to_string(&resp).unwrap();
         assert!(json.contains("\"result\""));

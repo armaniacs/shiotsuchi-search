@@ -192,6 +192,7 @@ mod tests {
             embedder: shiotsuchi_core::config::EmbedderConfig::default(),
             vlm: shiotsuchi_core::config::VlmConfig::default(),
             server: shiotsuchi_core::config::ServerConfig::default(),
+            sensitive_data: Default::default(),
         };
         let vaults = config.resolved_vaults();
         assert_eq!(vaults.len(), 2);
@@ -218,6 +219,7 @@ mod tests {
             embedder: shiotsuchi_core::config::EmbedderConfig::default(),
             vlm: shiotsuchi_core::config::VlmConfig::default(),
             server: shiotsuchi_core::config::ServerConfig::default(),
+            sensitive_data: Default::default(),
         };
         assert_eq!(config.resolved_db_path(), PathBuf::from("/custom/db.sqlite"));
     }
@@ -240,6 +242,7 @@ mod tests {
             embedder: shiotsuchi_core::config::EmbedderConfig::default(),
             vlm: shiotsuchi_core::config::VlmConfig::default(),
             server: shiotsuchi_core::config::ServerConfig::default(),
+            sensitive_data: Default::default(),
         };
         assert_eq!(config.resolved_db_path(), PathBuf::from("/legacy/db.sqlite"));
     }
@@ -264,6 +267,7 @@ mod tests {
             embedder: shiotsuchi_core::config::EmbedderConfig::default(),
             vlm: shiotsuchi_core::config::VlmConfig::default(),
             server: shiotsuchi_core::config::ServerConfig::default(),
+            sensitive_data: Default::default(),
         };
         assert_eq!(config.resolved_db_path(), PathBuf::from("/new/db.sqlite"));
     }

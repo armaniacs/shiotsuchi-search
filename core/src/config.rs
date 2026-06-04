@@ -337,6 +337,9 @@ pub struct ShiotsuchiConfig {
     /// HTTP server configuration.
     #[serde(default)]
     pub server: ServerConfig,
+    /// Sensitive data detection and masking configuration.
+    #[serde(default)]
+    pub sensitive_data: crate::sensitive::SensitiveDataConfig,
 }
 
 impl ShiotsuchiConfig {
