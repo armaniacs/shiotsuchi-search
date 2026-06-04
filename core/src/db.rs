@@ -118,319 +118,7 @@ impl NoteDatabase {
 
     fn migrate(&self) -> Result<(), DbError> {
         let conn = self.write_conn.borrow();
-        let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-
-        if version < 2 {
-            // Wrap v1→v2 migration in a transaction for crash safety.
-            // DROP + schema creation + version bump must be atomic.
-            conn.execute_batch("BEGIN TRANSACTION")?;
-            conn.execute_batch("
-                DROP TABLE IF EXISTS notes_fts;
-                DROP TABLE IF EXISTS notes_meta;
-            ")?;
-            self.create_schema(&conn)?;
-            conn.execute_batch("PRAGMA user_version = 2")?;
-            conn.execute_batch("COMMIT")?;
-        }
-
-        // Clean up orphaned file_cache_v3 from a previous crash (runs every migration)
-        conn.execute_batch("DROP TABLE IF EXISTS file_cache_v3")?;
-
-        if version < 3 {
-            // Check if vault_name column already exists (crash recovery)
-            let cols: Vec<String> = {
-                let mut stmt = conn.prepare("PRAGMA table_info(chunks)")?;
-                let rows = stmt.query_map([], |r| r.get::<_, String>(1))?;
-                rows.collect::<Result<Vec<_>, _>>()?
-            };
-            let has_vault_name = cols.iter().any(|c| c == "vault_name");
-
-            if !has_vault_name {
-                conn.execute_batch("BEGIN TRANSACTION")?;
-                conn.execute_batch("ALTER TABLE chunks ADD COLUMN vault_name TEXT NOT NULL DEFAULT 'default'")?;
-                conn.execute_batch("DROP INDEX IF EXISTS idx_chunks_file_path")?;
-                conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_chunks_file_path ON chunks(vault_name, file_path)")?;
-                conn.execute_batch("
-                    CREATE TABLE IF NOT EXISTS file_cache_v3 (
-                        vault_name TEXT NOT NULL,
-                        path TEXT NOT NULL,
-                        hash TEXT NOT NULL,
-                        mtime INTEGER NOT NULL,
-                        model_id TEXT NOT NULL,
-                        file_size INTEGER NOT NULL DEFAULT 0,
-                        PRIMARY KEY (vault_name, path)
-                    )
-                ")?;
-                // file_size may or may not exist in the source file_cache
-                // depending on whether create_schema already included it.
-                let fc_cols: Vec<String> = {
-                    let mut stmt = conn.prepare("PRAGMA table_info(file_cache)")?;
-                    let rows = stmt.query_map([], |r| r.get::<_, String>(1))?;
-                    rows.collect::<Result<Vec<_>, _>>()?
-                };
-                if fc_cols.iter().any(|c| c == "file_size") {
-                    conn.execute_batch("
-                        INSERT INTO file_cache_v3 (vault_name, path, hash, mtime, model_id, file_size)
-                        SELECT 'default', path, hash, mtime, model_id, file_size FROM file_cache
-                    ")?;
-                } else {
-                    conn.execute_batch("
-                        INSERT INTO file_cache_v3 (vault_name, path, hash, mtime, model_id, file_size)
-                        SELECT 'default', path, hash, mtime, model_id, 0 FROM file_cache
-                    ")?;
-                }
-                conn.execute_batch("DROP TABLE file_cache")?;
-                conn.execute_batch("ALTER TABLE file_cache_v3 RENAME TO file_cache")?;
-                conn.execute_batch("PRAGMA user_version = 3")?;
-                conn.execute_batch("COMMIT")?;
-            } else {
-                // Already partially/fully migrated — just ensure user_version is correct
-                conn.execute_batch("PRAGMA user_version = 3")?;
-            }
-        }
-
-        if version < 4 {
-            // v3→v4: recreate vec_chunks to ensure FLOAT type.
-            // (sqlite-vec 0.1.x does not support FLOAT2/FLOAT4_BINARY.)
-            // vec0 is a virtual table, so we must DROP and recreate.
-            conn.execute_batch("DROP TABLE IF EXISTS vec_chunks")?;
-            conn.execute_batch("
-                CREATE VIRTUAL TABLE IF NOT EXISTS vec_chunks USING vec0(
-                    chunk_id  INTEGER PRIMARY KEY,
-                    embedding FLOAT[1024]
-                )
-            ")?;
-            conn.execute_batch("PRAGMA user_version = 4")?;
-        }
-
-        if version < 5 {
-            // v4→v5: add file_size column to file_cache for two-stage skip (mtime+size).
-            let cols: Vec<String> = {
-                let mut stmt = conn.prepare("PRAGMA table_info(file_cache)")?;
-                let rows = stmt.query_map([], |r| r.get::<_, String>(1))?;
-                rows.collect::<Result<Vec<_>, _>>()?
-            };
-            if !cols.iter().any(|c| c == "file_size") {
-                conn.execute_batch(
-                    "ALTER TABLE file_cache ADD COLUMN file_size INTEGER NOT NULL DEFAULT 0",
-                )?;
-            }
-            conn.execute_batch("PRAGMA user_version = 5")?;
-        }
-
-        if version < 6 {
-            // v5→v6: add tags, frontmatter_date, title columns to chunks table
-            let cols: Vec<String> = {
-                let mut stmt = conn.prepare("PRAGMA table_info(chunks)")?;
-                let rows = stmt.query_map([], |r| r.get::<_, String>(1))?;
-                rows.collect::<Result<Vec<_>, _>>()?
-            };
-            if !cols.iter().any(|c| c == "tags") {
-                conn.execute_batch("ALTER TABLE chunks ADD COLUMN tags TEXT NOT NULL DEFAULT ''")?;
-            }
-            if !cols.iter().any(|c| c == "frontmatter_date") {
-                conn.execute_batch("ALTER TABLE chunks ADD COLUMN frontmatter_date TEXT NOT NULL DEFAULT ''")?;
-            }
-            if !cols.iter().any(|c| c == "title") {
-                conn.execute_batch("ALTER TABLE chunks ADD COLUMN title TEXT NOT NULL DEFAULT ''")?;
-            }
-            conn.execute_batch("PRAGMA user_version = 6")?;
-        }
-
-        if version < 7 {
-            // v6→v7: create tasks table (runs AFTER v6 to avoid column-loss on crash).
-            // Defensively check for v6 columns — if missing, add them before proceeding.
-            // This self-heals any database that was bumped to a version >= 6 via the
-            // old (buggy) migration ordering where v7 ran before v6.
-            let cols: Vec<String> = {
-                let mut stmt = conn.prepare("PRAGMA table_info(chunks)")?;
-                let rows = stmt.query_map([], |r| r.get::<_, String>(1))?;
-                rows.collect::<Result<Vec<_>, _>>()?
-            };
-            if !cols.iter().any(|c| c == "tags") {
-                conn.execute_batch("ALTER TABLE chunks ADD COLUMN tags TEXT NOT NULL DEFAULT ''")?;
-            }
-            if !cols.iter().any(|c| c == "frontmatter_date") {
-                conn.execute_batch("ALTER TABLE chunks ADD COLUMN frontmatter_date TEXT NOT NULL DEFAULT ''")?;
-            }
-            if !cols.iter().any(|c| c == "title") {
-                conn.execute_batch("ALTER TABLE chunks ADD COLUMN title TEXT NOT NULL DEFAULT ''")?;
-            }
-            conn.execute_batch("
-                CREATE TABLE IF NOT EXISTS tasks (
-                    id INTEGER PRIMARY KEY,
-                    vault_name TEXT NOT NULL,
-                    file_path TEXT NOT NULL,
-                    content TEXT NOT NULL,
-                    checked INTEGER NOT NULL DEFAULT 0,
-                    line_number INTEGER NOT NULL DEFAULT 0,
-                    indexed_at TEXT NOT NULL DEFAULT (datetime('now'))
-                )
-            ")?;
-            conn.execute_batch("PRAGMA user_version = 7")?;
-        }
-
-        if version < 8 {
-            // v7→v8: add emphasized_text column to chunks table
-            let cols: Vec<String> = {
-                let mut stmt = conn.prepare("PRAGMA table_info(chunks)")?;
-                let rows = stmt.query_map([], |r| r.get::<_, String>(1))?;
-                rows.collect::<Result<Vec<_>, _>>()?
-            };
-            if !cols.iter().any(|c| c == "emphasized_text") {
-                conn.execute_batch("ALTER TABLE chunks ADD COLUMN emphasized_text TEXT NOT NULL DEFAULT ''")?;
-            }
-            conn.execute_batch("PRAGMA user_version = 8")?;
-        }
-
-        if version < 9 {
-            // v8→v9: add note_links table and backlink_count column to file_cache
-            // Wrap multi-statement migration in a transaction for crash safety.
-            conn.execute_batch("BEGIN TRANSACTION")?;
-            conn.execute_batch("
-                CREATE TABLE IF NOT EXISTS note_links (
-                    source_path TEXT NOT NULL,
-                    target_path TEXT NOT NULL,
-                    vault_name  TEXT NOT NULL,
-                    PRIMARY KEY (source_path, target_path, vault_name)
-                )
-            ")?;
-            conn.execute_batch("
-                CREATE INDEX IF NOT EXISTS idx_note_links_target
-                ON note_links(target_path, vault_name)
-            ")?;
-            let fc_cols: Vec<String> = {
-                let mut stmt = conn.prepare("PRAGMA table_info(file_cache)")?;
-                let rows = stmt.query_map([], |r| r.get::<_, String>(1))?;
-                rows.collect::<Result<Vec<_>, _>>()?
-            };
-            if !fc_cols.iter().any(|c| c == "backlink_count") {
-                conn.execute_batch(
-                    "ALTER TABLE file_cache ADD COLUMN backlink_count INTEGER NOT NULL DEFAULT 0",
-                )?;
-            }
-            conn.execute_batch("PRAGMA user_version = 9")?;
-            conn.execute_batch("COMMIT")?;
-        }
-
-        if version < 10 {
-            // v9→v10: add char_count to file_cache, create tag_counts table.
-            // Multi-statement migration: wrap in transaction for crash safety.
-            conn.execute_batch("BEGIN TRANSACTION")?;
-            let fc_cols: Vec<String> = {
-                let mut stmt = conn.prepare("PRAGMA table_info(file_cache)")?;
-                let rows = stmt.query_map([], |r| r.get::<_, String>(1))?;
-                rows.collect::<Result<Vec<_>, _>>()?
-            };
-            if !fc_cols.iter().any(|c| c == "char_count") {
-                conn.execute_batch(
-                    "ALTER TABLE file_cache ADD COLUMN char_count INTEGER NOT NULL DEFAULT 0",
-                )?;
-            }
-            conn.execute_batch("
-                CREATE TABLE IF NOT EXISTS tag_counts (
-                    tag        TEXT NOT NULL,
-                    vault_name TEXT NOT NULL,
-                    count      INTEGER NOT NULL DEFAULT 0,
-                    PRIMARY KEY (tag, vault_name)
-                ) WITHOUT ROWID
-            ")?;
-            // NOTE: char_count is intentionally NOT backfilled here. SQLite LENGTH()
-            // returns UTF-8 byte count, not Unicode character count, which would
-            // inflate values for non-ASCII text. char_count is computed correctly
-            // via .chars().count() in reindex_file(), so upgraded databases get
-            // accurate values on the next re-index — same design as tag_counts.
-            conn.execute_batch("PRAGMA user_version = 10")?;
-            conn.execute_batch("COMMIT")?;
-        }
-
-        if version < 11 {
-            // v10→v11: add vlm_hash column to file_cache for VLM extraction caching.
-            let fc_cols: Vec<String> = {
-                let mut stmt = conn.prepare("PRAGMA table_info(file_cache)")?;
-                let rows = stmt.query_map([], |r| r.get::<_, String>(1))?;
-                rows.collect::<Result<Vec<_>, _>>()?
-            };
-            if !fc_cols.iter().any(|c| c == "vlm_hash") {
-                conn.execute_batch(
-                    "ALTER TABLE file_cache ADD COLUMN vlm_hash TEXT",
-                )?;
-            }
-            conn.execute_batch("PRAGMA user_version = 11")?;
-        }
-
-        Ok(())
-    }
-
-    fn create_schema(&self, conn: &Connection) -> SqliteResult<()> {
-        conn.execute_batch("
-            CREATE TABLE IF NOT EXISTS file_cache (
-                vault_name      TEXT NOT NULL,
-                path            TEXT NOT NULL,
-                hash            TEXT NOT NULL,
-                mtime           INTEGER NOT NULL,
-                model_id        TEXT NOT NULL,
-                file_size       INTEGER NOT NULL DEFAULT 0,
-                backlink_count  INTEGER NOT NULL DEFAULT 0,
-                char_count      INTEGER NOT NULL DEFAULT 0,
-                vlm_hash        TEXT,
-                PRIMARY KEY (vault_name, path)
-            );
-
-            CREATE TABLE IF NOT EXISTS chunks (
-                id                INTEGER PRIMARY KEY,
-                file_path         TEXT NOT NULL,
-                chunk_index       INTEGER NOT NULL,
-                parent_header     TEXT,
-                content           TEXT NOT NULL,
-                tokenized_content TEXT NOT NULL,
-                vault_name        TEXT NOT NULL DEFAULT '',
-                tags              TEXT NOT NULL DEFAULT '',
-                frontmatter_date  TEXT NOT NULL DEFAULT '',
-                title             TEXT NOT NULL DEFAULT '',
-                emphasized_text   TEXT NOT NULL DEFAULT ''
-            );
-            CREATE INDEX IF NOT EXISTS idx_chunks_file_path ON chunks(vault_name, file_path);
-
-            CREATE TABLE IF NOT EXISTS tasks (
-                id          INTEGER PRIMARY KEY,
-                vault_name  TEXT NOT NULL,
-                file_path   TEXT NOT NULL,
-                content     TEXT NOT NULL,
-                checked     INTEGER NOT NULL DEFAULT 0,
-                line_number INTEGER NOT NULL DEFAULT 0,
-                indexed_at  TEXT NOT NULL DEFAULT (datetime('now'))
-            );
-
-            CREATE TABLE IF NOT EXISTS note_links (
-                source_path TEXT NOT NULL,
-                target_path TEXT NOT NULL,
-                vault_name  TEXT NOT NULL,
-                PRIMARY KEY (source_path, target_path, vault_name)
-            );
-            CREATE INDEX IF NOT EXISTS idx_note_links_target
-                ON note_links(target_path, vault_name);
-
-            CREATE TABLE IF NOT EXISTS tag_counts (
-                tag        TEXT NOT NULL,
-                vault_name TEXT NOT NULL,
-                count      INTEGER NOT NULL DEFAULT 0,
-                PRIMARY KEY (tag, vault_name)
-            ) WITHOUT ROWID;
-
-            CREATE VIRTUAL TABLE IF NOT EXISTS fts_chunks USING fts5(
-                tokenized_content,
-                content='chunks',
-                content_rowid='id',
-                tokenize='unicode61 remove_diacritics 0'
-            );
-
-            CREATE VIRTUAL TABLE IF NOT EXISTS vec_chunks USING vec0(
-                chunk_id  INTEGER PRIMARY KEY,
-                embedding FLOAT[1024]
-            );
-        ")?;
-        Ok(())
+        crate::migration::run(&conn)
     }
 
     /// Insert a batch of chunks for a file. Caller must have deleted old chunks first.
@@ -470,34 +158,6 @@ impl NoteDatabase {
             )?;
         }
         tx.commit()?;
-        Ok(())
-    }
-
-    /// Delete all chunks (and their FTS/vec entries) for a file path.
-    /// fts_chunks is external content (content='chunks'), so normal DELETE works.
-    pub fn delete_chunks_for_file(&self, vault_name: &str, file_path: &str) -> Result<(), DbError> {
-        let mut conn = self.write_conn.borrow_mut();
-        let tx = conn.transaction()?;
-
-        let ids: Vec<i64> = {
-            let mut stmt = tx.prepare("SELECT id FROM chunks WHERE vault_name = ?1 AND file_path = ?2")?;
-            let rows = stmt.query_map(params![vault_name, file_path], |r| r.get(0))?;
-            rows.collect::<SqliteResult<Vec<_>>>()?
-        };
-        log::debug!("Deleting {} chunks for {}", ids.len(), file_path);
-
-        for id in &ids {
-            log::trace!("  deleting fts_chunks rowid={}", id);
-            tx.execute("DELETE FROM fts_chunks WHERE rowid = ?1", [id])?;
-            log::trace!("  deleting vec_chunks chunk_id={}", id);
-            tx.execute("DELETE FROM vec_chunks WHERE chunk_id = ?1", [id])?;
-        }
-
-        log::debug!("  deleting from chunks table");
-        tx.execute("DELETE FROM chunks WHERE vault_name = ?1 AND file_path = ?2", params![vault_name, file_path])?;
-        tx.execute("DELETE FROM tasks WHERE vault_name = ?1 AND file_path = ?2", params![vault_name, file_path])?;
-        tx.commit()?;
-        log::debug!("  committed delete for {}", file_path);
         Ok(())
     }
 
@@ -772,6 +432,15 @@ impl NoteDatabase {
         }
     }
 
+    /// Clear all vlm_hash values in file_cache, forcing VLM re-extraction on next index.
+    pub fn clear_vlm_hashes(&self) -> Result<usize, DbError> {
+        let count = self
+            .write_conn
+            .borrow()
+            .execute("UPDATE file_cache SET vlm_hash = NULL, mtime = 0 WHERE vlm_hash IS NOT NULL", [])?;
+        Ok(count)
+    }
+
     /// Read cached vlm_hash for a file. Returns None if not set.
     pub fn cached_vlm_hash(&self, vault_name: &str, path: &str) -> Result<Option<String>, DbError> {
         let conn = self.write_conn.borrow();
@@ -832,6 +501,32 @@ impl NoteDatabase {
         self.wal_checkpoint()?;
 
         Ok(total_purged)
+    }
+
+    /// Count expired files (older than retention_days) without deleting them.
+    /// Returns the total count across all vaults in the map.
+    pub fn count_expired(&self, retention_days: &std::collections::HashMap<String, u32>) -> Result<usize, DbError> {
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64;
+
+        let mut total = 0;
+        let conn = self.write_conn.borrow();
+
+        for (vault_name, days) in retention_days {
+            let cutoff_mtime = now - (*days as i64 * 86400);
+            let count: i64 = conn.query_row(
+                "SELECT COUNT(*) FROM file_cache WHERE vault_name = ?1 AND mtime < ?2",
+                params![vault_name, cutoff_mtime],
+                |r| r.get(0),
+            )?;
+            total += count as usize;
+        }
+
+        Ok(total)
     }
 
     /// Delete ALL user data across all tables while keeping the schema intact.
@@ -1118,7 +813,7 @@ impl NoteDatabase {
         rows.collect::<SqliteResult<Vec<_>>>().map_err(DbError::Sqlite)
     }
 
-    /// Insert note_links for a source file within a transaction.
+    /// Insert note_links for a source file atomically.
     /// The caller is responsible for deleting old links first.
     pub fn insert_note_links(
         &self,
@@ -1126,13 +821,15 @@ impl NoteDatabase {
         vault_name: &str,
         targets: &[String],
     ) -> Result<(), DbError> {
-        let conn = self.write_conn.borrow();
+        let mut conn = self.write_conn.borrow_mut();
+        let tx = conn.transaction()?;
         for target in targets {
-            conn.execute(
+            tx.execute(
                 "INSERT OR IGNORE INTO note_links (source_path, target_path, vault_name) VALUES (?1, ?2, ?3)",
                 params![source_path, target, vault_name],
             )?;
         }
+        tx.commit()?;
         Ok(())
     }
 
@@ -1413,7 +1110,7 @@ mod tests {
         let ids = db.insert_chunks(&chunks).unwrap();
         assert_eq!(ids.len(), 2);
 
-        db.delete_chunks_for_file("default", "a.md").unwrap();
+        db.delete_file_fully("default", "a.md").unwrap();
         let stats = db.stats().unwrap();
         assert_eq!(stats.total_chunks, 0);
     }
@@ -1619,7 +1316,7 @@ mod tests {
         db.insert_chunks(&chunks).unwrap();
         // Verify findable before delete
         assert!(!db.fts_search("xyz987", 10, None).unwrap().is_empty());
-        db.delete_chunks_for_file("default", "d.md").unwrap();
+        db.delete_file_fully("default", "d.md").unwrap();
         // After delete, should not be found
         assert!(db.fts_search("xyz987", 10, None).unwrap().is_empty());
     }
@@ -2034,44 +1731,41 @@ mod tests {
     // ── Backlink / note_links tests ──────────────────────────────────
     // ── purge_expired tests ───────────────────────────────────────────────
 
+    fn now_secs() -> i64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64
+    }
+
+    fn insert_test_file(db: &NoteDatabase, vault_name: &str, file_path: &str, content: &str, mtime: i64) {
+        let chunk = Chunk {
+            id: None,
+            file_path: file_path.into(),
+            chunk_index: 0,
+            parent_header: None,
+            content: content.into(),
+            tokenized_content: content.into(),
+            vault_name: vault_name.into(),
+            tags: String::new(),
+            frontmatter_date: String::new(),
+            title: String::new(),
+            emphasized_text: String::new(),
+        };
+        db.insert_chunks(&[chunk]).unwrap();
+        db.upsert_file_cache(vault_name, file_path, "hash", mtime, "none", 0, 0, None).unwrap();
+    }
+
     #[test]
     fn test_purge_expired_removes_old_files() {
         let db = NoteDatabase::open_in_memory().unwrap();
+        let now = now_secs();
+        let old_mtime = now - (100 * 86400);
+        let recent_mtime = now - (10 * 86400);
 
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs() as i64;
-        let old_mtime = now - (100 * 86400); // 100 days ago
-        let recent_mtime = now - (10 * 86400); // 10 days ago
+        insert_test_file(&db, "default", "old.md", "old content", old_mtime);
+        insert_test_file(&db, "default", "recent.md", "recent content", recent_mtime);
 
-        // Insert old file
-        let old_chunk = Chunk {
-            id: None,
-            file_path: "old.md".into(),
-            chunk_index: 0,
-            parent_header: None,
-            content: "old content".into(),
-            tokenized_content: "old content".into(),
-            vault_name: "default".into(),
-        };
-        db.insert_chunks(&[old_chunk]).unwrap();
-        db.upsert_file_cache("default", "old.md", "hash_old", old_mtime, "none", 0, 0, None).unwrap();
-
-        // Insert recent file
-        let recent_chunk = Chunk {
-            id: None,
-            file_path: "recent.md".into(),
-            chunk_index: 0,
-            parent_header: None,
-            content: "recent content".into(),
-            tokenized_content: "recent content".into(),
-            vault_name: "default".into(),
-        };
-        db.insert_chunks(&[recent_chunk]).unwrap();
-        db.upsert_file_cache("default", "recent.md", "hash_recent", recent_mtime, "none", 0, 0, None).unwrap();
-
-        // Purge with 30 days retention
         let mut retention = std::collections::HashMap::new();
         retention.insert("default".to_string(), 30);
         let purged = db.purge_expired(&retention).unwrap();
@@ -2084,24 +1778,10 @@ mod tests {
     #[test]
     fn test_purge_expired_keeps_recent_files() {
         let db = NoteDatabase::open_in_memory().unwrap();
-
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs() as i64;
+        let now = now_secs();
         let recent_mtime = now - (10 * 86400);
 
-        let chunk = Chunk {
-            id: None,
-            file_path: "recent.md".into(),
-            chunk_index: 0,
-            parent_header: None,
-            content: "recent content".into(),
-            tokenized_content: "recent content".into(),
-            vault_name: "default".into(),
-        };
-        db.insert_chunks(&[chunk]).unwrap();
-        db.upsert_file_cache("default", "recent.md", "hash", recent_mtime, "none", 0, 0, None).unwrap();
+        insert_test_file(&db, "default", "recent.md", "recent content", recent_mtime);
 
         let mut retention = std::collections::HashMap::new();
         retention.insert("default".to_string(), 30);
@@ -2114,25 +1794,10 @@ mod tests {
     #[test]
     fn test_purge_expired_no_config_is_noop() {
         let db = NoteDatabase::open_in_memory().unwrap();
+        let now = now_secs();
 
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs() as i64;
+        insert_test_file(&db, "default", "test.md", "content", now);
 
-        let chunk = Chunk {
-            id: None,
-            file_path: "test.md".into(),
-            chunk_index: 0,
-            parent_header: None,
-            content: "content".into(),
-            tokenized_content: "content".into(),
-            vault_name: "default".into(),
-        };
-        db.insert_chunks(&[chunk]).unwrap();
-        db.upsert_file_cache("default", "test.md", "hash", now, "none", 0, 0, None).unwrap();
-
-        // Empty retention map
         let retention = std::collections::HashMap::new();
         let purged = db.purge_expired(&retention).unwrap();
 
@@ -2143,40 +1808,12 @@ mod tests {
     #[test]
     fn test_purge_expired_per_vault() {
         let db = NoteDatabase::open_in_memory().unwrap();
-
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs() as i64;
+        let now = now_secs();
         let old_mtime = now - (100 * 86400);
 
-        // Insert in "default" vault
-        let chunk1 = Chunk {
-            id: None,
-            file_path: "vault1.md".into(),
-            chunk_index: 0,
-            parent_header: None,
-            content: "content".into(),
-            tokenized_content: "content".into(),
-            vault_name: "default".into(),
-        };
-        db.insert_chunks(&[chunk1]).unwrap();
-        db.upsert_file_cache("default", "vault1.md", "hash1", old_mtime, "none", 0, 0, None).unwrap();
+        insert_test_file(&db, "default", "vault1.md", "content", old_mtime);
+        insert_test_file(&db, "other", "vault2.md", "content", old_mtime);
 
-        // Insert in "other" vault
-        let chunk2 = Chunk {
-            id: None,
-            file_path: "vault2.md".into(),
-            chunk_index: 0,
-            parent_header: None,
-            content: "content".into(),
-            tokenized_content: "content".into(),
-            vault_name: "other".into(),
-        };
-        db.insert_chunks(&[chunk2]).unwrap();
-        db.upsert_file_cache("other", "vault2.md", "hash2", old_mtime, "none", 0, 0, None).unwrap();
-
-        // Only configure retention for "default" vault
         let mut retention = std::collections::HashMap::new();
         retention.insert("default".to_string(), 30);
         let purged = db.purge_expired(&retention).unwrap();
@@ -2191,23 +1828,9 @@ mod tests {
     #[test]
     fn test_purge_all_user_data_clears_all_tables() {
         let db = NoteDatabase::open_in_memory().unwrap();
+        let now = now_secs();
 
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs() as i64;
-
-        let chunk = Chunk {
-            id: None,
-            file_path: "test.md".into(),
-            chunk_index: 0,
-            parent_header: None,
-            content: "content".into(),
-            tokenized_content: "content".into(),
-            vault_name: "default".into(),
-        };
-        db.insert_chunks(&[chunk]).unwrap();
-        db.upsert_file_cache("default", "test.md", "hash", now, "none", 0, 0, None).unwrap();
+        insert_test_file(&db, "default", "test.md", "content", now);
 
         // Insert embedding
         let chunk_id: i64 = db.write_conn.borrow()
@@ -2232,17 +1855,7 @@ mod tests {
     fn test_purge_all_user_data_keeps_schema() {
         let db = NoteDatabase::open_in_memory().unwrap();
 
-        // Insert and purge
-        let chunk = Chunk {
-            id: None,
-            file_path: "test.md".into(),
-            chunk_index: 0,
-            parent_header: None,
-            content: "content".into(),
-            tokenized_content: "content".into(),
-            vault_name: "default".into(),
-        };
-        db.insert_chunks(&[chunk]).unwrap();
+        insert_test_file(&db, "default", "test.md", "content", 1000);
         db.purge_all_user_data().unwrap();
 
         // Verify schema still exists by inserting again
@@ -2254,6 +1867,10 @@ mod tests {
             content: "new content".into(),
             tokenized_content: "new content".into(),
             vault_name: "default".into(),
+            tags: String::new(),
+            frontmatter_date: String::new(),
+            title: String::new(),
+            emphasized_text: String::new(),
         };
         db.insert_chunks(&[chunk2]).unwrap();
         assert_eq!(db.stats().unwrap().total_chunks, 1, "can still insert chunks after purge");
