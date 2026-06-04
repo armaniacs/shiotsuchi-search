@@ -175,6 +175,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let vaults = resolve_vaults(&resolved_vaults, vault_id)?;
             commands::chart::run_chart(&args, &vaults, &db_path, &cfg.indexing, &cfg.embedder, &cfg.vlm)?;
         }
+        Some(Commands::Clean(args)) => {
+            commands::clean::run_clean(&args, &resolved_vaults, &db_path, &cfg.indexing, &cfg.vlm)?;
+        }
         Some(Commands::CheckIgnore(args)) => {
             commands::check_ignore::run_check_ignore(&args, &resolved_vaults)?;
         }

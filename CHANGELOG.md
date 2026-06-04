@@ -9,6 +9,76 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.17] - 2026-06-04
+
+### Added (PBI-39)
+
+- **HTTP API Server** (`shiotsuchi serve`): Full REST API for search, stats, file listing, and note reading, powered by `axum` v0.8 + `tower-http` CORS.
+  - `core/src/server/` — new modules: `handlers.rs` (6 endpoints), `types.rs` (ApiError, request/response types), `ui.html` (browser UI)
+  - Endpoints: `GET /api/v1/health`, `POST /api/v1/search`, `GET /api/v1/stats`, `GET /api/v1/list`, `GET /api/v1/read`, `GET /ui`
+  - Configurable via `[server]` section: `port` (default 7171), `host` (default `127.0.0.1`), `cors_origins`
+  - API key authentication: `--api-key` CLI flag or `SHIOTSUCHI_SERVER_API_KEY` env var. Protected routes return 401 when key is set. Localhost-only bind shows auth status in startup banner.
+  - CORS layer with configurable origins for cross-origin frontend access
+  - Structured error responses (`ApiError`) with consistent JSON format
+  - 20 handler tests, 18 auth tests, CORS integration tests
+
+### Added (PBI-40)
+
+- **VLM extraction binary-hash caching**: PDF binary content is now SHA-256 hashed and stored in `file_cache.vlm_hash` (DB migration v11). On re-index:
+  - Cache hit → reuse existing chunk content, skip VLM API call entirely
+  - Cache miss → call VLM API, store hash for future runs
+  - `sha256_bytes()` utility in `db.rs` for PDF binary hashing
+
+### Added (PBI-41)
+
+- **Browser UI accessibility + pagination overhaul** (`ui.html`):
+  - ARIA roles (`role=tablist/tab/tabpanel`), `aria-selected`, `aria-controls`, `aria-label` for tab navigation
+  - Keyboard support: ArrowLeft/ArrowRight tab switching, Enter on result cards, focus trap in modal (Tab/Shift+Tab + Escape)
+  - Screen reader: `<label>` with `.sr-only` on search input
+  - `focus-visible` outlines for keyboard-only users
+  - API pagination: `/api/v1/list?offset=N&limit=M` returns `total`/`offset`/`limit` in response
+  - UI "Load more" button for file list
+  - 15s fetch timeout via `AbortController` with user-facing error message
+  - `lang="en"` (UI text was already English)
+
+### Added (Other)
+
+- **PDF/VLM feature status in build info**: `shiotsuchi support` now shows `pdf` and `vlm` feature flags in `BuildFeatures` table and build info footer
+
+### Changed
+
+- **`search()` signature refactored**: 17 positional arguments collapsed into `SearchRequest` struct (`core/src/search.rs`). All call sites updated (CLI dive, MCP handler, server handler)
+- **VLM runtime safety**: Nested `Runtime::new().expect()` panic replaced with `tokio::task::block_in_place` for safe synchronous context handling
+- **Security warning on non-localhost bind**: `shiotsuchi serve` emits a startup warning when `host` is not `127.0.0.1` or `localhost`
+- **Synchronous file I/O → async**: VLM and PDF extraction paths use `tokio::fs` instead of `std::fs` in async context
+- **VLM external API logging**: Each VLM API call is logged via `log::warn` for auditability
+- **pdf.rs magic numbers → named constants**: Hardcoded numeric values replaced with descriptive constants
+- **limit clamping**: Server and search parameter limits capped at 200
+- **VLM empty API key filter**: Empty string API keys are filtered before sending to external providers
+
+### Fixed
+
+- **XSS in browser UI**: `ui.html` now uses `esc()` function to escape HTML entities in all user-controlled content display
+- **DB `tag_counts` cleanup index**: Migration v11 adds index for efficient cleanup queries
+
+### Testing
+
+- **~575 total tests passing** across core, CLI, MCP, and E2E
+- 20 server handler tests (health, search, stats, list, read, error format, CORS, pagination)
+- 6 server auth tests (valid key, no key, wrong key, localhost skip, error format, Bearer header)
+- VLM cache integration tests (cache hit, cache miss, hash collision)
+- UI accessibility and pagination integration tests
+
+### Documentation
+
+- `docs/CLI-USE.md` / `docs/CLI-USE.ja.md`: Added `shiotsuchi serve` section with API endpoints, auth setup, and UI usage
+- `docs/Support-PDF.md` / `docs/Support-PDF.ja.md`: New documentation for PDF extraction with VLM
+- `README.md` / `README.ja.md`: Added HTTP API Server section with configuration examples
+- `ref/cli.md`: Added `serve` command and `[server]` config section
+- `ref/architecture.md`: Updated with server module, new dependencies
+- `CLAUDE.md`: Added Linear CLI `npx` usage rule
+- Completed PBI files archived from `pbi/` to `.plan/archived/`
+
 ## [0.4.16] - 2026-06-02
 
 ### Added (PBI-28)

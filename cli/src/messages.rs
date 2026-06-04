@@ -127,6 +127,8 @@ pub const SCAN_DEBOUNCE_DEPRECATED: &str = "警告: --debounce は無効です�
 // ──────────────────────────────────────────────
 
 pub const CLEAN_DB_NOT_FOUND: &str = "データベースが見つかりません: {}。先に `shiotsuchi index` を実行してインデックスを作成してください";
+pub const CLEAN_PURGE_ABORTED: &str = "中止しました。";
+pub const CLEAN_PURGE_DONE: &str = "全ユーザーデータを削除しました。インデックスを再構築中...";
 pub const CLEAN_BACKUP_FAILED: &str = "警告: {} のバックアップに失敗しました: {}";
 pub const CLEAN_RENAME_FAILED: &str = "警告: リネームに失敗しました（別デバイス?）、コピーにフォールバックします: {}";
 pub const CLEAN_BACKUP_SAVED: &str = "バックアップを保存しました: {}";

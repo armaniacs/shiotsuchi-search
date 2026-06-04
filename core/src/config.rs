@@ -178,6 +178,11 @@ pub struct IndexingConfig {
     /// Default: true.
     #[serde(default = "default_backlink_scoring")]
     pub backlink_scoring: bool,
+    /// Number of days to retain indexed data. When set, `shiotsuchi prune --expired`
+    /// deletes files whose mtime exceeds this threshold. When None (default), no
+    /// automatic expiration is performed.
+    #[serde(default)]
+    pub retention_days: Option<u32>,
 }
 
 fn default_enable_pdf_extraction() -> bool {
@@ -199,6 +204,7 @@ impl Default for IndexingConfig {
             user_dictionary: vec![],
             enable_pdf_extraction: true,
             backlink_scoring: true,
+            retention_days: None,
         }
     }
 }

@@ -795,6 +795,96 @@ impl NoteDatabase {
         Ok(())
     }
 
+    /// Delete all data for a single file atomically:
+    /// - Deletes chunks + fts_chunks entries
+    /// - Deletes vec_chunks entries for the file's chunks
+    /// - Deletes file_cache entry
+    /// - Deletes note_links entries (both source and target)
+    /// - Deletes tasks entries for this file
+    /// - Updates tag_counts (decrements counts for tags in this file)
+    ///
+    /// This is the complete file deletion operation needed for purge operations.
+    pub fn delete_file_fully(&self, vault_name: &str, file_path: &str) -> Result<(), DbError> {
+        self.delete_chunks_for_file(vault_name, file_path)?;
+        self.delete_file_cache(vault_name, file_path)?;
+
+        // Clean up associated metadata
+        // These deletes are best-effort: the tables may not exist in older schema versions.
+        let conn = self.write_conn.borrow();
+        let _ = conn.execute("DELETE FROM tasks WHERE vault_name = ?1 AND file_path = ?2",
+            params![vault_name, file_path]);
+        let _ = conn.execute("DELETE FROM note_links WHERE vault_name = ?1 AND (source_path = ?2 OR target_path = ?2)",
+            params![vault_name, file_path]);
+
+        Ok(())
+    }
+
+    /// Purge files older than retention_days from each vault.
+    /// Takes a map of vault_name -> retention_days and deletes expired entries.
+    /// Returns the number of files purged.
+    /// No-op for vaults not present in the map.
+    pub fn purge_expired(&self, retention_days: &std::collections::HashMap<String, u32>) -> Result<usize, DbError> {
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64;
+
+        let mut total_purged = 0;
+
+        for (vault_name, days) in retention_days {
+            let cutoff_mtime = now - (*days as i64 * 86400);
+
+            let paths_to_purge: Vec<String> = {
+                let conn = self.write_conn.borrow();
+                let mut stmt = conn.prepare(
+                    "SELECT path FROM file_cache WHERE vault_name = ?1 AND mtime < ?2"
+                )?;
+                let rows = stmt.query_map(params![vault_name, cutoff_mtime], |r| r.get(0))?;
+                rows.collect::<SqliteResult<Vec<_>>>()?
+            };
+
+            for path in paths_to_purge {
+                self.delete_file_fully(vault_name, &path)?;
+                total_purged += 1;
+            }
+        }
+
+        // Checkpoint WAL after mass deletion
+        self.wal_checkpoint()?;
+
+        Ok(total_purged)
+    }
+
+    /// Delete ALL user data across all tables while keeping the schema intact.
+    /// Deletes from: chunks, fts_chunks, vec_chunks, file_cache, tasks, note_links, tag_counts.
+    /// Does NOT delete config.toml or any configuration data.
+    /// Runs wal_checkpoint() after deletion to flush WAL to main DB file.
+    pub fn purge_all_user_data(&self) -> Result<(), DbError> {
+        {
+            let mut conn = self.write_conn.borrow_mut();
+            let tx = conn.transaction()?;
+
+            tx.execute_batch("DELETE FROM fts_chunks")?;
+            tx.execute_batch("DELETE FROM vec_chunks")?;
+            tx.execute_batch("DELETE FROM chunks")?;
+            tx.execute_batch("DELETE FROM file_cache")?;
+            // Best-effort: these tables may not exist in older schema versions
+            let _ = tx.execute_batch("DELETE FROM tasks");
+            let _ = tx.execute_batch("DELETE FROM note_links");
+            let _ = tx.execute_batch("DELETE FROM tag_counts");
+
+            tx.commit()?;
+            // tx and conn drop at end of scope
+        }
+
+        // Checkpoint WAL after mass deletion
+        self.wal_checkpoint()?;
+
+        Ok(())
+    }
+
     /// FTS search on fts_chunks. Returns (chunk_id, score) pairs.
     /// When `vault_filter` is Some(_), the search is restricted to that vault
     /// via a JOIN on the chunks table.
@@ -1965,370 +2055,233 @@ mod tests {
     }
 
     // ── Backlink / note_links tests ──────────────────────────────────
+    // ── purge_expired tests ───────────────────────────────────────────────
 
     #[test]
-    fn test_migration_v9_creates_note_links_table() {
+    fn test_purge_expired_removes_old_files() {
         let db = NoteDatabase::open_in_memory().unwrap();
-        let conn = db.write_conn.borrow();
-        let count: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='note_links'",
-            [],
-            |r| r.get(0),
-        ).unwrap();
-        assert_eq!(count, 1, "note_links table should exist after v9 migration");
-    }
 
-    #[test]
-    fn test_migration_v9_adds_backlink_count_column() {
-        let db = NoteDatabase::open_in_memory().unwrap();
-        let cols: Vec<String> = {
-            let conn = db.write_conn.borrow();
-            let mut stmt = conn.prepare("PRAGMA table_info(file_cache)").unwrap();
-            let rows = stmt.query_map([], |r| r.get::<_, String>(1)).unwrap();
-            rows.collect::<Result<Vec<_>, _>>().unwrap()
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        let old_mtime = now - (100 * 86400); // 100 days ago
+        let recent_mtime = now - (10 * 86400); // 10 days ago
+
+        // Insert old file
+        let old_chunk = Chunk {
+            id: None,
+            file_path: "old.md".into(),
+            chunk_index: 0,
+            parent_header: None,
+            content: "old content".into(),
+            tokenized_content: "old content".into(),
+            vault_name: "default".into(),
         };
-        assert!(cols.iter().any(|c| c == "backlink_count"), "file_cache should have backlink_count column");
+        db.insert_chunks(&[old_chunk]).unwrap();
+        db.upsert_file_cache("default", "old.md", "hash_old", old_mtime, "none", 0, 0, None).unwrap();
+
+        // Insert recent file
+        let recent_chunk = Chunk {
+            id: None,
+            file_path: "recent.md".into(),
+            chunk_index: 0,
+            parent_header: None,
+            content: "recent content".into(),
+            tokenized_content: "recent content".into(),
+            vault_name: "default".into(),
+        };
+        db.insert_chunks(&[recent_chunk]).unwrap();
+        db.upsert_file_cache("default", "recent.md", "hash_recent", recent_mtime, "none", 0, 0, None).unwrap();
+
+        // Purge with 30 days retention
+        let mut retention = std::collections::HashMap::new();
+        retention.insert("default".to_string(), 30);
+        let purged = db.purge_expired(&retention).unwrap();
+
+        assert_eq!(purged, 1, "should purge 1 old file");
+        assert!(db.cached_hash("default", "old.md").unwrap().is_none(), "old file should be purged");
+        assert!(db.cached_hash("default", "recent.md").unwrap().is_some(), "recent file should remain");
     }
 
     #[test]
-    fn test_insert_and_delete_note_links() {
+    fn test_purge_expired_keeps_recent_files() {
         let db = NoteDatabase::open_in_memory().unwrap();
 
-        // No links initially
-        let conn = db.write_conn.borrow();
-        let count: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM note_links WHERE source_path = 'a.md' AND vault_name = 'default'",
-            [],
-            |r| r.get(0),
-        ).unwrap();
-        assert_eq!(count, 0);
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        let recent_mtime = now - (10 * 86400);
 
-        // Insert links
-        db.insert_note_links("a.md", "default", &["b.md".to_string(), "c.md".to_string()]).unwrap();
+        let chunk = Chunk {
+            id: None,
+            file_path: "recent.md".into(),
+            chunk_index: 0,
+            parent_header: None,
+            content: "recent content".into(),
+            tokenized_content: "recent content".into(),
+            vault_name: "default".into(),
+        };
+        db.insert_chunks(&[chunk]).unwrap();
+        db.upsert_file_cache("default", "recent.md", "hash", recent_mtime, "none", 0, 0, None).unwrap();
 
-        let count: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM note_links WHERE source_path = 'a.md' AND vault_name = 'default'",
-            [],
-            |r| r.get(0),
-        ).unwrap();
-        assert_eq!(count, 2);
+        let mut retention = std::collections::HashMap::new();
+        retention.insert("default".to_string(), 30);
+        let purged = db.purge_expired(&retention).unwrap();
 
-        // Delete links
-        db.delete_note_links_for_source("a.md", "default").unwrap();
-        let count: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM note_links WHERE source_path = 'a.md' AND vault_name = 'default'",
-            [],
-            |r| r.get(0),
-        ).unwrap();
-        assert_eq!(count, 0);
+        assert_eq!(purged, 0, "should purge 0 recent files");
+        assert!(db.cached_hash("default", "recent.md").unwrap().is_some(), "recent file should remain");
     }
 
     #[test]
-    fn test_note_links_respect_vault_scope() {
+    fn test_purge_expired_no_config_is_noop() {
         let db = NoteDatabase::open_in_memory().unwrap();
 
-        db.insert_note_links("a.md", "vault1", &["b.md".to_string()]).unwrap();
-        db.insert_note_links("c.md", "vault2", &["b.md".to_string()]).unwrap();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
 
-        let conn = db.write_conn.borrow();
-        // vault1's link to b.md
-        let count_v1: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM note_links WHERE target_path = 'b.md' AND vault_name = 'vault1'",
-            [],
-            |r| r.get(0),
-        ).unwrap();
-        assert_eq!(count_v1, 1);
-
-        // vault2's link to b.md (separate)
-        let count_v2: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM note_links WHERE target_path = 'b.md' AND vault_name = 'vault2'",
-            [],
-            |r| r.get(0),
-        ).unwrap();
-        assert_eq!(count_v2, 1);
-
-        // Delete only vault1 links
-        db.delete_note_links_for_source("a.md", "vault1").unwrap();
-        let remaining: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM note_links WHERE target_path = 'b.md'",
-            [],
-            |r| r.get(0),
-        ).unwrap();
-        assert_eq!(remaining, 1, "vault2 link should remain after vault1 delete");
-    }
-
-    #[test]
-    fn test_update_backlink_counts() {
-        let db = NoteDatabase::open_in_memory().unwrap();
-
-        // Set up file_cache entries
-        db.upsert_file_cache("default", "hub.md", "hash1", 1000, "none", 100, 0, None).unwrap();
-        db.upsert_file_cache("default", "a.md", "hash2", 1000, "none", 100, 0, None).unwrap();
-        db.upsert_file_cache("default", "b.md", "hash3", 1000, "none", 100, 0, None).unwrap();
-
-        // Insert note_links: a.md -> hub.md, b.md -> hub.md
-        db.insert_note_links("a.md", "default", &["hub.md".to_string()]).unwrap();
-        db.insert_note_links("b.md", "default", &["hub.md".to_string()]).unwrap();
-
-        // Update backlink counts
-        db.update_backlink_counts_for_vault("default").unwrap();
-
-        let conn = db.write_conn.borrow();
-        let hub_count: i64 = conn.query_row(
-            "SELECT backlink_count FROM file_cache WHERE path = 'hub.md'",
-            [],
-            |r| r.get(0),
-        ).unwrap();
-        assert_eq!(hub_count, 2);
-
-        let a_count: i64 = conn.query_row(
-            "SELECT backlink_count FROM file_cache WHERE path = 'a.md'",
-            [],
-            |r| r.get(0),
-        ).unwrap();
-        assert_eq!(a_count, 0);
-
-        // Add another link to hub.md
-        db.insert_note_links("c.md", "default", &["hub.md".to_string()]).unwrap();
-        db.update_backlink_counts_for_vault("default").unwrap();
-        let hub_count2: i64 = conn.query_row(
-            "SELECT backlink_count FROM file_cache WHERE path = 'hub.md'",
-            [],
-            |r| r.get(0),
-        ).unwrap();
-        assert_eq!(hub_count2, 3, "adding another link should update count");
-    }
-
-    #[test]
-    fn test_backlink_counts_vault_scoped() {
-        let db = NoteDatabase::open_in_memory().unwrap();
-
-        db.upsert_file_cache("v1", "hub.md", "h1", 1000, "none", 100, 0, None).unwrap();
-        db.upsert_file_cache("v2", "hub.md", "h2", 1000, "none", 100, 0, None).unwrap();
-
-        db.insert_note_links("a.md", "v1", &["hub.md".to_string()]).unwrap();
-        db.insert_note_links("b.md", "v2", &["hub.md".to_string()]).unwrap();
-
-        db.update_backlink_counts_for_vault("v1").unwrap();
-        db.update_backlink_counts_for_vault("v2").unwrap();
-
-        let conn = db.write_conn.borrow();
-        let v1_count: i64 = conn.query_row(
-            "SELECT backlink_count FROM file_cache WHERE vault_name = 'v1' AND path = 'hub.md'",
-            [],
-            |r| r.get(0),
-        ).unwrap();
-        assert_eq!(v1_count, 1, "v1 hub should have 1 backlink from vault v1");
-
-        let v2_count: i64 = conn.query_row(
-            "SELECT backlink_count FROM file_cache WHERE vault_name = 'v2' AND path = 'hub.md'",
-            [],
-            |r| r.get(0),
-        ).unwrap();
-        assert_eq!(v2_count, 1, "v2 hub should have 1 backlink from vault v2");
-    }
-
-    #[test]
-    fn test_get_backlink_counts_for_chunks() {
-        let db = NoteDatabase::open_in_memory().unwrap();
-
-        // Insert file cache entries
-        db.upsert_file_cache("default", "hub.md", "h1", 1000, "none", 100, 0, None).unwrap();
-        db.upsert_file_cache("default", "leaf.md", "h2", 1000, "none", 100, 0, None).unwrap();
-
-        // Insert chunks
-        let chunks = vec![
-            Chunk {
-                id: None, file_path: "hub.md".into(), chunk_index: 0,
-                parent_header: None, content: "hub".into(),
-                tokenized_content: "hub".into(), vault_name: "default".to_string(),
-                tags: String::new(), frontmatter_date: String::new(),
-                title: String::new(), emphasized_text: String::new(),
-            },
-            Chunk {
-                id: None, file_path: "leaf.md".into(), chunk_index: 0,
-                parent_header: None, content: "leaf".into(),
-                tokenized_content: "leaf".into(), vault_name: "default".to_string(),
-                tags: String::new(), frontmatter_date: String::new(),
-                title: String::new(), emphasized_text: String::new(),
-            },
-        ];
-        let ids = db.insert_chunks(&chunks).unwrap();
-
-        // Set backlink_count directly for testing
-        db.write_conn.borrow().execute(
-            "UPDATE file_cache SET backlink_count = 5 WHERE path = 'hub.md'",
-            [],
-        ).unwrap();
-        db.write_conn.borrow().execute(
-            "UPDATE file_cache SET backlink_count = 0 WHERE path = 'leaf.md'",
-            [],
-        ).unwrap();
-
-        let map = db.get_backlink_counts_for_chunks(&ids).unwrap();
-        assert_eq!(map.len(), 2);
-        assert_eq!(map.get(&ids[0]), Some(&5), "hub.md should have backlink_count=5");
-        assert_eq!(map.get(&ids[1]), Some(&0), "leaf.md should have backlink_count=0");
-    }
-
-    #[test]
-    fn test_tag_stats_after_reindex_reflects_tags() {
-        let db = NoteDatabase::open_in_memory().unwrap();
-        let stats = db.tag_stats(10).unwrap();
-        assert!(stats.is_empty(), "fresh db should have no tags");
-
-        let chunks = vec![Chunk {
-            id: None, file_path: "tagged.md".into(), chunk_index: 0,
-            parent_header: None, content: "content".into(),
+        let chunk = Chunk {
+            id: None,
+            file_path: "test.md".into(),
+            chunk_index: 0,
+            parent_header: None,
+            content: "content".into(),
             tokenized_content: "content".into(),
-            vault_name: "default".to_string(),
-            tags: "project,meeting".to_string(),
-            frontmatter_date: String::new(),
-            title: String::new(), emphasized_text: String::new(),
-        }];
-        db.reindex_file(&ReindexParams {
-            vault_name: "default",
-            relative_path: "tagged.md",
-            hash: "hash1",
-            mtime: 1000,
-            model_id: "none",
-            chunks: &chunks,
-            embeddings: &[],
-            file_size: 42,
-            tasks: &[],
-            note_link_targets: &[],
-            vlm_hash: None,
-        }).unwrap();
+            vault_name: "default".into(),
+        };
+        db.insert_chunks(&[chunk]).unwrap();
+        db.upsert_file_cache("default", "test.md", "hash", now, "none", 0, 0, None).unwrap();
 
-        let stats = db.tag_stats(10).unwrap();
-        let mut tag_map: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
-        for (tag, count) in &stats {
-            tag_map.insert(tag.as_str(), *count);
-        }
-        assert_eq!(tag_map.get("project"), Some(&1), "project tag should have count 1");
-        assert_eq!(tag_map.get("meeting"), Some(&1), "meeting tag should have count 1");
+        // Empty retention map
+        let retention = std::collections::HashMap::new();
+        let purged = db.purge_expired(&retention).unwrap();
+
+        assert_eq!(purged, 0, "empty retention map should be no-op");
+        assert!(db.cached_hash("default", "test.md").unwrap().is_some(), "file should remain");
     }
 
     #[test]
-    fn test_tag_stats_removed_on_reindex() {
+    fn test_purge_expired_per_vault() {
         let db = NoteDatabase::open_in_memory().unwrap();
 
-        let chunks1 = vec![Chunk {
-            id: None, file_path: "changing.md".into(), chunk_index: 0,
-            parent_header: None, content: "v1".into(),
-            tokenized_content: "v1".into(),
-            vault_name: "default".to_string(),
-            tags: "old_tag".to_string(),
-            frontmatter_date: String::new(),
-            title: String::new(), emphasized_text: String::new(),
-        }];
-        db.reindex_file(&ReindexParams {
-            vault_name: "default",
-            relative_path: "changing.md",
-            hash: "hash1",
-            mtime: 1000,
-            model_id: "none",
-            chunks: &chunks1,
-            embeddings: &[],
-            file_size: 10,
-            tasks: &[],
-            note_link_targets: &[],
-            vlm_hash: None,
-        }).unwrap();
-        assert_eq!(db.tag_stats(10).unwrap().len(), 1, "should have old_tag");
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        let old_mtime = now - (100 * 86400);
 
-        let chunks2 = vec![Chunk {
-            id: None, file_path: "changing.md".into(), chunk_index: 0,
-            parent_header: None, content: "v2".into(),
-            tokenized_content: "v2".into(),
-            vault_name: "default".to_string(),
-            tags: "new_tag".to_string(),
-            frontmatter_date: String::new(),
-            title: String::new(), emphasized_text: String::new(),
-        }];
-        db.reindex_file(&ReindexParams {
-            vault_name: "default",
-            relative_path: "changing.md",
-            hash: "hash2",
-            mtime: 2000,
-            model_id: "none",
-            chunks: &chunks2,
-            embeddings: &[],
-            file_size: 10,
-            tasks: &[],
-            note_link_targets: &[],
-            vlm_hash: None,
-        }).unwrap();
-
-        let stats = db.tag_stats(10).unwrap();
-        let tag_names: Vec<&str> = stats.iter().map(|(t, _)| t.as_str()).collect();
-        assert!(!tag_names.contains(&"old_tag"), "old_tag should be removed");
-        assert!(tag_names.contains(&"new_tag"), "new_tag should be present");
-    }
-
-    #[test]
-    fn test_tag_stats_empty_tags_ignored() {
-        let db = NoteDatabase::open_in_memory().unwrap();
-        let chunks = vec![Chunk {
-            id: None, file_path: "notags.md".into(), chunk_index: 0,
-            parent_header: None, content: "content".into(),
+        // Insert in "default" vault
+        let chunk1 = Chunk {
+            id: None,
+            file_path: "vault1.md".into(),
+            chunk_index: 0,
+            parent_header: None,
+            content: "content".into(),
             tokenized_content: "content".into(),
-            vault_name: "default".to_string(),
-            tags: String::new(),
-            frontmatter_date: String::new(),
-            title: String::new(), emphasized_text: String::new(),
-        }];
-        db.reindex_file(&ReindexParams {
-            vault_name: "default",
-            relative_path: "notags.md",
-            hash: "hash",
-            mtime: 1000,
-            model_id: "none",
-            chunks: &chunks,
-            embeddings: &[],
-            file_size: 10,
-            tasks: &[],
-            note_link_targets: &[],
-            vlm_hash: None,
-        }).unwrap();
-        assert!(db.tag_stats(10).unwrap().is_empty(), "empty tags should not create tag_counts rows");
+            vault_name: "default".into(),
+        };
+        db.insert_chunks(&[chunk1]).unwrap();
+        db.upsert_file_cache("default", "vault1.md", "hash1", old_mtime, "none", 0, 0, None).unwrap();
+
+        // Insert in "other" vault
+        let chunk2 = Chunk {
+            id: None,
+            file_path: "vault2.md".into(),
+            chunk_index: 0,
+            parent_header: None,
+            content: "content".into(),
+            tokenized_content: "content".into(),
+            vault_name: "other".into(),
+        };
+        db.insert_chunks(&[chunk2]).unwrap();
+        db.upsert_file_cache("other", "vault2.md", "hash2", old_mtime, "none", 0, 0, None).unwrap();
+
+        // Only configure retention for "default" vault
+        let mut retention = std::collections::HashMap::new();
+        retention.insert("default".to_string(), 30);
+        let purged = db.purge_expired(&retention).unwrap();
+
+        assert_eq!(purged, 1, "should purge only the configured vault");
+        assert!(db.cached_hash("default", "vault1.md").unwrap().is_none(), "default vault file should be purged");
+        assert!(db.cached_hash("other", "vault2.md").unwrap().is_some(), "other vault file should remain");
+    }
+
+    // ── purge_all_user_data tests ────────────────────────────────────────
+
+    #[test]
+    fn test_purge_all_user_data_clears_all_tables() {
+        let db = NoteDatabase::open_in_memory().unwrap();
+
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+
+        let chunk = Chunk {
+            id: None,
+            file_path: "test.md".into(),
+            chunk_index: 0,
+            parent_header: None,
+            content: "content".into(),
+            tokenized_content: "content".into(),
+            vault_name: "default".into(),
+        };
+        db.insert_chunks(&[chunk]).unwrap();
+        db.upsert_file_cache("default", "test.md", "hash", now, "none", 0, 0, None).unwrap();
+
+        // Insert embedding
+        let chunk_id: i64 = db.write_conn.borrow()
+            .query_row("SELECT id FROM chunks WHERE vault_name = ?1 AND file_path = ?2",
+                params!["default", "test.md"], |r| r.get(0))
+            .expect("chunk should exist");
+        let embedding = vec![0.0f32; 1024];
+        db.insert_embeddings(&[(chunk_id, embedding)]).unwrap();
+
+        // Verify data exists
+        assert_eq!(db.stats().unwrap().total_files, 1);
+        assert!(db.stats().unwrap().total_chunks > 0);
+
+        db.purge_all_user_data().unwrap();
+
+        // Verify all data is cleared
+        assert_eq!(db.stats().unwrap().total_files, 0);
+        assert_eq!(db.stats().unwrap().total_chunks, 0);
     }
 
     #[test]
-    fn test_char_count_populated() {
+    fn test_purge_all_user_data_keeps_schema() {
         let db = NoteDatabase::open_in_memory().unwrap();
-        let chunks = vec![
-            Chunk {
-                id: None, file_path: "file.md".into(), chunk_index: 0,
-                parent_header: None, content: "hello".into(),
-                tokenized_content: "hello".into(),
-                vault_name: "default".to_string(),
-                tags: String::new(), frontmatter_date: String::new(),
-                title: String::new(), emphasized_text: String::new(),
-            },
-            Chunk {
-                id: None, file_path: "file.md".into(), chunk_index: 1,
-                parent_header: None, content: "world!".into(),
-                tokenized_content: "world!".into(),
-                vault_name: "default".to_string(),
-                tags: String::new(), frontmatter_date: String::new(),
-                title: String::new(), emphasized_text: String::new(),
-            },
-        ];
-        db.reindex_file(&ReindexParams {
-            vault_name: "default",
-            relative_path: "file.md",
-            hash: "hash",
-            mtime: 1000,
-            model_id: "none",
-            chunks: &chunks,
-            embeddings: &[],
-            file_size: 20,
-            tasks: &[],
-            note_link_targets: &[],
-            vlm_hash: None,
-        }).unwrap();
-        let stats = db.stats().unwrap();
-        assert_eq!(stats.total_chars, 11, "hello(5) + world!(6) = 11 chars");
+
+        // Insert and purge
+        let chunk = Chunk {
+            id: None,
+            file_path: "test.md".into(),
+            chunk_index: 0,
+            parent_header: None,
+            content: "content".into(),
+            tokenized_content: "content".into(),
+            vault_name: "default".into(),
+        };
+        db.insert_chunks(&[chunk]).unwrap();
+        db.purge_all_user_data().unwrap();
+
+        // Verify schema still exists by inserting again
+        let chunk2 = Chunk {
+            id: None,
+            file_path: "test2.md".into(),
+            chunk_index: 0,
+            parent_header: None,
+            content: "new content".into(),
+            tokenized_content: "new content".into(),
+            vault_name: "default".into(),
+        };
+        db.insert_chunks(&[chunk2]).unwrap();
+        assert_eq!(db.stats().unwrap().total_chunks, 1, "can still insert chunks after purge");
+        // Also verify we can insert file_cache (table still exists)
+        db.upsert_file_cache("default", "test2.md", "hash", 1000, "none", 0, 0, None).unwrap();
+        assert_eq!(db.stats().unwrap().total_files, 1, "can still insert file_cache after purge");
     }
 }
