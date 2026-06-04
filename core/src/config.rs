@@ -39,6 +39,7 @@ pub struct IndexingConfig {
     pub auto_exclude_hidden: bool,
     pub follow_links: bool,
     pub dynamic_threshold: usize,
+    pub retention_days: Option<u32>,
 }
 
 impl Default for IndexingConfig {
@@ -49,6 +50,7 @@ impl Default for IndexingConfig {
             auto_exclude_hidden: true,
             follow_links: false,
             dynamic_threshold: 5,
+            retention_days: None,
         }
     }
 }

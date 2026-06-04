@@ -11,7 +11,12 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Args, Debug)]
-pub struct CleanArgs {}
+pub struct CleanArgs {
+    /// Purge ALL user data (chunks, FTS, vectors, cache) and rebuild index.
+    /// Prompts for confirmation before proceeding. Does NOT delete config.toml.
+    #[arg(long)]
+    pub purge_all: bool,
+}
 
 /// Copy a single file to `<path>.bak.<timestamp>`.
 /// Returns the backup path if the original existed, None otherwise.
@@ -79,12 +84,37 @@ pub(crate) fn delete_db_files(db_path: &Path) {
 }
 
 pub fn run_clean(
+    args: &CleanArgs,
     vaults: &[(String, PathBuf)],
     db_path: &Path,
     indexing_cfg: &IndexingConfig,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    if !db_path.exists() {
-        return Err(format!("Database not found at {}. Run `shiotsuchi chart` to create the index first.", db_path.display()).into());
+    // Handle --purge-all flag
+    if args.purge_all {
+        if !db_path.exists() {
+            return Err(format!("Database not found at {}. Run `shiotsuchi chart` to create the index first.", db_path.display()).into());
+        }
+
+        let theme = crate::util::dialoguer_theme();
+        let confirmed = dialoguer::Confirm::with_theme(&theme)
+            .with_prompt("WARNING: This will delete ALL indexed data for ALL vaults. Continue?")
+            .default(false)
+            .interact()?;
+
+        if !confirmed {
+            println!("Aborted.");
+            return Ok(());
+        }
+
+        let db = NoteDatabase::open(db_path)?;
+        db.purge_all_user_data()?;
+        println!("All user data purged. Rebuilding index...");
+
+        // Continue to rebuild index (fall through to normal clean logic)
+    } else {
+        if !db_path.exists() {
+            return Err(format!("Database not found at {}. Run `shiotsuchi chart` to create the index first.", db_path.display()).into());
+        }
     }
 
     // Build IndexConfig
@@ -301,7 +331,8 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let db_path = tmp.path().join("nonexistent.db");
         let vaults = vec![("default".to_string(), tmp.path().join("vault"))];
-        let result = super::run_clean(&vaults, &db_path, &IndexingConfig::default());
+        let args = CleanArgs { purge_all: false };
+        let result = super::run_clean(&args, &vaults, &db_path, &IndexingConfig::default());
         assert!(result.is_err(), "clean without DB should return error");
         let msg = format!("{}", result.unwrap_err());
         assert!(msg.contains("not found"), "error should mention 'not found', got: {}", msg);
@@ -340,8 +371,9 @@ mod tests {
 
         let idx_cfg = IndexingConfig::default();
         let vaults = vec![("default".to_string(), vault.clone())];
+        let args = CleanArgs { purge_all: false };
 
-        if let Err(e) = super::run_clean(&vaults, &db_path, &idx_cfg) {
+        if let Err(e) = super::run_clean(&args, &vaults, &db_path, &idx_cfg) {
             let msg = format!("{}", e);
             if msg.contains("no model") || msg.contains("NoModel") {
                 eprintln!("[SKIPPED] clean::test_run_clean_full_flow — Vaporetto model not available");

@@ -87,8 +87,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 &cfg.indexing,
             )?;
         }
-        Commands::Clean(_args) => {
-            commands::clean::run_clean(&resolved_vaults, &db_path, &cfg.indexing)?;
+        Commands::Clean(args) => {
+            commands::clean::run_clean(&args, &resolved_vaults, &db_path, &cfg.indexing)?;
         }
         Commands::Dive(args) => {
             if !db_path.exists() {

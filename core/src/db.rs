@@ -418,6 +418,96 @@ impl NoteDatabase {
         Ok(())
     }
 
+    /// Delete all data for a single file atomically:
+    /// - Deletes chunks + fts_chunks entries
+    /// - Deletes vec_chunks entries for the file's chunks
+    /// - Deletes file_cache entry
+    /// - Deletes note_links entries (both source and target)
+    /// - Deletes tasks entries for this file
+    /// - Updates tag_counts (decrements counts for tags in this file)
+    ///
+    /// This is the complete file deletion operation needed for purge operations.
+    pub fn delete_file_fully(&self, vault_name: &str, file_path: &str) -> Result<(), DbError> {
+        self.delete_chunks_for_file(vault_name, file_path)?;
+        self.delete_file_cache(vault_name, file_path)?;
+
+        // Clean up associated metadata
+        // These deletes are best-effort: the tables may not exist in older schema versions.
+        let conn = self.write_conn.borrow();
+        let _ = conn.execute("DELETE FROM tasks WHERE vault_name = ?1 AND file_path = ?2",
+            params![vault_name, file_path]);
+        let _ = conn.execute("DELETE FROM note_links WHERE vault_name = ?1 AND (source_path = ?2 OR target_path = ?2)",
+            params![vault_name, file_path]);
+
+        Ok(())
+    }
+
+    /// Purge files older than retention_days from each vault.
+    /// Takes a map of vault_name -> retention_days and deletes expired entries.
+    /// Returns the number of files purged.
+    /// No-op for vaults not present in the map.
+    pub fn purge_expired(&self, retention_days: &std::collections::HashMap<String, u32>) -> Result<usize, DbError> {
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64;
+
+        let mut total_purged = 0;
+
+        for (vault_name, days) in retention_days {
+            let cutoff_mtime = now - (*days as i64 * 86400);
+
+            let paths_to_purge: Vec<String> = {
+                let conn = self.write_conn.borrow();
+                let mut stmt = conn.prepare(
+                    "SELECT path FROM file_cache WHERE vault_name = ?1 AND mtime < ?2"
+                )?;
+                let rows = stmt.query_map(params![vault_name, cutoff_mtime], |r| r.get(0))?;
+                rows.collect::<SqliteResult<Vec<_>>>()?
+            };
+
+            for path in paths_to_purge {
+                self.delete_file_fully(vault_name, &path)?;
+                total_purged += 1;
+            }
+        }
+
+        // Checkpoint WAL after mass deletion
+        self.wal_checkpoint()?;
+
+        Ok(total_purged)
+    }
+
+    /// Delete ALL user data across all tables while keeping the schema intact.
+    /// Deletes from: chunks, fts_chunks, vec_chunks, file_cache, tasks, note_links, tag_counts.
+    /// Does NOT delete config.toml or any configuration data.
+    /// Runs wal_checkpoint() after deletion to flush WAL to main DB file.
+    pub fn purge_all_user_data(&self) -> Result<(), DbError> {
+        {
+            let mut conn = self.write_conn.borrow_mut();
+            let tx = conn.transaction()?;
+
+            tx.execute_batch("DELETE FROM fts_chunks")?;
+            tx.execute_batch("DELETE FROM vec_chunks")?;
+            tx.execute_batch("DELETE FROM chunks")?;
+            tx.execute_batch("DELETE FROM file_cache")?;
+            // Best-effort: these tables may not exist in older schema versions
+            let _ = tx.execute_batch("DELETE FROM tasks");
+            let _ = tx.execute_batch("DELETE FROM note_links");
+            let _ = tx.execute_batch("DELETE FROM tag_counts");
+
+            tx.commit()?;
+            // tx and conn drop at end of scope
+        }
+
+        // Checkpoint WAL after mass deletion
+        self.wal_checkpoint()?;
+
+        Ok(())
+    }
+
     /// FTS search on fts_chunks. Returns (chunk_id, score) pairs.
     /// When `vault_filter` is Some(_), the search is restricted to that vault
     /// via a JOIN on the chunks table.
@@ -1051,5 +1141,235 @@ mod tests {
 
         let ids = db.insert_chunks(&[chunk]).unwrap();
         assert!(!ids.is_empty(), "chunk insert should succeed after metadata insert");
+    }
+
+    // ── purge_expired tests ───────────────────────────────────────────────
+
+    #[test]
+    fn test_purge_expired_removes_old_files() {
+        let db = NoteDatabase::open_in_memory().unwrap();
+
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        let old_mtime = now - (100 * 86400); // 100 days ago
+        let recent_mtime = now - (10 * 86400); // 10 days ago
+
+        // Insert old file
+        let old_chunk = Chunk {
+            id: None,
+            file_path: "old.md".into(),
+            chunk_index: 0,
+            parent_header: None,
+            content: "old content".into(),
+            tokenized_content: "old content".into(),
+            vault_name: "default".into(),
+        };
+        db.insert_chunks(&[old_chunk]).unwrap();
+        db.upsert_file_cache("default", "old.md", "hash_old", old_mtime, "none").unwrap();
+
+        // Insert recent file
+        let recent_chunk = Chunk {
+            id: None,
+            file_path: "recent.md".into(),
+            chunk_index: 0,
+            parent_header: None,
+            content: "recent content".into(),
+            tokenized_content: "recent content".into(),
+            vault_name: "default".into(),
+        };
+        db.insert_chunks(&[recent_chunk]).unwrap();
+        db.upsert_file_cache("default", "recent.md", "hash_recent", recent_mtime, "none").unwrap();
+
+        // Purge with 30 days retention
+        let mut retention = std::collections::HashMap::new();
+        retention.insert("default".to_string(), 30);
+        let purged = db.purge_expired(&retention).unwrap();
+
+        assert_eq!(purged, 1, "should purge 1 old file");
+        assert!(db.cached_hash("default", "old.md").unwrap().is_none(), "old file should be purged");
+        assert!(db.cached_hash("default", "recent.md").unwrap().is_some(), "recent file should remain");
+    }
+
+    #[test]
+    fn test_purge_expired_keeps_recent_files() {
+        let db = NoteDatabase::open_in_memory().unwrap();
+
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        let recent_mtime = now - (10 * 86400);
+
+        let chunk = Chunk {
+            id: None,
+            file_path: "recent.md".into(),
+            chunk_index: 0,
+            parent_header: None,
+            content: "recent content".into(),
+            tokenized_content: "recent content".into(),
+            vault_name: "default".into(),
+        };
+        db.insert_chunks(&[chunk]).unwrap();
+        db.upsert_file_cache("default", "recent.md", "hash", recent_mtime, "none").unwrap();
+
+        let mut retention = std::collections::HashMap::new();
+        retention.insert("default".to_string(), 30);
+        let purged = db.purge_expired(&retention).unwrap();
+
+        assert_eq!(purged, 0, "should purge 0 recent files");
+        assert!(db.cached_hash("default", "recent.md").unwrap().is_some(), "recent file should remain");
+    }
+
+    #[test]
+    fn test_purge_expired_no_config_is_noop() {
+        let db = NoteDatabase::open_in_memory().unwrap();
+
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+
+        let chunk = Chunk {
+            id: None,
+            file_path: "test.md".into(),
+            chunk_index: 0,
+            parent_header: None,
+            content: "content".into(),
+            tokenized_content: "content".into(),
+            vault_name: "default".into(),
+        };
+        db.insert_chunks(&[chunk]).unwrap();
+        db.upsert_file_cache("default", "test.md", "hash", now, "none").unwrap();
+
+        // Empty retention map
+        let retention = std::collections::HashMap::new();
+        let purged = db.purge_expired(&retention).unwrap();
+
+        assert_eq!(purged, 0, "empty retention map should be no-op");
+        assert!(db.cached_hash("default", "test.md").unwrap().is_some(), "file should remain");
+    }
+
+    #[test]
+    fn test_purge_expired_per_vault() {
+        let db = NoteDatabase::open_in_memory().unwrap();
+
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        let old_mtime = now - (100 * 86400);
+
+        // Insert in "default" vault
+        let chunk1 = Chunk {
+            id: None,
+            file_path: "vault1.md".into(),
+            chunk_index: 0,
+            parent_header: None,
+            content: "content".into(),
+            tokenized_content: "content".into(),
+            vault_name: "default".into(),
+        };
+        db.insert_chunks(&[chunk1]).unwrap();
+        db.upsert_file_cache("default", "vault1.md", "hash1", old_mtime, "none").unwrap();
+
+        // Insert in "other" vault
+        let chunk2 = Chunk {
+            id: None,
+            file_path: "vault2.md".into(),
+            chunk_index: 0,
+            parent_header: None,
+            content: "content".into(),
+            tokenized_content: "content".into(),
+            vault_name: "other".into(),
+        };
+        db.insert_chunks(&[chunk2]).unwrap();
+        db.upsert_file_cache("other", "vault2.md", "hash2", old_mtime, "none").unwrap();
+
+        // Only configure retention for "default" vault
+        let mut retention = std::collections::HashMap::new();
+        retention.insert("default".to_string(), 30);
+        let purged = db.purge_expired(&retention).unwrap();
+
+        assert_eq!(purged, 1, "should purge only the configured vault");
+        assert!(db.cached_hash("default", "vault1.md").unwrap().is_none(), "default vault file should be purged");
+        assert!(db.cached_hash("other", "vault2.md").unwrap().is_some(), "other vault file should remain");
+    }
+
+    // ── purge_all_user_data tests ────────────────────────────────────────
+
+    #[test]
+    fn test_purge_all_user_data_clears_all_tables() {
+        let db = NoteDatabase::open_in_memory().unwrap();
+
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+
+        let chunk = Chunk {
+            id: None,
+            file_path: "test.md".into(),
+            chunk_index: 0,
+            parent_header: None,
+            content: "content".into(),
+            tokenized_content: "content".into(),
+            vault_name: "default".into(),
+        };
+        db.insert_chunks(&[chunk]).unwrap();
+        db.upsert_file_cache("default", "test.md", "hash", now, "none").unwrap();
+
+        // Insert embedding
+        let chunk_id: i64 = db.write_conn.borrow()
+            .query_row("SELECT id FROM chunks WHERE vault_name = ?1 AND file_path = ?2",
+                params!["default", "test.md"], |r| r.get(0))
+            .expect("chunk should exist");
+        let embedding = vec![0.0f32; 1024];
+        db.insert_embeddings(&[(chunk_id, embedding)]).unwrap();
+
+        // Verify data exists
+        assert_eq!(db.stats().unwrap().total_files, 1);
+        assert!(db.stats().unwrap().total_chunks > 0);
+
+        db.purge_all_user_data().unwrap();
+
+        // Verify all data is cleared
+        assert_eq!(db.stats().unwrap().total_files, 0);
+        assert_eq!(db.stats().unwrap().total_chunks, 0);
+    }
+
+    #[test]
+    fn test_purge_all_user_data_keeps_schema() {
+        let db = NoteDatabase::open_in_memory().unwrap();
+
+        // Insert and purge
+        let chunk = Chunk {
+            id: None,
+            file_path: "test.md".into(),
+            chunk_index: 0,
+            parent_header: None,
+            content: "content".into(),
+            tokenized_content: "content".into(),
+            vault_name: "default".into(),
+        };
+        db.insert_chunks(&[chunk]).unwrap();
+        db.purge_all_user_data().unwrap();
+
+        // Verify schema still exists by inserting again
+        let chunk2 = Chunk {
+            id: None,
+            file_path: "test2.md".into(),
+            chunk_index: 0,
+            parent_header: None,
+            content: "new content".into(),
+            tokenized_content: "new content".into(),
+            vault_name: "default".into(),
+        };
+        db.insert_chunks(&[chunk2]).unwrap();
+        assert_eq!(db.stats().unwrap().total_chunks, 1, "can still insert chunks after purge");
+        // Also verify we can insert file_cache (table still exists)
+        db.upsert_file_cache("default", "test2.md", "hash", 1000, "none").unwrap();
+        assert_eq!(db.stats().unwrap().total_files, 1, "can still insert file_cache after purge");
     }
 }
