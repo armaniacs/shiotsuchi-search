@@ -3,7 +3,7 @@ use rusqlite::Connection;
 
 mod v02;
 mod v03;
-mod v04;
+pub mod v04;
 mod v05;
 mod v06;
 mod v07;

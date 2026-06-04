@@ -155,7 +155,7 @@ pub fn search(
         return Ok(vec![]);
     }
 
-    let effective_mode = if req.embedder.is_none() && matches!(req.mode, SearchMode::Hybrid) {
+    let mut effective_mode = if req.embedder.is_none() && matches!(req.mode, SearchMode::Hybrid) {
         SearchMode::Fts
     } else {
         req.mode.clone()
@@ -201,7 +201,14 @@ pub fn search(
         SearchMode::Hybrid => {
             let emb_vec = precomputed_embedding.as_deref()
                 .ok_or_else(|| DbError::Other("Hybrid mode requires embedder — model not loaded".into()))?;
-            search_hybrid(db, tokenizer, emb_vec, req.query, req.limit, vec_fetch_limit, req.min_score, req.vault_filter, req.tag_filter, req.since_date, req.user_dictionary, req.synonyms, req.fuzzy, req.hybrid_alpha, include_embeddings)?
+            match search_hybrid(db, tokenizer, emb_vec, req.query, req.limit, vec_fetch_limit, req.min_score, req.vault_filter, req.tag_filter, req.since_date, req.user_dictionary, req.synonyms, req.fuzzy, req.hybrid_alpha, include_embeddings) {
+                Ok(result) => result,
+                Err(e) => {
+                    log::warn!("Hybrid search vec component failed ({}), falling back to FTS only", e);
+                    effective_mode = SearchMode::Fts;
+                    (search_fts(db, tokenizer, req.query, req.limit, req.min_score, req.vault_filter, req.tag_filter, req.since_date, req.user_dictionary, req.synonyms, req.fuzzy)?, HashMap::new())
+                }
+            }
         }
     };
 
@@ -1292,13 +1299,61 @@ mod tests {
 
     #[test]
     fn test_search_hybrid_mode_without_embedder_falls_back_to_fts() {
-        let db = crate::db::NoteDatabase::open_in_memory().unwrap();
+        let db = NoteDatabase::open_in_memory().unwrap();
         let tokenizer = match JapaneseTokenizer::new(crate::tokenizer::TokenizerConfig::default()) {
             Ok(tok) => tok,
             Err(_) => return,
         };
         let result = search(&db, &tokenizer, &req("test", 10, SearchMode::Hybrid));
         assert!(result.is_ok(), "Hybrid without embedder should fall back to FTS, got error");
+    }
+
+    #[test]
+    fn test_search_hybrid_embedder_vec_failure_falls_back_to_fts() {
+        let db = NoteDatabase::open_in_memory().unwrap();
+        let tokenizer = match JapaneseTokenizer::new(crate::tokenizer::TokenizerConfig::default()) {
+            Ok(tok) => tok,
+            Err(_) => return,
+        };
+
+        let chunks = vec![
+            Chunk {
+                id: None, file_path: "a.md".into(), chunk_index: 0,
+                parent_header: None, content: "hello world".into(),
+                tokenized_content: "hello world".into(),
+                vault_name: "default".to_string(),
+                tags: String::new(), frontmatter_date: String::new(),
+                title: String::new(), emphasized_text: String::new(),
+            },
+        ];
+        db.insert_chunks(&chunks).unwrap();
+
+        db.write_conn.borrow().execute_batch("DROP TABLE vec_chunks").unwrap();
+
+        let embedder = crate::embedder::Embedder::for_testing();
+        let req = SearchRequest {
+            query: "hello",
+            limit: 10,
+            mode: SearchMode::Hybrid,
+            embedder: Some(&embedder),
+            min_score: None,
+            vault_filter: None,
+            tag_filter: None,
+            since_date: None,
+            user_dictionary: &[],
+            synonyms: &HashMap::new(),
+            fuzzy: false,
+            hybrid_alpha: None,
+            mmr: false,
+            lambda: 0.5,
+            backlink_scoring: false,
+        };
+        let result = search(&db, &tokenizer, &req);
+        assert!(result.is_ok(), "Hybrid with failing vec search should fall back to FTS, got error: {:?}", result.err());
+        let results = result.unwrap();
+        assert!(!results.is_empty(), "FTS fallback should return results for 'hello'");
+        assert!(results.iter().all(|r| r.search_mode == SearchMode::Fts),
+            "after fallback all results should be FTS mode");
     }
 
     #[test]

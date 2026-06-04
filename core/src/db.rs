@@ -464,6 +464,16 @@ impl NoteDatabase {
         Ok(())
     }
 
+    /// Delete vec_chunks entries that reference chunk_ids not present in the chunks table.
+    /// Returns the number of orphaned entries deleted.
+    pub fn delete_orphaned_embeddings(&self) -> Result<usize, DbError> {
+        let deleted = self.write_conn.borrow().execute(
+            "DELETE FROM vec_chunks WHERE chunk_id NOT IN (SELECT id FROM chunks)",
+            [],
+        )?;
+        Ok(deleted)
+    }
+
     /// Delete all data for a single file atomically:
     /// Purge files older than retention_days from each vault.
     /// Takes a map of vault_name -> retention_days and deletes expired entries.
@@ -1793,5 +1803,42 @@ mod tests {
         // Also verify we can insert file_cache (table still exists)
         db.upsert_file_cache("default", "test2.md", "hash", 1000, "none", 0, 0, None).unwrap();
         assert_eq!(db.stats().unwrap().total_files, 1, "can still insert file_cache after purge");
+    }
+
+    #[test]
+    fn test_delete_orphaned_embeddings() {
+        let db = NoteDatabase::open_in_memory().unwrap();
+        let chunks = vec![Chunk {
+            id: None,
+            file_path: "a.md".into(),
+            chunk_index: 0,
+            parent_header: None,
+            content: "test".into(),
+            tokenized_content: "test".into(),
+            vault_name: "default".to_string(),
+            tags: String::new(),
+            frontmatter_date: String::new(),
+            title: String::new(),
+            emphasized_text: String::new(),
+        }];
+        let ids = db.insert_chunks(&chunks).unwrap();
+        let chunk_id = ids[0];
+
+        db.insert_embeddings(&[(chunk_id, vec![0.1; 1024])]).unwrap();
+
+        db.write_conn.borrow().execute("DELETE FROM chunks WHERE id = ?1", [chunk_id]).unwrap();
+
+        let count: i64 = db.write_conn.borrow().query_row(
+            "SELECT COUNT(*) FROM vec_chunks WHERE chunk_id = ?1", [chunk_id], |r| r.get(0),
+        ).unwrap();
+        assert_eq!(count, 1, "orphaned embedding should exist before cleanup");
+
+        let deleted = db.delete_orphaned_embeddings().unwrap();
+        assert_eq!(deleted, 1);
+
+        let count: i64 = db.write_conn.borrow().query_row(
+            "SELECT COUNT(*) FROM vec_chunks WHERE chunk_id = ?1", [chunk_id], |r| r.get(0),
+        ).unwrap();
+        assert_eq!(count, 0);
     }
 }

@@ -310,7 +310,20 @@ Progress is cumulative: `(processed_so_far, total_across_all_vaults)`.
 | v10 | Added `char_count` column to `file_cache` and `tag_counts` table for O(1) stats |
 | v11 | Added `vlm_hash` column to `file_cache` for VLM extraction caching |
 
-The v2→v3 migration is crash-safe: it checks for the column before adding it, and wraps the full migration in a transaction. Migrations v8→v9, v9→v10, and v10→v11 are also wrapped in transactions.
+The v2→v3 migration is crash-safe: it checks for the column before adding it, and wraps the full migration in a transaction. Migrations v4→v4 (vec_chunks recreation), v8→v9, v9→v10, and v10→v11 are also wrapped in transactions.
+
+## Virtual Table Integrity Management
+
+FTS5 and vec0 virtual tables do not support SQLite foreign key constraints. This means there is no automatic cascading delete when rows are removed from the backing `chunks` table. The application layer must manually manage consistency across all three tables (`chunks`, `fts_chunks`, `vec_chunks`).
+
+`delete_file_fully()` in `core/src/db.rs` is the canonical method for atomic multi-table deletion. It:
+
+1. Decrements `tag_counts` for the file's tags
+2. Collects chunk IDs, then deletes corresponding rows from `fts_chunks` and `vec_chunks`
+3. Deletes from `chunks`, `tasks`, `file_cache`, and `note_links`
+4. All within a single SQLite transaction
+
+The v04 migration (which drops and recreates `vec_chunks` to switch to `FLOAT` type) is wrapped in a transaction to ensure crash consistency — if the process is killed mid-migration, neither the DROP nor the CREATE will persist.
 
 ## Testing Strategy
 
