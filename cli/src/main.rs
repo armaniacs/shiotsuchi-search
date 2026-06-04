@@ -181,9 +181,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some(Commands::CheckIgnore(args)) => {
             commands::check_ignore::run_check_ignore(&args, &resolved_vaults)?;
         }
-        Some(Commands::Clean(_args)) => {
-            commands::clean::run_clean(&resolved_vaults, &db_path, &cfg.indexing, &cfg.vlm)?;
-        }
         Some(Commands::Dive(args)) => {
             if !db_path.exists() {
                 eprintln!("{}", crate::messages::ERR_DB_NOT_FOUND);

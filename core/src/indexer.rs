@@ -491,7 +491,9 @@ pub fn index_file_with_embedder(p: &IndexParams<'_>) -> IndexResult {
                 use crate::config::VlmConfig;
                 let vlm_config = VlmConfig {
                     enabled: true,
+                    consent_obtained: true,
                     provider: config.vlm_provider.clone(),
+                    endpoint: None,
                     model: config.vlm_model.clone(),
                     max_pages_per_doc: config.vlm_max_pages_per_doc,
                 };

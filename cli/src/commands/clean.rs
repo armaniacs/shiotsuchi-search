@@ -100,7 +100,7 @@ pub fn run_clean(
         }
 
         let theme = crate::util::dialoguer_theme();
-        let confirmed = dialoguer::Confirm::with_theme(&theme)
+        let confirmed = dialoguer::Confirm::with_theme(&*theme)
             .with_prompt("WARNING: This will delete ALL indexed data for ALL vaults. Continue?")
             .default(false)
             .interact()?;

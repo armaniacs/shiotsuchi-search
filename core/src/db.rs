@@ -796,29 +796,6 @@ impl NoteDatabase {
     }
 
     /// Delete all data for a single file atomically:
-    /// - Deletes chunks + fts_chunks entries
-    /// - Deletes vec_chunks entries for the file's chunks
-    /// - Deletes file_cache entry
-    /// - Deletes note_links entries (both source and target)
-    /// - Deletes tasks entries for this file
-    /// - Updates tag_counts (decrements counts for tags in this file)
-    ///
-    /// This is the complete file deletion operation needed for purge operations.
-    pub fn delete_file_fully(&self, vault_name: &str, file_path: &str) -> Result<(), DbError> {
-        self.delete_chunks_for_file(vault_name, file_path)?;
-        self.delete_file_cache(vault_name, file_path)?;
-
-        // Clean up associated metadata
-        // These deletes are best-effort: the tables may not exist in older schema versions.
-        let conn = self.write_conn.borrow();
-        let _ = conn.execute("DELETE FROM tasks WHERE vault_name = ?1 AND file_path = ?2",
-            params![vault_name, file_path]);
-        let _ = conn.execute("DELETE FROM note_links WHERE vault_name = ?1 AND (source_path = ?2 OR target_path = ?2)",
-            params![vault_name, file_path]);
-
-        Ok(())
-    }
-
     /// Purge files older than retention_days from each vault.
     /// Takes a map of vault_name -> retention_days and deletes expired entries.
     /// Returns the number of files purged.

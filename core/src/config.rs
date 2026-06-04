@@ -3,6 +3,10 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+fn is_false(b: &bool) -> bool {
+    !b
+}
+
 /// Embedding provider configuration.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(tag = "provider", rename_all = "kebab-case")]
@@ -247,9 +251,15 @@ impl Default for ServerConfig {
 pub struct VlmConfig {
     /// Enable VLM-based extraction. When false, all VLM features are skipped (even if API key is set).
     pub enabled: bool,
+    /// Whether the user has consented to sending data to the VLM provider.
+    /// Once granted, consent is persisted in config.toml.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub consent_obtained: bool,
     /// VLM provider name (e.g., "openai", "anthropic", "bedrock", "gemini", "ollama").
     /// Default: "openai"
     pub provider: String,
+    /// Explicit endpoint URL override. When empty, the provider's default URL is used.
+    pub endpoint: Option<String>,
     /// Model name to use (e.g., "gpt-4.1-nano", "claude-sonnet-4-20250514").
     /// Default: "gpt-4.1-nano"
     pub model: String,
@@ -261,10 +271,31 @@ impl Default for VlmConfig {
     fn default() -> Self {
         Self {
             enabled: false,
+            consent_obtained: false,
             provider: "openai".to_string(),
+            endpoint: None,
             model: "gpt-4.1-nano".to_string(),
             max_pages_per_doc: None,
         }
+    }
+}
+
+impl VlmConfig {
+    /// Resolve the endpoint URL for this VLM configuration.
+    /// Returns the explicitly configured endpoint, or the provider's default.
+    pub fn resolved_endpoint(&self) -> String {
+        self.endpoint.clone().unwrap_or_else(|| resolved_vlm_endpoint_for_provider(&self.provider))
+    }
+}
+
+fn resolved_vlm_endpoint_for_provider(provider: &str) -> String {
+    match provider {
+        "openai" => "https://api.openai.com/v1".to_string(),
+        "anthropic" => "https://api.anthropic.com/v1".to_string(),
+        "ollama" => "http://localhost:11434".to_string(),
+        "bedrock" => "https://bedrock-runtime.us-east-1.amazonaws.com".to_string(),
+        "gemini" => "https://generativelanguage.googleapis.com/v1beta".to_string(),
+        _ => format!("https://{}.example.com/v1", provider),
     }
 }
 
@@ -400,6 +431,23 @@ impl ShiotsuchiConfig {
         let content = std::fs::read_to_string(path)?;
         let syns: HashMap<String, Vec<String>> = toml::from_str(&content)?;
         Ok(syns)
+    }
+
+    /// Save this config to a TOML file with restricted permissions (0o600 on Unix).
+    pub fn save_to(&self, path: &Path) -> Result<(), Box<dyn std::error::Error>> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let toml_str = toml::to_string_pretty(self)?;
+        let tmp_path = path.with_extension("toml.tmp");
+        std::fs::write(&tmp_path, toml_str)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&tmp_path, std::fs::Permissions::from_mode(0o600))?;
+        }
+        std::fs::rename(&tmp_path, path)?;
+        Ok(())
     }
 }
 
