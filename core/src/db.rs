@@ -277,7 +277,8 @@ impl NoteDatabase {
     }
 
     /// Upsert file_cache entry.
-    pub fn upsert_file_cache(
+    #[allow(dead_code)]
+    pub(crate) fn upsert_file_cache(
         &self,
         vault_name: &str,
         path: &str,
@@ -293,6 +294,20 @@ impl NoteDatabase {
             params![vault_name, path, hash, mtime, model_id],
         )?;
         Ok(())
+    }
+
+    /// Public accessor for integration tests only.
+    /// Production callers should use `reindex_file` or other public APIs.
+    #[doc(hidden)]
+    pub fn upsert_file_cache_for_tests(
+        &self,
+        vault_name: &str,
+        path: &str,
+        hash: &str,
+        mtime: i64,
+        model_id: &str,
+    ) -> Result<(), DbError> {
+        self.upsert_file_cache(vault_name, path, hash, mtime, model_id)
     }
 
     /// Reindex a single file: delete old chunks and insert new ones in a single transaction.
