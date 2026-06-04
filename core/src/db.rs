@@ -437,7 +437,7 @@ impl NoteDatabase {
         let count = self
             .write_conn
             .borrow()
-            .execute("UPDATE file_cache SET vlm_hash = NULL, mtime = 0 WHERE vlm_hash IS NOT NULL", [])?;
+            .execute("UPDATE file_cache SET vlm_hash = NULL WHERE vlm_hash IS NOT NULL", [])?;
         Ok(count)
     }
 
@@ -475,12 +475,12 @@ impl NoteDatabase {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
-            .as_secs() as i64;
+            .as_millis() as i64;
 
         let mut total_purged = 0;
 
         for (vault_name, days) in retention_days {
-            let cutoff_mtime = now - (*days as i64 * 86400);
+            let cutoff_mtime = now - (*days as i64 * 86_400_000);
 
             let paths_to_purge: Vec<String> = {
                 let conn = self.write_conn.borrow();
@@ -511,13 +511,13 @@ impl NoteDatabase {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
-            .as_secs() as i64;
+            .as_millis() as i64;
 
         let mut total = 0;
         let conn = self.write_conn.borrow();
 
         for (vault_name, days) in retention_days {
-            let cutoff_mtime = now - (*days as i64 * 86400);
+            let cutoff_mtime = now - (*days as i64 * 86_400_000);
             let count: i64 = conn.query_row(
                 "SELECT COUNT(*) FROM file_cache WHERE vault_name = ?1 AND mtime < ?2",
                 params![vault_name, cutoff_mtime],
@@ -813,63 +813,6 @@ impl NoteDatabase {
         rows.collect::<SqliteResult<Vec<_>>>().map_err(DbError::Sqlite)
     }
 
-    /// Insert note_links for a source file atomically.
-    /// The caller is responsible for deleting old links first.
-    pub fn insert_note_links(
-        &self,
-        source_path: &str,
-        vault_name: &str,
-        targets: &[String],
-    ) -> Result<(), DbError> {
-        let mut conn = self.write_conn.borrow_mut();
-        let tx = conn.transaction()?;
-        for target in targets {
-            tx.execute(
-                "INSERT OR IGNORE INTO note_links (source_path, target_path, vault_name) VALUES (?1, ?2, ?3)",
-                params![source_path, target, vault_name],
-            )?;
-        }
-        tx.commit()?;
-        Ok(())
-    }
-
-    /// Delete all note_links originating from a given source file in a vault.
-    pub fn delete_note_links_for_source(
-        &self,
-        source_path: &str,
-        vault_name: &str,
-    ) -> Result<(), DbError> {
-        self.write_conn.borrow().execute(
-            "DELETE FROM note_links WHERE source_path = ?1 AND vault_name = ?2",
-            params![source_path, vault_name],
-        )?;
-        Ok(())
-    }
-
-    /// Atomically replace all note_links for a source file: delete old links and insert new ones
-    /// in a single transaction. This avoids the crash-consistency gap between separate delete+insert.
-    pub fn replace_note_links(
-        &self,
-        source_path: &str,
-        vault_name: &str,
-        targets: &[String],
-    ) -> Result<(), DbError> {
-        let mut conn = self.write_conn.borrow_mut();
-        let tx = conn.transaction()?;
-        tx.execute(
-            "DELETE FROM note_links WHERE source_path = ?1 AND vault_name = ?2",
-            params![source_path, vault_name],
-        )?;
-        for target in targets {
-            tx.execute(
-                "INSERT OR IGNORE INTO note_links (source_path, target_path, vault_name) VALUES (?1, ?2, ?3)",
-                params![source_path, target, vault_name],
-            )?;
-        }
-        tx.commit()?;
-        Ok(())
-    }
-
     /// Recalculate backlink_count for all files in a vault based on note_links.
     pub fn update_backlink_counts_for_vault(&self, vault_name: &str) -> Result<(), DbError> {
         let conn = self.write_conn.borrow();
@@ -980,33 +923,6 @@ impl NoteDatabase {
             total_chars: total_chars as usize,
             top_tags,
         })
-    }
-
-    /// Insert tasks for a file (deletes old tasks for the same file first).
-    pub fn insert_tasks(&self, vault_name: &str, file_path: &str, tasks: &[Task]) -> Result<(), DbError> {
-        let mut conn = self.write_conn.borrow_mut();
-        let tx = conn.transaction()?;
-        tx.execute(
-            "DELETE FROM tasks WHERE vault_name = ?1 AND file_path = ?2",
-            params![vault_name, file_path],
-        )?;
-        for task in tasks {
-            tx.execute(
-                "INSERT INTO tasks (vault_name, file_path, content, checked, line_number) VALUES (?1, ?2, ?3, ?4, ?5)",
-                params![task.vault_name, task.file_path, task.content, task.checked as i32, task.line_number as i64],
-            )?;
-        }
-        tx.commit()?;
-        Ok(())
-    }
-
-    /// Delete all tasks for a file path.
-    pub fn delete_tasks_for_file(&self, vault_name: &str, file_path: &str) -> Result<(), DbError> {
-        self.write_conn.borrow().execute(
-            "DELETE FROM tasks WHERE vault_name = ?1 AND file_path = ?2",
-            params![vault_name, file_path],
-        )?;
-        Ok(())
     }
 
     /// Query tasks with optional keyword filter and checked-state filter.
@@ -1731,11 +1647,11 @@ mod tests {
     // ── Backlink / note_links tests ──────────────────────────────────
     // ── purge_expired tests ───────────────────────────────────────────────
 
-    fn now_secs() -> i64 {
+    fn now_millis() -> i64 {
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
-            .as_secs() as i64
+            .as_millis() as i64
     }
 
     fn insert_test_file(db: &NoteDatabase, vault_name: &str, file_path: &str, content: &str, mtime: i64) {
@@ -1759,9 +1675,9 @@ mod tests {
     #[test]
     fn test_purge_expired_removes_old_files() {
         let db = NoteDatabase::open_in_memory().unwrap();
-        let now = now_secs();
-        let old_mtime = now - (100 * 86400);
-        let recent_mtime = now - (10 * 86400);
+        let now = now_millis();
+        let old_mtime = now - (100 * 86_400_000);
+        let recent_mtime = now - (10 * 86_400_000);
 
         insert_test_file(&db, "default", "old.md", "old content", old_mtime);
         insert_test_file(&db, "default", "recent.md", "recent content", recent_mtime);
@@ -1778,8 +1694,8 @@ mod tests {
     #[test]
     fn test_purge_expired_keeps_recent_files() {
         let db = NoteDatabase::open_in_memory().unwrap();
-        let now = now_secs();
-        let recent_mtime = now - (10 * 86400);
+        let now = now_millis();
+        let recent_mtime = now - (10 * 86_400_000);
 
         insert_test_file(&db, "default", "recent.md", "recent content", recent_mtime);
 
@@ -1794,7 +1710,7 @@ mod tests {
     #[test]
     fn test_purge_expired_no_config_is_noop() {
         let db = NoteDatabase::open_in_memory().unwrap();
-        let now = now_secs();
+        let now = now_millis();
 
         insert_test_file(&db, "default", "test.md", "content", now);
 
@@ -1808,8 +1724,8 @@ mod tests {
     #[test]
     fn test_purge_expired_per_vault() {
         let db = NoteDatabase::open_in_memory().unwrap();
-        let now = now_secs();
-        let old_mtime = now - (100 * 86400);
+        let now = now_millis();
+        let old_mtime = now - (100 * 86_400_000);
 
         insert_test_file(&db, "default", "vault1.md", "content", old_mtime);
         insert_test_file(&db, "other", "vault2.md", "content", old_mtime);
@@ -1828,7 +1744,7 @@ mod tests {
     #[test]
     fn test_purge_all_user_data_clears_all_tables() {
         let db = NoteDatabase::open_in_memory().unwrap();
-        let now = now_secs();
+        let now = now_millis();
 
         insert_test_file(&db, "default", "test.md", "content", now);
 

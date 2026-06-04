@@ -1,5 +1,6 @@
 use crate::config::ShiotsuchiConfig;
 use crate::db::NoteDatabase;
+use crate::rate_limiter::SlidingWindowRateLimiter;
 use crate::search::SearchRequest;
 use crate::sensitive::SensitiveDataConfig;
 use crate::server::types::*;
@@ -10,28 +11,15 @@ use axum::middleware::Next;
 use axum::response::Response;
 use axum::routing::get;
 use axum::{Json, Router};
-use std::collections::{HashMap, VecDeque};
-use std::sync::{Arc, LazyLock, Mutex};
-use std::time::Instant;
+use std::collections::HashMap;
+use std::sync::{Arc, LazyLock};
 
-static HTTP_RATE_LIMITER: LazyLock<Mutex<VecDeque<Instant>>> = LazyLock::new(|| {
-    Mutex::new(VecDeque::new())
-});
+static HTTP_RATE_LIMITER: LazyLock<SlidingWindowRateLimiter> = LazyLock::new(|| SlidingWindowRateLimiter::new(30));
 
 fn check_rate_limit() -> Result<(), ApiError> {
-    let mut timestamps = HTTP_RATE_LIMITER.lock().unwrap_or_else(|e| e.into_inner());
-    let now = Instant::now();
-    while let Some(&t) = timestamps.front() {
-        if t.elapsed().as_secs_f64() > 1.0 {
-            timestamps.pop_front();
-        } else {
-            break;
-        }
-    }
-    if timestamps.len() >= 30 {
+    if !HTTP_RATE_LIMITER.allow() {
         return Err(ApiError::TooManyRequests("rate limit exceeded: 30 req/s".to_string()));
     }
-    timestamps.push_back(now);
     Ok(())
 }
 
@@ -122,6 +110,9 @@ pub async fn handle_search(
     let db = state.db.lock().await;
 
     let results = if let Some(tokenizer) = &state.tokenizer {
+        let backlink_scoring = state.config.as_ref()
+            .map(|c| c.indexing.backlink_scoring)
+            .unwrap_or(true);
         let request = SearchRequest {
             query: &query,
             limit: params.limit,
@@ -136,8 +127,8 @@ pub async fn handle_search(
             fuzzy: false,
             hybrid_alpha: state.hybrid_alpha,
             mmr: false,
-            lambda: 0.7,
-            backlink_scoring: false,
+            lambda: 0.5,
+            backlink_scoring,
         };
         crate::search::search(&db, tokenizer, &request)
             .map_err(|e| ApiError::Internal(format!("search failed: {}", e)))?
@@ -209,10 +200,13 @@ pub async fn handle_list(
     let limit = params.limit.min(200); // cap at 200
 
     let mut all_files = Vec::new();
+    let mut total = 0usize;
     let db = state.db.lock().await;
     for (vault_name, _vault_path) in config.resolved_vaults() {
         match db.list_cached_paths(&vault_name) {
             Ok(paths) => {
+                total += paths.len();
+                // Only collect files we might need: skip already-passed + current page + buffer
                 for path in paths {
                     all_files.push(FileItem {
                         path,
@@ -225,7 +219,6 @@ pub async fn handle_list(
             }
         }
     }
-    let total = all_files.len();
     let files: Vec<FileItem> = all_files.into_iter().skip(offset).take(limit).collect();
     let count = files.len();
     Ok(Json(serde_json::json!({
@@ -305,11 +298,9 @@ pub async fn handle_read(
 }
 
 /// Constant-time string comparison to prevent timing side-channel attacks.
+/// Always compares all bytes regardless of length to avoid leaking key length.
 fn constant_time_eq(a: &str, b: &str) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
-    let mut result = 0u8;
+    let mut result = (a.len() != b.len()) as u8;
     for (ca, cb) in a.bytes().zip(b.bytes()) {
         result |= ca ^ cb;
     }

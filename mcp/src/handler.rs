@@ -2,51 +2,24 @@ use serde_json::{json, Value};
 use shiotsuchi_core::{
     db::NoteDatabase,
     models::SearchMode,
+    rate_limiter::SlidingWindowRateLimiter,
     search::{extract_snippet, search, SearchRequest},
     sensitive::SensitiveDataConfig,
     tokenizer::get_tokenizer,
 };
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
-use std::sync::Mutex;
-use std::time::Instant;
 
-/// Sliding-window rate limiter: allows up to `max_per_second` requests
-/// in any rolling 1-second window. Uses a VecDeque of timestamps to
-/// avoid burst violations at fixed-second boundaries.
-pub struct RateLimiter {
-    max_per_second: usize,
-    inner: Mutex<VecDeque<Instant>>,
+static SEARCH_RATE_LIMITER: LazyLock<SlidingWindowRateLimiter> = LazyLock::new(|| SlidingWindowRateLimiter::new(10));
+
+/// Shared context passed to all tool handlers.
+pub(crate) struct ToolContext<'a> {
+    pub vaults: &'a [(String, PathBuf)],
+    pub db_path: &'a Path,
+    pub backlink_scoring: bool,
+    pub sensitive_config: Option<&'a SensitiveDataConfig>,
 }
-
-impl RateLimiter {
-    pub fn new(max_per_second: usize) -> Self {
-        Self {
-            max_per_second,
-            inner: Mutex::new(VecDeque::new()),
-        }
-    }
-
-    /// Sliding-window rate limiter: allows up to `max_per_second` requests
-    /// in any rolling 1-second window, preventing burst violations at
-    /// fixed-second boundaries.
-    pub fn allow(&self) -> bool {
-        let mut timestamps = self.inner.lock().unwrap_or_else(|e| e.into_inner());
-        let now = Instant::now();
-        // Remove timestamps older than 1 second
-        while timestamps.front().is_some_and(|t| now.duration_since(*t).as_secs() >= 1) {
-            timestamps.pop_front();
-        }
-        if timestamps.len() >= self.max_per_second {
-            return false;
-        }
-        timestamps.push_back(now);
-        true
-    }
-}
-
-static SEARCH_RATE_LIMITER: LazyLock<RateLimiter> = LazyLock::new(|| RateLimiter::new(10));
 
 fn format_results_markdown(results: &[shiotsuchi_core::models::ChunkSearchResult], query: &str) -> String {
     if results.is_empty() {
@@ -71,6 +44,164 @@ fn format_results_markdown(results: &[shiotsuchi_core::models::ChunkSearchResult
     out
 }
 
+/// Handle the `search_local_notes` MCP tool.
+pub(crate) fn handle_search_local_notes(
+    ctx: &ToolContext<'_>,
+    args: &Value,
+) -> Result<Value, Box<dyn std::error::Error>> {
+    let query = args["query"].as_str().unwrap_or("").to_string();
+    if query.len() > 500 {
+        return Ok(json!({
+            "content": [{"type": "text", "text": "Query too long (max 500 characters)."}],
+            "isError": true
+        }));
+    }
+    let limit = args["limit"].as_u64().unwrap_or(10).min(50) as usize;
+    let mode_str = args["mode"].as_str().unwrap_or("hybrid");
+    let min_score = args["min_score"].as_f64();
+    let vault_filter = args["vault"].as_str();
+
+    // Validate vault filter against known vaults
+    if let Some(vf) = vault_filter {
+        if !ctx.vaults.iter().any(|(name, _)| name == vf) {
+            let known: Vec<&str> = ctx.vaults.iter().map(|(n, _)| n.as_str()).collect();
+            return Ok(json!({
+                "content": [{"type": "text", "text": format!(
+                    "vault '{}' is not defined in config. Available vaults: {}",
+                    vf,
+                    known.join(", ")
+                )}],
+                "isError": true
+            }));
+        }
+    }
+
+    // MCP server runs without an embedder. Return a guidance message for vec-only mode.
+    // hybrid and fts both work — search() auto-falls-back to Fts when embedder is None.
+    if mode_str == "vec" {
+        return Ok(json!({
+            "content": [{
+                "type": "text",
+                "text": "Vector search requires a model. Use mode='fts' or run 'shiotsuchi setup' to configure an embedder."
+            }]
+        }));
+    }
+
+    let mode = if mode_str == "fts" { SearchMode::Fts } else { SearchMode::Hybrid };
+
+    if !SEARCH_RATE_LIMITER.allow() {
+        return Ok(json!({
+            "content": [{
+                "type": "text",
+                "text": "Rate limit exceeded. Maximum 10 searches per second. Please wait before trying again."
+            }],
+            "isError": true
+        }));
+    }
+
+    // Validate vault dir is reachable (path traversal check).
+    // Strip absolute path from error to avoid internal path disclosure.
+    if let Some((_, notes_dir)) = ctx.vaults.first() {
+        let _canonical_vault = notes_dir.canonicalize()
+            .map_err(|_| "Vault directory is not accessible or does not exist")?;
+    }
+
+    let db = NoteDatabase::open(ctx.db_path)?;
+    let tokenizer = match get_tokenizer() {
+        Ok(t) => t,
+        Err(_) => return Ok(json!({
+            "content": [{"type": "text", "text": "Full-text search requires a tokenizer model. Run 'shiotsuchi setup' to configure one, or set SHIOTSUCHI_MODEL_PATH."}]
+        })),
+    };
+    let request = SearchRequest {
+        query: &query,
+        limit,
+        mode,
+        embedder: None,
+        min_score,
+        vault_filter,
+        tag_filter: None,
+        since_date: None,
+        user_dictionary: &[],
+        synonyms: &HashMap::new(),
+        fuzzy: false,
+        hybrid_alpha: None,
+        mmr: false,
+        lambda: 0.5,
+        backlink_scoring: ctx.backlink_scoring,
+    };
+    let results = search(&db, &tokenizer, &request)?;
+
+    let markdown = format_results_markdown(&results, &query);
+    let masked = shiotsuchi_core::sensitive::mask_sensitive_data(&markdown, ctx.sensitive_config);
+    Ok(json!({
+        "content": [{"type": "text", "text": masked}]
+    }))
+}
+
+/// Handle the `get_surrounding_context` MCP tool.
+pub(crate) fn handle_get_surrounding_context(
+    ctx: &ToolContext<'_>,
+    args: &Value,
+) -> Result<Value, Box<dyn std::error::Error>> {
+    let chunk_id = args["chunk_id"].as_i64()
+        .ok_or("chunk_id must be an integer")?;
+    let window = args["window"].as_u64().unwrap_or(2).min(5) as usize;
+
+    let db = NoteDatabase::open(ctx.db_path)?;
+    // Validate that the chunk belongs to a known vault
+    let chunk_vault = db.get_chunk_vault_name(chunk_id)?
+        .ok_or("chunk not found")?;
+    if !ctx.vaults.iter().any(|(name, _)| name == &chunk_vault) {
+        return Err("chunk vault is not configured in this server".into());
+    }
+    let chunks = db.get_surrounding_chunks(chunk_id, window)?;
+
+    const MAX_CHARS: usize = 100_000;
+    let mut out = String::with_capacity(MAX_CHARS.min(4096));
+    out.push_str(&format!("### Context around chunk {} ###\n\n", chunk_id));
+    for c in &chunks {
+        if out.len() >= MAX_CHARS {
+            out.push_str("\n**... (truncated due to size)**\n");
+            break;
+        }
+        let marker = if c.id == Some(chunk_id) { "**[SELECTED]** " } else { "" };
+        let header = c.parent_header.as_deref().unwrap_or("(top level)");
+        let content = if out.len() + c.content.len() > MAX_CHARS {
+            let remaining = MAX_CHARS.saturating_sub(out.len());
+            c.content.chars().take(remaining).collect::<String>()
+        } else {
+            c.content.clone()
+        };
+        out.push_str(&format!("## {}Source: {} > {}\n\n{}\n\n---\n\n",
+            marker, c.file_path, header, content));
+    }
+
+    let masked_out = shiotsuchi_core::sensitive::mask_sensitive_data(&out, ctx.sensitive_config);
+    Ok(json!({
+        "content": [{"type": "text", "text": masked_out}]
+    }))
+}
+
+/// Handle the `index_status` MCP tool.
+pub(crate) fn handle_index_status(
+    ctx: &ToolContext<'_>,
+    _args: &Value,
+) -> Result<Value, Box<dyn std::error::Error>> {
+    let db = NoteDatabase::open(ctx.db_path)?;
+    let stats = db.stats()?;
+    let text = format!(
+        "Indexed files: {}\nTotal chunks: {}\nVector-indexed chunks: {}\nDB size: {:.1} MB\n\
+         Note: this status may be slightly stale if background indexing is running.",
+        stats.total_files,
+        stats.total_chunks,
+        stats.vec_indexed_chunks,
+        stats.total_size_bytes as f64 / 1_048_576.0
+    );
+    Ok(json!({"content": [{"type": "text", "text": text}]}))
+}
+
+/// Dispatch a tool call to the appropriate handler.
 pub fn call_tool(
     name: &str,
     args: &Value,
@@ -79,152 +210,16 @@ pub fn call_tool(
     backlink_scoring: bool,
     sensitive_config: Option<&SensitiveDataConfig>,
 ) -> Result<Value, Box<dyn std::error::Error>> {
+    let ctx = ToolContext {
+        vaults,
+        db_path,
+        backlink_scoring,
+        sensitive_config,
+    };
     match name {
-        "search_local_notes" => {
-            let query = args["query"].as_str().unwrap_or("").to_string();
-            if query.len() > 500 {
-                return Ok(json!({
-                    "content": [{"type": "text", "text": "Query too long (max 500 characters)."}],
-                    "isError": true
-                }));
-            }
-            let limit = args["limit"].as_u64().unwrap_or(10).min(50) as usize;
-            let mode_str = args["mode"].as_str().unwrap_or("hybrid");
-            let min_score = args["min_score"].as_f64();
-            let vault_filter = args["vault"].as_str();
-
-            // Validate vault filter against known vaults
-            if let Some(vf) = vault_filter {
-                if !vaults.iter().any(|(name, _)| name == vf) {
-                    let known: Vec<&str> = vaults.iter().map(|(n, _)| n.as_str()).collect();
-                    return Ok(json!({
-                        "content": [{"type": "text", "text": format!(
-                            "vault '{}' is not defined in config. Available vaults: {}",
-                            vf,
-                            known.join(", ")
-                        )}],
-                        "isError": true
-                    }));
-                }
-            }
-
-            // MCP server runs without an embedder. Return a guidance message for vec-only mode.
-            // hybrid and fts both work — search() auto-falls-back to Fts when embedder is None.
-            if mode_str == "vec" {
-                return Ok(json!({
-                    "content": [{
-                        "type": "text",
-                        "text": "Vector search requires a model. Use mode='fts' or run 'shiotsuchi setup' to configure an embedder."
-                    }]
-                }));
-            }
-
-            let mode = if mode_str == "fts" { SearchMode::Fts } else { SearchMode::Hybrid };
-
-            if !SEARCH_RATE_LIMITER.allow() {
-                return Ok(json!({
-                    "content": [{
-                        "type": "text",
-                        "text": "Rate limit exceeded. Maximum 10 searches per second. Please wait before trying again."
-                    }],
-                    "isError": true
-                }));
-            }
-
-            // Validate vault dir is reachable (path traversal check).
-            // Strip absolute path from error to avoid internal path disclosure.
-            if let Some((_, notes_dir)) = vaults.first() {
-                let _canonical_vault = notes_dir.canonicalize()
-                    .map_err(|_| "Vault directory is not accessible or does not exist")?;
-            }
-
-            let db = NoteDatabase::open(db_path)?;
-            let tokenizer = match get_tokenizer() {
-                Ok(t) => t,
-                Err(_) => return Ok(json!({
-                    "content": [{"type": "text", "text": "Full-text search requires a tokenizer model. Run 'shiotsuchi setup' to configure one, or set SHIOTSUCHI_MODEL_PATH."}]
-                })),
-            };
-            let request = SearchRequest {
-                query: &query,
-                limit,
-                mode,
-                embedder: None,
-                min_score,
-                vault_filter,
-                tag_filter: None,
-                since_date: None,
-                user_dictionary: &[],
-                synonyms: &HashMap::new(),
-                fuzzy: false,
-                hybrid_alpha: None,
-                mmr: false,
-                lambda: 0.5,
-                backlink_scoring,
-            };
-            let results = search(&db, &tokenizer, &request)?;
-
-            let markdown = format_results_markdown(&results, &query);
-            let masked = shiotsuchi_core::sensitive::mask_sensitive_data(&markdown, sensitive_config);
-            Ok(json!({
-                "content": [{"type": "text", "text": masked}]
-            }))
-        }
-
-        "get_surrounding_context" => {
-            let chunk_id = args["chunk_id"].as_i64()
-                .ok_or("chunk_id must be an integer")?;
-            let window = args["window"].as_u64().unwrap_or(2).min(5) as usize;
-
-            let db = NoteDatabase::open(db_path)?;
-            // Validate that the chunk belongs to a known vault
-            let chunk_vault = db.get_chunk_vault_name(chunk_id)?
-                .ok_or("chunk not found")?;
-            if !vaults.iter().any(|(name, _)| name == &chunk_vault) {
-                return Err("chunk vault is not configured in this server".into());
-            }
-            let chunks = db.get_surrounding_chunks(chunk_id, window)?;
-
-            const MAX_CHARS: usize = 100_000;
-            let mut out = String::with_capacity(MAX_CHARS.min(4096));
-            out.push_str(&format!("### Context around chunk {} ###\n\n", chunk_id));
-            for c in &chunks {
-                if out.len() >= MAX_CHARS {
-                    out.push_str("\n**... (truncated due to size)**\n");
-                    break;
-                }
-                let marker = if c.id == Some(chunk_id) { "**[SELECTED]** " } else { "" };
-                let header = c.parent_header.as_deref().unwrap_or("(top level)");
-                let content = if out.len() + c.content.len() > MAX_CHARS {
-                    let remaining = MAX_CHARS.saturating_sub(out.len());
-                    c.content.chars().take(remaining).collect::<String>()
-                } else {
-                    c.content.clone()
-                };
-                out.push_str(&format!("## {}Source: {} > {}\n\n{}\n\n---\n\n",
-                    marker, c.file_path, header, content));
-            }
-
-            let masked_out = shiotsuchi_core::sensitive::mask_sensitive_data(&out, sensitive_config);
-            Ok(json!({
-                "content": [{"type": "text", "text": masked_out}]
-            }))
-        }
-
-        "index_status" => {
-            let db = NoteDatabase::open(db_path)?;
-            let stats = db.stats()?;
-            let text = format!(
-                "Indexed files: {}\nTotal chunks: {}\nVector-indexed chunks: {}\nDB size: {:.1} MB\n\
-                 Note: this status may be slightly stale if background indexing is running.",
-                stats.total_files,
-                stats.total_chunks,
-                stats.vec_indexed_chunks,
-                stats.total_size_bytes as f64 / 1_048_576.0
-            );
-            Ok(json!({"content": [{"type": "text", "text": text}]}))
-        }
-
+        "search_local_notes" => handle_search_local_notes(&ctx, args),
+        "get_surrounding_context" => handle_get_surrounding_context(&ctx, args),
+        "index_status" => handle_index_status(&ctx, args),
         _ => Err(format!("Unknown tool: {}", name).into()),
     }
 }
@@ -380,7 +375,7 @@ mod tests {
 
     #[test]
     fn test_rate_limiter_blocks_after_limit() {
-        let limiter = RateLimiter::new(2);
+        let limiter = SlidingWindowRateLimiter::new(2);
         // First 2 calls should succeed
         assert!(limiter.allow(), "first call should be allowed");
         assert!(limiter.allow(), "second call should be allowed");
@@ -390,7 +385,7 @@ mod tests {
 
     #[test]
     fn test_rate_limiter_sliding_window() {
-        let limiter = RateLimiter::new(5);
+        let limiter = SlidingWindowRateLimiter::new(5);
         // Use up 5 calls
         for _ in 0..5 {
             assert!(limiter.allow());
@@ -398,9 +393,90 @@ mod tests {
         assert!(!limiter.allow(), "sixth call should be blocked");
 
         // Simulate 2 seconds passing by clearing all old timestamps
-        limiter.inner.lock().unwrap().clear();
+        limiter.clear();
 
         // Should allow again after old timestamps expire
         assert!(limiter.allow(), "call after expiry should be allowed");
+    }
+
+    // --- Direct handler tests (via ToolContext) ---
+
+    fn make_test_ctx<'a>(
+        _temp: &'a TempDir,
+        vaults: &'a [(String, PathBuf)],
+        db_path: &'a std::path::Path,
+    ) -> ToolContext<'a> {
+        ToolContext {
+            vaults,
+            db_path,
+            backlink_scoring: true,
+            sensitive_config: None,
+        }
+    }
+
+    #[test]
+    fn test_handle_search_local_notes_rejects_long_query() {
+        let temp = TempDir::new().unwrap();
+        let vaults = vec![("default".to_string(), temp.path().to_path_buf())];
+        let db_path = temp.path().join("test.db");
+        shiotsuchi_core::db::NoteDatabase::open(&db_path).unwrap();
+        let ctx = make_test_ctx(&temp, &vaults, &db_path);
+        let args = json!({"query": &"x".repeat(501), "mode": "fts"});
+        let result = handle_search_local_notes(&ctx, &args).unwrap();
+        assert_eq!(result["isError"], true);
+        let text = result["content"][0]["text"].as_str().unwrap();
+        assert!(text.contains("max 500"));
+    }
+
+    #[test]
+    fn test_handle_search_local_notes_rejects_invalid_vault() {
+        let temp = TempDir::new().unwrap();
+        let vaults = vec![("work".to_string(), temp.path().to_path_buf())];
+        let db_path = temp.path().join("test.db");
+        shiotsuchi_core::db::NoteDatabase::open(&db_path).unwrap();
+        let ctx = make_test_ctx(&temp, &vaults, &db_path);
+        let args = json!({"query": "test", "mode": "fts", "vault": "hobby"});
+        let result = handle_search_local_notes(&ctx, &args).unwrap();
+        assert_eq!(result["isError"], true);
+        let text = result["content"][0]["text"].as_str().unwrap();
+        assert!(text.contains("vault 'hobby' is not defined"));
+    }
+
+    #[test]
+    fn test_handle_search_local_notes_vec_mode_returns_guidance() {
+        let temp = TempDir::new().unwrap();
+        let vaults = vec![("default".to_string(), temp.path().to_path_buf())];
+        let db_path = temp.path().join("test.db");
+        shiotsuchi_core::db::NoteDatabase::open(&db_path).unwrap();
+        let ctx = make_test_ctx(&temp, &vaults, &db_path);
+        let args = json!({"query": "test", "mode": "vec"});
+        let result = handle_search_local_notes(&ctx, &args).unwrap();
+        let text = result["content"][0]["text"].as_str().unwrap();
+        assert!(text.contains("fts") || text.contains("model"));
+    }
+
+    #[test]
+    fn test_handle_get_surrounding_context_requires_chunk_id() {
+        let temp = TempDir::new().unwrap();
+        let vaults = vec![("default".to_string(), temp.path().to_path_buf())];
+        let db_path = temp.path().join("test.db");
+        shiotsuchi_core::db::NoteDatabase::open(&db_path).unwrap();
+        let ctx = make_test_ctx(&temp, &vaults, &db_path);
+        let args = json!({}); // missing chunk_id
+        let result = handle_get_surrounding_context(&ctx, &args);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("chunk_id"));
+    }
+
+    #[test]
+    fn test_handle_index_status_returns_counts() {
+        let temp = TempDir::new().unwrap();
+        let vaults = vec![("default".to_string(), temp.path().to_path_buf())];
+        let Some(db_path) = setup_db(&temp) else { return; };
+        let ctx = make_test_ctx(&temp, &vaults, &db_path);
+        let result = handle_index_status(&ctx, &json!({})).unwrap();
+        let text = result["content"][0]["text"].as_str().unwrap();
+        assert!(text.contains("Total chunks"));
+        assert!(text.contains("Indexed files"));
     }
 }

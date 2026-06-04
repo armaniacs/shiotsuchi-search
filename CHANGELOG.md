@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.19] - 2026-06-05
+
+### Documentation
+
+- **PBI-49 archived**: MCP `call_tool` ツール別分割 — コード上で既に実装完了していたため `.plan/archived/` に移動
+- **PBI-43〜48 archived**: 5 件の完了済み PBI（migration 分割、UI アクセシビリティ、VLM キャッシュ、HTTP API 認証、sensitive data 分類、データ保持ライフサイクル）を `.plan/archived/` に移動
+- **Backlog PBIs updated**: TDD 受け入れシナリオと実装状況を最新反映
+
 ## [0.4.18] - 2026-06-04
 
 ### Added

@@ -6,9 +6,11 @@
 //!
 //! Reference: https://github.com/trufflesecurity/trufflehog
 
+use std::sync::OnceLock;
+
 /// Built-in sensitive data patterns with their mask replacements.
 /// Each tuple contains: (regex pattern, placeholder name)
-pub fn get_builtin_patterns() -> Vec<(&'static str, &'static str)> {
+fn get_builtin_patterns_inner() -> Vec<(&'static str, &'static str)> {
     vec![
         // PII - Email addresses
         (r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}", "EMAIL"),
@@ -45,6 +47,12 @@ pub fn get_builtin_patterns() -> Vec<(&'static str, &'static str)> {
         // Requires at least one separator or a '+' prefix to avoid matching bare digit sequences in API keys
         (r"\+[\d\-\.\s\(\)]{7,20}|\d{3,4}[-.\s]\d{3,4}[-.\s]\d{4}", "PHONE"),
     ]
+}
+
+/// Cached built-in sensitive data patterns.
+pub fn get_builtin_patterns() -> Vec<(&'static str, &'static str)> {
+    static PATTERNS: OnceLock<Vec<(&'static str, &'static str)>> = OnceLock::new();
+    PATTERNS.get_or_init(get_builtin_patterns_inner).clone()
 }
 
 /// Get the placeholder name for a pattern index

@@ -13,6 +13,7 @@ pub mod frontmatter;
 pub mod indexer;
 pub mod models;
 pub mod paths;
+pub mod rate_limiter;
 pub mod search;
 pub mod sensitive;
 pub mod sensitive_patterns;

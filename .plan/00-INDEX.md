@@ -91,4 +91,5 @@
 | `2026-05-25-28-backlog-synonym-cli-manager.md` | PBI-28: 同義語管理 CLI と専用ファイル対応 — 実装完了 |
 | `2026-05-25-21-backlog-ocr-pdf-image-search.md` | PBI-21: PDF テキスト抽出検索 Phase A — pdfium-auto + XY-Cut 完了、画像 OCR は PBI-28 へ移動 |
 | `2026-05-25-18-backlog-backlink-pagerank-scoring.md` | PBI-18: Backlink / PageRank スコアリング — v0.4.15 完了 |
+| `2026-06-04-49-backlog-mcp-calltool-split.md` | PBI-49: MCP call_tool ツール別分割 — コード上で既に実装完了 |
 
