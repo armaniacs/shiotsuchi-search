@@ -2,15 +2,44 @@ mod context;
 mod search;
 mod status;
 
-use serde_json::Value;
-use shiotsuchi_core::sensitive::SensitiveDataConfig;
-#[cfg(test)]
+use serde_json::{json, Value};
 use shiotsuchi_core::rate_limiter::SlidingWindowRateLimiter;
+use shiotsuchi_core::sensitive::SensitiveDataConfig;
 use std::path::{Path, PathBuf};
+use std::sync::LazyLock;
 
 pub(crate) use context::handle_get_surrounding_context;
 pub(crate) use search::handle_search_local_notes;
 pub(crate) use status::handle_index_status;
+
+/// General rate limiter for all MCP tools (50 requests/second).
+static GENERAL_RATE_LIMITER: LazyLock<SlidingWindowRateLimiter> =
+    LazyLock::new(|| SlidingWindowRateLimiter::new(50));
+
+/// Check the general rate limit. Returns false if rate limited.
+pub fn check_rate_limit() -> bool {
+    GENERAL_RATE_LIMITER.allow()
+}
+
+/// Rate limiter for rebuild_index (1 request/second) to prevent concurrent rebuild storms.
+static REBUILD_RATE_LIMITER: LazyLock<SlidingWindowRateLimiter> =
+    LazyLock::new(|| SlidingWindowRateLimiter::new(1));
+
+/// Check the rebuild rate limit. Returns false if rate limited.
+pub fn check_rebuild_rate_limit() -> bool {
+    REBUILD_RATE_LIMITER.allow()
+}
+
+/// Build a rate limit error response.
+pub fn rate_limit_error() -> Value {
+    json!({
+        "content": [{
+            "type": "text",
+            "text": "Rate limit exceeded. Please wait before trying again."
+        }],
+        "isError": true
+    })
+}
 
 /// Shared context passed to all tool handlers.
 pub(crate) struct ToolContext<'a> {
@@ -29,6 +58,10 @@ pub fn call_tool(
     backlink_scoring: bool,
     sensitive_config: Option<&SensitiveDataConfig>,
 ) -> Result<Value, Box<dyn std::error::Error>> {
+    if !check_rate_limit() {
+        return Ok(rate_limit_error());
+    }
+
     let ctx = ToolContext {
         vaults,
         db_path,
@@ -288,6 +321,65 @@ mod tests {
 
         // Should allow again after old timestamps expire
         assert!(limiter.allow(), "call after expiry should be allowed");
+    }
+
+    /// Helper: drain the general rate limiter, call `call_tool`, and assert the rate limit error.
+    fn assert_rate_limited(
+        tool: &str,
+        args: Value,
+        vaults: &[(String, PathBuf)],
+        db_path: &Path,
+    ) {
+        while GENERAL_RATE_LIMITER.allow() {}
+
+        let result = call_tool(tool, &args, vaults, db_path, true, None);
+        assert!(result.is_ok());
+        let resp = result.unwrap();
+        assert_eq!(resp["isError"], true);
+        let text = resp["content"][0]["text"].as_str().unwrap();
+        assert!(
+            text.contains("Rate limit exceeded. Please wait before trying again."),
+            "expected rate limit error, got: {}",
+            text
+        );
+
+        GENERAL_RATE_LIMITER.clear();
+    }
+
+    #[test]
+    fn test_general_rate_limiter_shared_counter() {
+        // Verify that one rate limiter instance shared across multiple
+        // simulated tool calls enforces a combined limit.
+        let limiter = SlidingWindowRateLimiter::new(3);
+
+        // Simulate search tool calls
+        assert!(limiter.allow(), "search call 1 should be allowed");
+        assert!(limiter.allow(), "search call 2 should be allowed");
+
+        // Simulate status tool call (shares the same counter)
+        assert!(limiter.allow(), "status call 1 should be allowed");
+
+        // Next call should be blocked (combined limit reached)
+        assert!(!limiter.allow(), "call after combined limit should be blocked");
+
+        limiter.clear();
+        assert!(limiter.allow(), "after reset, should allow again");
+    }
+
+    #[test]
+    fn test_get_surrounding_context_rate_limited() {
+        let temp = TempDir::new().unwrap();
+        let vaults = vec![("default".to_string(), temp.path().to_path_buf())];
+        let Some(db_path) = setup_db(&temp) else { return; };
+        assert_rate_limited("get_surrounding_context", json!({"chunk_id": 1}), &vaults, &db_path);
+    }
+
+    #[test]
+    fn test_index_status_rate_limited() {
+        let temp = TempDir::new().unwrap();
+        let vaults = vec![("default".to_string(), temp.path().to_path_buf())];
+        let Some(db_path) = setup_db(&temp) else { return; };
+        assert_rate_limited("index_status", json!({}), &vaults, &db_path);
     }
 
     // --- Direct handler tests (via ToolContext) ---

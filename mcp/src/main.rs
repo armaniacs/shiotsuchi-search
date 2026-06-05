@@ -334,18 +334,22 @@ async fn main() {
                     let params = req.params.clone().unwrap_or(serde_json::Value::Null);
                     let name = params["name"].as_str().unwrap_or("");
                     if name == "rebuild_index" {
-                        let args = &params["arguments"];
-                        let progress_token = params["_meta"]["progressToken"].as_u64();
-                        spawn_rebuild(vaults.clone(), &db_path, &stdout, args, progress_token);
-                        McpResponse::success(
-                            req.id,
-                            json!({
-                                "content": [{
-                                    "type": "text",
-                                    "text": "Rebuild started. Progress notifications will be sent via the MCP progress protocol."
-                                }]
-                            }),
-                        )
+                        if !handler::check_rebuild_rate_limit() {
+                            McpResponse::success(req.id, handler::rate_limit_error())
+                        } else {
+                            let args = &params["arguments"];
+                            let progress_token = params["_meta"]["progressToken"].as_u64();
+                            spawn_rebuild(vaults.clone(), &db_path, &stdout, args, progress_token);
+                            McpResponse::success(
+                                req.id,
+                                json!({
+                                    "content": [{
+                                        "type": "text",
+                                        "text": "Rebuild started. Progress notifications will be sent via the MCP progress protocol."
+                                    }]
+                                }),
+                            )
+                        }
                     } else {
                         dispatch(req, &vaults, &db_path, cfg.backlink_scoring, None)
                     }
