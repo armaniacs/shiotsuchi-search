@@ -210,7 +210,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Some(Commands::Tide(args)) => {
             let stats = commands::tide::run_tide(&db_path)?;
-            commands::tide::print_stats(&stats, &args);
+            commands::tide::print_stats(&stats, &args, &cfg);
         }
         Some(Commands::Scan(args)) => {
             let vault_id = args.vault.as_deref().or(cfg.vault_default.as_deref());
