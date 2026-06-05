@@ -71,7 +71,6 @@ pub mod embedder {
         }
     }
 
-    /// Stub error — only the `Unavailable` variant is ever produced.
     #[derive(Debug, thiserror::Error)]
     pub enum EmbedderError {
         #[error("load error: {0}")]
@@ -80,6 +79,8 @@ pub mod embedder {
         Inference(String),
         #[error("unavailable: {0}")]
         Unavailable(String),
+        #[error("monthly usage limit exceeded: {used}/{limit} requests in {month}")]
+        UsageLimitExceeded { limit: u64, used: u64, month: String },
     }
 
     pub fn resolve_model_path(

@@ -33,7 +33,7 @@ impl EmbedderConfig {
     /// - `OnnxFile` / `BuiltIn`: returns `Embedder::load(path)` via `resolve_model_path()`.
     /// - `Api`: returns `Embedder` backed by `ApiClient`.
     #[cfg(feature = "semantic")]
-    pub fn create_embedder(&self) -> Result<Option<crate::embedder::Embedder>, crate::embedder::EmbedderError> {
+    pub fn create_embedder(&self, embedding_usage: &EmbeddingUsageConfig) -> Result<Option<crate::embedder::Embedder>, crate::embedder::EmbedderError> {
         use crate::api_embedder::ApiClient;
         use crate::embedder::{Embedder, EmbedderError};
 
@@ -59,15 +59,27 @@ impl EmbedderConfig {
                         "API key not set. Set SHIOTSUCHI_API_KEY or api_key in config".to_string()
                     ))?;
 
-                let client = ApiClient::new(endpoint.clone(), model.clone(), key, None);
+                let usage_tracker = if embedding_usage.enabled {
+                    let config_dir = dirs::config_dir()
+                        .unwrap_or_else(|| std::path::PathBuf::from("."))
+                        .join("shiotsuchi");
+                    Some(crate::usage_tracker::UsageTracker::new(
+                        &config_dir,
+                        embedding_usage.enabled,
+                        embedding_usage.monthly_limit,
+                    ))
+                } else {
+                    None
+                };
+
+                let client = ApiClient::new(endpoint.clone(), model.clone(), key, usage_tracker);
                 Ok(Some(Embedder::from_api_client(client)))
             }
         }
     }
 
-    /// Stub when the `semantic` feature is disabled.
     #[cfg(not(feature = "semantic"))]
-    pub fn create_embedder(&self) -> Result<Option<crate::embedder::Embedder>, crate::embedder::EmbedderError> {
+    pub fn create_embedder(&self, _embedding_usage: &EmbeddingUsageConfig) -> Result<Option<crate::embedder::Embedder>, crate::embedder::EmbedderError> {
         Err(crate::embedder::EmbedderError::Unavailable(
             "compiled without the 'semantic' feature".into(),
         ))
