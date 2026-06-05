@@ -59,7 +59,7 @@ impl EmbedderConfig {
                         "API key not set. Set SHIOTSUCHI_API_KEY or api_key in config".to_string()
                     ))?;
 
-                let client = ApiClient::new(endpoint.clone(), model.clone(), key);
+                let client = ApiClient::new(endpoint.clone(), model.clone(), key, None);
                 Ok(Some(Embedder::from_api_client(client)))
             }
         }

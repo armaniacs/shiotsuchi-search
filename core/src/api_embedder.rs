@@ -35,6 +35,7 @@ pub(crate) struct ApiClient {
     api_key: String,
     timeout: Duration,
     batch_cap: usize,
+    usage_tracker: Option<crate::usage_tracker::UsageTracker>,
 }
 
 impl ApiClient {
@@ -42,6 +43,7 @@ impl ApiClient {
         endpoint: String,
         model: String,
         api_key: String,
+        usage_tracker: Option<crate::usage_tracker::UsageTracker>,
     ) -> Self {
         Self {
             endpoint,
@@ -49,6 +51,7 @@ impl ApiClient {
             api_key,
             timeout: Duration::from_secs(DEFAULT_TIMEOUT_SECS),
             batch_cap: DEFAULT_BATCH_CAP,
+            usage_tracker,
         }
     }
 
@@ -71,6 +74,9 @@ impl ApiClient {
         let mut all_embeddings = Vec::with_capacity(texts.len());
 
         for chunk in texts.chunks(self.batch_cap) {
+            if let Some(tracker) = &self.usage_tracker {
+                tracker.check_and_increment()?;
+            }
             let request_body = EmbeddingRequest {
                 model: &self.model,
                 input: chunk.to_vec(),
@@ -171,11 +177,13 @@ mod tests {
             "https://api.ai.sakura.ad.jp/v1/embeddings".to_string(),
             "multilingual-e5-large".to_string(),
             "key1".to_string(),
+            None,
         );
         let c2 = ApiClient::new(
             "https://api.ai.sakura.ad.jp/v1/embeddings".to_string(),
             "multilingual-e5-large".to_string(),
             "key2".to_string(),
+            None,
         );
         assert_eq!(c1.model_id(), c2.model_id(), "model_id should be stable regardless of API key");
     }
@@ -186,11 +194,13 @@ mod tests {
             "https://a.example.com/v1/embeddings".to_string(),
             "model".to_string(),
             "key".to_string(),
+            None,
         );
         let c2 = ApiClient::new(
             "https://b.example.com/v1/embeddings".to_string(),
             "model".to_string(),
             "key".to_string(),
+            None,
         );
         assert_ne!(c1.model_id(), c2.model_id());
     }
@@ -201,6 +211,7 @@ mod tests {
             "https://example.com".to_string(),
             "model".to_string(),
             "key".to_string(),
+            None,
         );
         let result = client.embed_batch(&[]).unwrap();
         assert!(result.is_empty());
@@ -220,6 +231,7 @@ mod tests {
             "https://example.com".to_string(),
             "model".to_string(),
             "sk-secret-key-12345".to_string(),
+            None,
         );
         let body = r#"{"error": "Invalid API key", "key": "sk-secret-key-12345"}"#;
         let sanitized = client.sanitize_error_body(body);
@@ -233,9 +245,27 @@ mod tests {
             "https://example.com".to_string(),
             "model".to_string(),
             "key".to_string(),
+            None,
         );
         let long_body = "x".repeat(500);
         let sanitized = client.sanitize_error_body(&long_body);
         assert!(sanitized.len() <= 200, "Error body should be truncated to 200 chars");
+    }
+
+    #[test]
+    fn test_api_client_with_usage_tracker() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let tracker = crate::usage_tracker::UsageTracker::new(tmp.path(), true, Some(1));
+        let client = ApiClient::new(
+            "https://example.com".to_string(),
+            "model".to_string(),
+            "key".to_string(),
+            Some(tracker),
+        );
+        let _ = client.embed_batch(&["test"]);
+        let result = client.embed_batch(&["test2"]);
+        assert!(result.is_err());
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(err_msg.contains("limit") || err_msg.contains("上限"));
     }
 }

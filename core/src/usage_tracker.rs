@@ -11,6 +11,7 @@ struct UsageFile {
     history: HashMap<String, u64>,
 }
 
+#[derive(Debug, Clone)]
 pub struct UsageTracker {
     path: PathBuf,
     enabled: bool,
