@@ -354,6 +354,9 @@ pub struct ShiotsuchiConfig {
     /// Sensitive data detection and masking configuration.
     #[serde(default)]
     pub sensitive_data: crate::sensitive::SensitiveDataConfig,
+    /// Top-level embedding usage configuration (threaded into IndexingConfig at runtime).
+    #[serde(default)]
+    pub embedding_usage: EmbeddingUsageConfig,
 }
 
 impl ShiotsuchiConfig {
