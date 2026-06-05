@@ -18,6 +18,7 @@ pub mod search;
 pub mod sensitive;
 pub mod sensitive_patterns;
 pub mod tokenizer;
+pub mod usage_tracker;
 pub mod watcher;
 
 pub mod pdf;
