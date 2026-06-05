@@ -145,6 +145,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         cfg.database.db_path = Some(db.clone());
     }
 
+    // Thread embedding_usage config into IndexConfig
+    cfg.indexing.embedding_usage = cfg.embedding_usage.clone();
+
     let resolved_vaults = cfg.resolved_vaults();
     let db_path = cfg.resolved_db_path();
 
