@@ -221,11 +221,12 @@ mod tests {
         let db = NoteDatabase::open(&db_file).unwrap();
 
         // Insert a file with an old mtime (100 days ago)
+        // Note: mtime is stored in MILLISECONDS (matching file_mtime() in indexer.rs)
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
-            .as_secs() as i64;
-        let old_mtime = now - (100 * 86400); // 100 days ago
+            .as_millis() as i64;
+        let old_mtime = now - (100 * 86_400_000); // 100 days ago in ms
 
         // Create a chunk and file_cache entry with old mtime
         let chunk = shiotsuchi_core::models::Chunk {
