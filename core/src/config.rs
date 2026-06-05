@@ -124,6 +124,17 @@ impl EmbedderConfig {
     }
 }
 
+/// Monthly embedding API usage limit configuration.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct EmbeddingUsageConfig {
+    /// Whether usage tracking is enabled. Default: false.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Monthly request limit. None = unlimited.
+    #[serde(default)]
+    pub monthly_limit: Option<u64>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct DatabaseConfig {

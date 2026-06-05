@@ -512,6 +512,8 @@ pub enum EmbedderError {
     Inference(String),
     #[error("unavailable: {0}")]
     Unavailable(String),
+    #[error("月次埋め込みAPI上限に達しました ({used}/{limit}, {month})")]
+    UsageLimitExceeded { limit: u64, used: u64, month: String },
 }
 
 // ── tests ────────────────────────────────────────────────────────────
