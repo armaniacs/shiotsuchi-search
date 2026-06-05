@@ -62,12 +62,13 @@ fn find_unknown_indexing_fields(config_path: &Path) -> Vec<String> {
     };
     // Keep this list in sync with `core::config::IndexingConfig` fields.
     // If new fields are added to IndexingConfig, add them here too.
-    let known: [&str; 5] = [
+    let known: [&str; 6] = [
         "include_extensions",
         "exclude_dirs",
         "auto_exclude_hidden",
         "follow_links",
         "dynamic_threshold",
+        "embedding_usage",
     ];
     match table.get("indexing").and_then(|v| v.as_table()) {
         Some(indexing) => indexing
@@ -200,6 +201,7 @@ fn index_vault(
         vlm_provider: vlm_cfg.provider.clone(),
         vlm_model: vlm_cfg.model.clone(),
         vlm_max_pages_per_doc: vlm_cfg.max_pages_per_doc,
+        embedding_usage: crate::config::EmbeddingUsageConfig::default(),
     };
     let embedder = resolve_model_path(None).and_then(|p| match Embedder::load(&p) {
         Ok(e) => {

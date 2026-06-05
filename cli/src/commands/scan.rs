@@ -94,6 +94,7 @@ pub fn run_scan(
         vlm_provider: vlm_cfg.provider.clone(),
         vlm_model: vlm_cfg.model.clone(),
         vlm_max_pages_per_doc: vlm_cfg.max_pages_per_doc,
+        embedding_usage: crate::config::EmbeddingUsageConfig::default(),
     };
     let watcher = VaultWatcher::new(db, tokenizer, config, embedder);
     watcher.watch()

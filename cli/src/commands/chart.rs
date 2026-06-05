@@ -103,6 +103,7 @@ pub fn run_chart(
         vlm_provider: vlm_cfg.provider.clone(),
         vlm_model: vlm_cfg.model.clone(),
         vlm_max_pages_per_doc: vlm_cfg.max_pages_per_doc,
+        embedding_usage: crate::config::EmbeddingUsageConfig::default(),
     };
 
     let embedder = match embedder_cfg.create_embedder() {

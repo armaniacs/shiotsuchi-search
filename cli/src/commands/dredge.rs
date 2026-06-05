@@ -61,6 +61,7 @@ pub fn run_dredge(
         vlm_provider: vlm_cfg.provider.clone(),
         vlm_model: vlm_cfg.model.clone(),
         vlm_max_pages_per_doc: vlm_cfg.max_pages_per_doc,
+        embedding_usage: crate::config::EmbeddingUsageConfig::default(),
     };
 
     // Handle --expired flag

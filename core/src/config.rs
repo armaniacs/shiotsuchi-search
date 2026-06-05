@@ -126,12 +126,11 @@ impl EmbedderConfig {
 
 /// Monthly embedding API usage limit configuration.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
 pub struct EmbeddingUsageConfig {
     /// Whether usage tracking is enabled. Default: false.
-    #[serde(default)]
     pub enabled: bool,
     /// Monthly request limit. None = unlimited.
-    #[serde(default)]
     pub monthly_limit: Option<u64>,
 }
 
@@ -198,6 +197,9 @@ pub struct IndexingConfig {
     /// automatic expiration is performed.
     #[serde(default)]
     pub retention_days: Option<u32>,
+    /// Monthly embedding API usage tracking configuration.
+    #[serde(default)]
+    pub embedding_usage: EmbeddingUsageConfig,
 }
 
 fn default_enable_pdf_extraction() -> bool {
@@ -220,6 +222,7 @@ impl Default for IndexingConfig {
             enable_pdf_extraction: true,
             backlink_scoring: true,
             retention_days: None,
+            embedding_usage: EmbeddingUsageConfig::default(),
         }
     }
 }

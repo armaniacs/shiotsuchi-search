@@ -1,5 +1,5 @@
 pub use shiotsuchi_core::config::{
-    default_config_path, thesaurus_path, DatabaseConfig, IndexingConfig,
+    default_config_path, thesaurus_path, DatabaseConfig, EmbeddingUsageConfig, IndexingConfig,
     ShiotsuchiConfig, VaultEntry, WatcherConfig,
 };
 
