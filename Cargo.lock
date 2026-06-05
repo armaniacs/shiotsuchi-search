@@ -2902,8 +2902,7 @@ dependencies = [
 [[package]]
 name = "ort-sys"
 version = "2.0.0-rc.12"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d7b497d21a8b6fbb4b5a544f8fadb77e801a09ae0add9e411d31c6f89e3c1e90"
+source = "git+https://github.com/pykeio/ort?branch=main#5cd80f9582a255aaa485c20b1123958f05289f3a"
 dependencies = [
  "hmac-sha256",
  "lzma-rust2",
@@ -3854,7 +3853,7 @@ checksum = "dc6fe69c597f9c37bfeeeeeb33da3530379845f10be461a66d16d03eca2ded77"
 
 [[package]]
 name = "shiotsuchi"
-version = "0.4.19"
+version = "0.4.20"
 dependencies = [
  "axum",
  "clap",
@@ -3879,7 +3878,7 @@ dependencies = [
 
 [[package]]
 name = "shiotsuchi-core"
-version = "0.4.19"
+version = "0.4.20"
 dependencies = [
  "axum",
  "chrono",
@@ -3919,7 +3918,7 @@ dependencies = [
 
 [[package]]
 name = "shiotsuchi-e2e"
-version = "0.4.19"
+version = "0.4.20"
 dependencies = [
  "notify 6.1.1",
  "serde_json",
@@ -3929,7 +3928,7 @@ dependencies = [
 
 [[package]]
 name = "shiotsuchi-mcp"
-version = "0.4.19"
+version = "0.4.20"
 dependencies = [
  "clap",
  "config",

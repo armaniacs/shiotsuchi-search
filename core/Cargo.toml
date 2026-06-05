@@ -34,8 +34,10 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokenizers = { version = "0.23", default-features = false, features = ["onig"] }
 thiserror = "2"
-# ONNX Runtime binaries are downloaded at build time via the `download-binaries` feature.
-# For production, set ORT_LIB_LOCATION env var to use system-installed ONNX Runtime instead.
+# ort-sys SHA-256 ダウンロード検証バグ (rc.12) の回避:
+# crates.io の ort は rc.12 を使うが、ort-sys は main ブランチから取得して修正を適用する。
+# main には VerifyReader をダウンロードフローに接続する修正が既にマージ済み。
+# 参考: https://github.com/pykeio/ort/releases/tag/v2.0.0-rc.12 (Build attestations セクション)
 ort = { version = "2.0.0-rc.12", default-features = false, features = ["std", "download-binaries", "tls-rustls"], optional = true }
 indicatif = "0.17"
 notify = { version = "9.0.0-rc.4", optional = true }
