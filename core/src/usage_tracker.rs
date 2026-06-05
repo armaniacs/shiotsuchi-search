@@ -85,7 +85,7 @@ impl UsageTracker {
 
         file.current_count += 1;
 
-        if let Err(e) = self.write_file(&file) {
+        if let Err(e) = self.write_usage(&file) {
             log::warn!("Failed to write usage.json: {}", e);
         }
 
@@ -127,21 +127,23 @@ impl UsageTracker {
             })?;
         }
 
-        self.write_file(&file)
+        self.write_usage(&file)
     }
 
-    fn write_file(&self, file: &UsageFile) -> Result<(), EmbedderError> {
+    fn write_usage(&self, usage: &UsageFile) -> Result<(), EmbedderError> {
         if let Some(parent) = self.path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| {
-                EmbedderError::Load(format!("Failed to create config directory: {}", e))
+                EmbedderError::Load(format!("Failed to create usage dir: {}", e))
             })?;
         }
-
-        let json = serde_json::to_string_pretty(file)
-            .map_err(|e| EmbedderError::Load(format!("Failed to serialize usage: {}", e)))?;
-
-        std::fs::write(&self.path, json).map_err(|e| {
+        let json = serde_json::to_string_pretty(usage)
+            .map_err(|e| EmbedderError::Inference(format!("JSON serialize error: {}", e)))?;
+        let tmp = self.path.with_extension("json.tmp");
+        std::fs::write(&tmp, &json).map_err(|e| {
             EmbedderError::Load(format!("Failed to write usage.json: {}", e))
+        })?;
+        std::fs::rename(&tmp, &self.path).map_err(|e| {
+            EmbedderError::Load(format!("Failed to rename usage.json: {}", e))
         })
     }
 }
@@ -268,5 +270,54 @@ mod tests {
         let (_, count, history) = tracker.current_usage().unwrap();
         assert_eq!(count, 0);
         assert!(history.is_empty());
+    }
+
+    #[test]
+    fn test_none_limit_allows_unlimited() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let tracker = make_tracker(tmp.path(), true, None);
+        for _ in 0..10000 {
+            tracker.check_and_increment().unwrap();
+        }
+        let (_, count, _) = tracker.current_usage().unwrap();
+        assert_eq!(count, 10000);
+    }
+
+    #[test]
+    fn test_multi_month_history_accumulation() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let mut history = HashMap::new();
+        history.insert("2026-01".to_string(), 10u64);
+        history.insert("2026-02".to_string(), 20u64);
+
+        let three_months_ago = {
+            use chrono::Datelike;
+            let now = chrono::Utc::now();
+            let (y, m) = if now.month() <= 3 {
+                (now.year() - 1, now.month() + 12 - 3)
+            } else {
+                (now.year(), now.month() - 3)
+            };
+            format!("{:04}-{:02}", y, m)
+        };
+        let fake = UsageFile {
+            current_month: three_months_ago.clone(),
+            current_count: 42,
+            history,
+        };
+        std::fs::write(
+            tmp.path().join("usage.json"),
+            serde_json::to_string(&fake).unwrap(),
+        )
+        .unwrap();
+
+        let tracker = make_tracker(tmp.path(), true, Some(1000));
+        tracker.check_and_increment().unwrap();
+
+        let (_, count, hist) = tracker.current_usage().unwrap();
+        assert_eq!(count, 1);
+        assert_eq!(hist.get("2026-01"), Some(&10));
+        assert_eq!(hist.get("2026-02"), Some(&20));
+        assert_eq!(hist.get(&three_months_ago), Some(&42));
     }
 }
