@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.20] - 2026-06-06
+
+### Added
+
+- **MCP general rate limiter (PBI-57)**: Added `GENERAL_RATE_LIMITER` (50 req/s) guarding all `call_tool()` endpoints, and `REBUILD_RATE_LIMITER` (1 req/s) for `rebuild_index`. Both return a generalized error message without numeric values. Existing `SEARCH_RATE_LIMITER` (10 req/s) preserved as stricter search-specific limit.
+- MCP sensitive data masking enabled by default (PBI-58): `SensitiveDataConfig::default()` now has `detection: true` (safe by default). `ToolContext.sensitive_config`, `call_tool()`, and `dispatch()` changed from `Option<&SensitiveDataConfig>` to `&SensitiveDataConfig` — compile-time guarantee against accidental masking skip.
+- 3 new tests: shared rate limiter counter, `get_surrounding_context` rate limited, `index_status` rate limited.
+
+### Changed
+
+- **PBI-57/58 archived**: Spec files moved to `.plan/archived/`, AGENTS.md and 00-INDEX.md updated.
+
+### Testing
+
+- **44 MCP tests**, 439 core tests, 144 CLI tests — all passing.
+
 ## [0.4.19] - 2026-06-05
 
 ### Documentation
@@ -1056,7 +1072,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `docs/MODEL_LICENSES.md` with BSD-3-Clause notice for the bundled tokenizer model
 - `README.md` (English) and `README.ja.md` (Japanese)
 
-[Unreleased]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.4.11...HEAD
+[Unreleased]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.4.20...HEAD
+[0.4.20]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.4.19...v0.4.20
+[0.4.19]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.4.18...v0.4.19
+[0.4.18]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.4.17...v0.4.18
+[0.4.17]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.4.16...v0.4.17
+[0.4.16]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.4.15...v0.4.16
+[0.4.15]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.4.14...v0.4.15
+[0.4.14]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.4.13...v0.4.14
+[0.4.13]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.4.12...v0.4.13
+[0.4.12]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.4.11...v0.4.12
 [0.4.11]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.4.10...v0.4.11
 [0.4.10]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.4.9...v0.4.10
 [0.4.9]: https://github.com/armaniacs/shiotsuchi-search/compare/v0.4.8...v0.4.9
