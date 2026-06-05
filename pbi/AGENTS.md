@@ -60,6 +60,29 @@ MCP 経由によるノートの作成・編集・削除は厳密に禁止する�
 - `core/src/config.rs:218-244`: `VlmConfig` 構造体
 - `core/tests/integration_test.rs`: feature コンパイルテスト + mtime キャッシュテスト
 
+### PBI-57: MCP 全エンドポイントへのレート制限追加
+
+**Completed — GENERAL_RATE_LIMITER (50 req/s) + REBUILD_RATE_LIMITER (1 req/s)、44 MCP tests green。**
+
+実装詳細:
+- `mcp/src/handler/mod.rs`: `GENERAL_RATE_LIMITER` (50 req/s) + `pub fn check_rate_limit()` for `call_tool()` dispatch
+- `mcp/src/handler/mod.rs`: `REBUILD_RATE_LIMITER` (1 req/s) + `pub fn check_rebuild_rate_limit()` for rebuild_index
+- `mcp/src/handler/mod.rs`: `pub fn rate_limit_error()` — shared error response helper
+- `mcp/src/main.rs`: rebuild_index branch uses `handler::check_rebuild_rate_limit()` + `handler::rate_limit_error()`
+- `SEARCH_RATE_LIMITER` (10 req/s) in search.rs preserved as stricter search-specific limit
+- 3 new tests: shared counter, get_surrounding_context rate limited, index_status rate limited
+
+### PBI-58: MCP 機密データマスキングのデフォルト有効化
+
+**Completed — `SensitiveDataConfig::default()` の `detection: true`、`Option` 除去、全テスト green。**
+
+実装詳細:
+- `core/src/sensitive.rs`: `SensitiveDataConfig::default()` → `detection: true` (safe by default)
+- `mcp/src/handler/mod.rs`: `ToolContext.sensitive_config`: `Option<&SensitiveDataConfig>` → `&SensitiveDataConfig`
+- `mcp/src/handler/mod.rs`: `call_tool()` parameter same change
+- `mcp/src/handler/search.rs` + `context.rs`: wrap in `Some()` for `mask_sensitive_data()`
+- `mcp/src/main.rs`: `dispatch()` parameter non-Option, `let sensitive_config = SensitiveDataConfig::default()`
+
 ### PBI-13: 埋め込みモデルの差し替え（API 方式）
 
 **Completed in v0.4.12**

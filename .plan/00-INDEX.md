@@ -94,4 +94,6 @@
 | `2026-06-04-49-backlog-mcp-calltool-split.md` | PBI-49: MCP call_tool ツール別分割 — コード上で既に実装完了 |
 | `2026-06-04-55-backlog-exclude-patterns-compat.md` | PBI-55: exclude_patterns → exclude_dirs 後方互換性 — 明示的拒否方式で解決済み |
 | `2026-06-04-56-backlog-mcp-search-compat.md` | PBI-56: search() → SearchRequest 移行に伴うMCP互換性 — 内部移行のみ、外部互換レイヤー不要 |
+| `2026-06-06-57-backlog-mcp-rate-limiter-all-endpoints.md` | PBI-57: MCP 全エンドポイントにレート制限追加 — GENERAL 50 req/s + REBUILD 1 req/s |
+| `2026-06-06-58-backlog-mcp-sensitive-config-safe-default.md` | PBI-58: MCP 機密データマスキングのデフォルト有効化 — detection: true, Option 除去 |
 
