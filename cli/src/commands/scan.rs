@@ -42,7 +42,7 @@ pub fn run_scan(
         eprintln!("{}", messages::WARN_API_KEY_IN_CONFIG);
     }
 
-    let embedder = match embedder_cfg.create_embedder() {
+    let embedder = match embedder_cfg.create_embedder(&indexing_cfg.embedding_usage) {
         Ok(Some(e)) => {
             eprintln!("{}", messages::INFO_EMBEDDER_LOADED);
             Some(e)
@@ -94,6 +94,7 @@ pub fn run_scan(
         vlm_provider: vlm_cfg.provider.clone(),
         vlm_model: vlm_cfg.model.clone(),
         vlm_max_pages_per_doc: vlm_cfg.max_pages_per_doc,
+        embedding_usage: indexing_cfg.embedding_usage.clone(),
     };
     let watcher = VaultWatcher::new(db, tokenizer, config, embedder);
     watcher.watch()

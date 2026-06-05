@@ -21,7 +21,7 @@ pub fn run_tide(db_path: &Path) -> Result<VaultStats, Box<dyn std::error::Error>
     Ok(stats)
 }
 
-pub fn print_stats(stats: &VaultStats, args: &TideArgs) {
+pub fn print_stats(stats: &VaultStats, args: &TideArgs, cfg: &crate::config::ShiotsuchiConfig) {
     if args.json {
         println!("{}", serde_json::to_string_pretty(stats).unwrap());
         return;
@@ -41,6 +41,23 @@ pub fn print_stats(stats: &VaultStats, args: &TideArgs) {
         println!("{}", messages::TIDE_TOP_TAGS);
         for (tag, count) in &stats.top_tags {
             println!("{}", msg_fmt!(messages::TIDE_TAG_ITEM, tag, count));
+        }
+    }
+
+    // Display embedding usage if enabled
+    if cfg.embedding_usage.enabled {
+        let config_dir = crate::config::default_config_path()
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_default();
+        let tracker = shiotsuchi_core::usage_tracker::UsageTracker::new(
+            &config_dir, true, cfg.embedding_usage.monthly_limit,
+        );
+        if let Ok((month, count, _)) = tracker.current_usage() {
+            let limit_str = cfg.embedding_usage.monthly_limit
+                .map(|l| format!("/{}", l))
+                .unwrap_or_default();
+            println!("  Embedding API: {}{} requests ({})", count, limit_str, month);
         }
     }
 }

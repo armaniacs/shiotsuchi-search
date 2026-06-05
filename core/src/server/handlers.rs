@@ -109,13 +109,15 @@ pub async fn handle_search(
 
     let db = state.db.lock().await;
 
+    let effective_limit = params.limit.saturating_add(params.offset);
+
     let results = if let Some(tokenizer) = &state.tokenizer {
         let backlink_scoring = state.config.as_ref()
             .map(|c| c.indexing.backlink_scoring)
             .unwrap_or(true);
         let request = SearchRequest {
             query: &query,
-            limit: params.limit,
+            limit: effective_limit,
             mode,
             embedder: None,
             min_score: None,
@@ -134,7 +136,7 @@ pub async fn handle_search(
             .map_err(|e| ApiError::Internal(format!("search failed: {}", e)))?
     } else {
         let fts5_query = crate::tokenizer::simple_and_query(&query);
-        let hits = db.fts_search(&fts5_query, params.limit, params.vault.as_deref())
+        let hits = db.fts_search(&fts5_query, effective_limit, params.vault.as_deref())
             .map_err(|e| ApiError::Internal(format!("search failed: {}", e)))?;
         if hits.is_empty() {
             vec![]
@@ -144,8 +146,19 @@ pub async fn handle_search(
         }
     };
 
+    let total = if params.mode == "fts" {
+        let fts5_query = crate::tokenizer::simple_and_query(&query);
+        db.fts_search(&fts5_query, 1_000_000, params.vault.as_deref())
+            .map(|hits| hits.len())
+            .unwrap_or_else(|_| results.len())
+    } else {
+        results.len()
+    };
+
     let items: Vec<SearchResultItem> = results
         .into_iter()
+        .skip(params.offset)
+        .take(params.limit)
         .map(|r| {
             let snippet = crate::search::extract_snippet(&r.content, &query, 5, 200);
             let snippet =
@@ -165,6 +178,9 @@ pub async fn handle_search(
     Ok(Json(serde_json::json!({
         "results": items,
         "count": count,
+        "total": total,
+        "offset": params.offset,
+        "limit": params.limit,
     })))
 }
 
@@ -422,6 +438,9 @@ mod tests {
         assert!(json.get("results").is_some());
         assert!(json.get("count").is_some());
         assert!(json["count"].is_number());
+        assert!(json.get("total").is_some());
+        assert!(json.get("offset").is_some());
+        assert!(json.get("limit").is_some());
     }
 
     #[tokio::test]
@@ -748,5 +767,89 @@ mod tests {
             }
             None => {} // No allow-headers header means restrictive — acceptable
         }
+    }
+
+    #[tokio::test]
+    async fn test_search_offset_default_is_zero() {
+        let (router, _tmp) = setup_test_router();
+        let req = Request::builder()
+            .uri("/api/v1/search?q=test")
+            .body(Body::empty())
+            .unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["offset"], 0, "offset must default to 0");
+    }
+
+    #[tokio::test]
+    async fn test_search_response_includes_total() {
+        let (router, _tmp) = setup_test_router();
+        let req = Request::builder()
+            .uri("/api/v1/search?q=test")
+            .body(Body::empty())
+            .unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(json.get("total").is_some(), "response must include 'total'");
+        assert!(json.get("offset").is_some(), "response must include 'offset'");
+        assert!(json.get("limit").is_some(), "response must include 'limit'");
+        assert!(json["total"].is_number());
+        assert!(json["offset"].is_number());
+        assert!(json["limit"].is_number());
+    }
+
+    #[tokio::test]
+    async fn test_search_with_offset() {
+        let (router, _tmp) = setup_test_router();
+        let req = Request::builder()
+            .uri("/api/v1/search?q=test&offset=0&limit=10")
+            .body(Body::empty())
+            .unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["offset"], 0);
+        assert_eq!(json["limit"], 10);
+        assert!(json["total"].is_number());
+        assert!(json["count"].is_number());
+    }
+
+    #[tokio::test]
+    async fn test_search_total_not_capped_by_page_size() {
+        let (router, _tmp) = setup_test_router();
+        let req = Request::builder()
+            .uri("/api/v1/search?q=test&offset=0&limit=5")
+            .body(Body::empty())
+            .unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(json["total"].as_u64().unwrap() >= json["count"].as_u64().unwrap(),
+            "total must be >= count (page size)");
+    }
+
+    #[tokio::test]
+    async fn test_search_offset_clamped() {
+        let (router, _tmp) = setup_test_router();
+        let req = Request::builder()
+            .uri("/api/v1/search?q=test&offset=99999")
+            .body(Body::empty())
+            .unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
     }
 }

@@ -3882,6 +3882,7 @@ name = "shiotsuchi-core"
 version = "0.4.19"
 dependencies = [
  "axum",
+ "chrono",
  "config",
  "criterion",
  "dirs 6.0.0",

@@ -254,7 +254,7 @@ fn build_search_args(query: String) -> commands::dive::DiveArgs {
 fn run_onboarding(
     config_exists: bool,
     db_exists: bool,
-    cfg: &ShiotsuchiConfig,
+    cfg: &mut ShiotsuchiConfig,
     config_path: &Path,
     raw_notes_dir: Option<&Path>,
     raw_db_path: Option<&Path>,
@@ -284,6 +284,33 @@ fn run_onboarding(
         let init_args = commands::init::InitArgs { force: false, yes: false };
         commands::init::run_init(&init_args, cfg, config_path, raw_notes_dir, raw_db_path)?;
         println!("{}", messages::WELCOME_STEP1_DONE);
+
+        // Embedding usage config step (TTY only)
+        let is_tty = std::io::stdin().is_terminal() && std::io::stdout().is_terminal();
+        if is_tty {
+            let confirm = dialoguer::Confirm::with_theme(&*dialoguer_theme())
+                .with_prompt("埋め込みAPIの月間リクエスト数を制限しますか？")
+                .default(false)
+                .interact()?;
+
+            if confirm {
+                let limit: String = dialoguer::Input::with_theme(&*dialoguer_theme())
+                    .with_prompt("月間上限値を入力してください")
+                    .default("1000".to_string())
+                    .validate_with(|input: &String| -> Result<(), &str> {
+                        input.parse::<u64>().map(|_| ()).map_err(|_| "数値を入力してください")
+                    })
+                    .interact()?;
+
+                cfg.embedding_usage.enabled = true;
+                cfg.embedding_usage.monthly_limit = Some(limit.parse::<u64>().unwrap());
+
+                // Persist the embedding_usage settings to disk
+                let mut disk_cfg = ShiotsuchiConfig::load_from(&config_path)?;
+                disk_cfg.embedding_usage = cfg.embedding_usage.clone();
+                disk_cfg.save_to(&config_path)?;
+            }
+        }
 
         if !Confirm::with_theme(&*dialoguer_theme())
             .with_prompt(messages::WELCOME_STEP2_CONFIRM)
@@ -390,7 +417,7 @@ fn run_onboarding(
 /// To be implemented in a subsequent task.
 fn run_single_command(
     choice: MenuChoice,
-    cfg: &ShiotsuchiConfig,
+    cfg: &mut ShiotsuchiConfig,
     config_path: &Path,
     raw_notes_dir: Option<&Path>,
     raw_db_path: Option<&Path>,

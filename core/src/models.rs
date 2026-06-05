@@ -194,6 +194,8 @@ pub struct IndexConfig {
     /// Whether to apply backlink count scoring boost to search results.
     /// When true, files with more backlinks get a score boost.
     pub backlink_scoring: bool,
+    /// Embedding API usage limit configuration.
+    pub embedding_usage: crate::config::EmbeddingUsageConfig,
 }
 
 impl IndexConfig {
@@ -229,6 +231,7 @@ impl Default for IndexConfig {
             vlm_model: "gpt-4.1-nano".to_string(),
             vlm_max_pages_per_doc: Some(10),
             backlink_scoring: true,
+            embedding_usage: crate::config::EmbeddingUsageConfig::default(),
         }
     }
 }

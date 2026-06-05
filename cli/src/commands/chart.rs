@@ -103,9 +103,10 @@ pub fn run_chart(
         vlm_provider: vlm_cfg.provider.clone(),
         vlm_model: vlm_cfg.model.clone(),
         vlm_max_pages_per_doc: vlm_cfg.max_pages_per_doc,
+        embedding_usage: indexing_cfg.embedding_usage.clone(),
     };
 
-    let embedder = match embedder_cfg.create_embedder() {
+    let embedder = match embedder_cfg.create_embedder(&indexing_cfg.embedding_usage) {
         Ok(Some(e)) => {
             if !args.quiet {
                 eprintln!("{}", messages::INFO_EMBEDDER_LOADED);

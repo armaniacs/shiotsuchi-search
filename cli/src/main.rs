@@ -145,6 +145,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         cfg.database.db_path = Some(db.clone());
     }
 
+    // Thread embedding_usage config into IndexConfig
+    cfg.indexing.embedding_usage = cfg.embedding_usage.clone();
+
     let resolved_vaults = cfg.resolved_vaults();
     let db_path = cfg.resolved_db_path();
 
@@ -210,7 +213,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Some(Commands::Tide(args)) => {
             let stats = commands::tide::run_tide(&db_path)?;
-            commands::tide::print_stats(&stats, &args);
+            commands::tide::print_stats(&stats, &args, &cfg);
         }
         Some(Commands::Scan(args)) => {
             let vault_id = args.vault.as_deref().or(cfg.vault_default.as_deref());
@@ -274,12 +277,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
         Some(Commands::Config(args)) => {
+            let config_path = config::default_config_path();
+            let config_dir = config_path.parent().unwrap_or_else(|| std::path::Path::new(".")).to_path_buf();
             commands::config::run_config(
                 &args,
                 &resolved_vaults,
                 &cfg.indexing.include_extensions,
                 cfg.indexing.auto_exclude_hidden,
                 cfg.indexing.dynamic_threshold,
+                &config_path,
+                &config_dir,
             )?;
         }
         Some(Commands::ConfigMigrate(args)) => {

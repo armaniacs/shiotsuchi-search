@@ -1,5 +1,6 @@
 use rusqlite::Connection;
 use shiotsuchi_core::db::NoteDatabase;
+use shiotsuchi_core::migration::v04;
 use tempfile::TempDir;
 
 fn create_v1_db(path: &std::path::Path) {
@@ -114,4 +115,47 @@ fn migrate_is_idempotent_when_interrupted() {
     let version2: i64 = db2.write_conn.borrow()
         .query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
     assert_eq!(version2, 11, "second open should remain at version 11");
+}
+
+#[test]
+fn migrate_v04_sets_version_and_creates_vec_chunks() {
+    let temp = TempDir::new().unwrap();
+    let db_path = temp.path().join("v04_test.db");
+    let conn = Connection::open(&db_path).unwrap();
+    conn.pragma_update(None, "journal_mode", "WAL").unwrap();
+
+    // Create a v3-era schema: chunks table + vec_chunks with old type
+    conn.execute_batch("
+        CREATE TABLE IF NOT EXISTS chunks (
+            id                INTEGER PRIMARY KEY,
+            file_path         TEXT NOT NULL,
+            chunk_index       INTEGER NOT NULL,
+            parent_header     TEXT,
+            content           TEXT NOT NULL,
+            tokenized_content TEXT NOT NULL,
+            vault_name        TEXT NOT NULL DEFAULT ''
+        );
+        CREATE VIRTUAL TABLE IF NOT EXISTS vec_chunks USING vec0(
+            chunk_id  INTEGER PRIMARY KEY,
+            embedding FLOAT[1024]
+        );
+        PRAGMA user_version = 3;
+    ").unwrap();
+
+    // Run v04 migration
+    v04::migrate(&conn).unwrap();
+
+    // Verify user_version is now 4
+    let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+    assert_eq!(version, 4, "v04 migration should set user_version to 4");
+
+    // Verify vec_chunks still exists and is queryable
+    let vec_exists: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='vec_chunks'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(vec_exists, 1, "vec_chunks should exist after v04 migration");
 }

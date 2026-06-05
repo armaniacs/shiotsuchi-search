@@ -40,6 +40,8 @@ enum EmbedderBackend {
         client: ApiClient,
         model_id: String,
     },
+    #[cfg(test)]
+    TestVec(Vec<f32>),
 }
 
 
@@ -106,6 +108,20 @@ impl Embedder {
         Self::load(model_path)
     }
 
+    /// Test-only constructor: returns an embedder whose `embed()` always yields
+    /// a deterministic 1024-dim zero vector.  Used by search tests that need
+    /// a valid `&Embedder` reference to exercise the Hybrid-mode code paths
+    /// without loading an actual ONNX model.
+    #[cfg(test)]
+    pub fn for_testing() -> Self {
+        use std::sync::OnceLock;
+        static DUMMY: OnceLock<Vec<f32>> = OnceLock::new();
+        let dummy = DUMMY.get_or_init(|| vec![0.0f32; 1024]);
+        Self {
+            backend: EmbedderBackend::TestVec(dummy.clone()),
+        }
+    }
+
     pub fn embed(&self, text: &str) -> Result<Vec<f32>, EmbedderError> {
         match &self.backend {
             EmbedderBackend::Onnx { .. } => {
@@ -120,6 +136,8 @@ impl Embedder {
                     EmbedderError::Inference("No output from API batch".to_string())
                 })
             }
+            #[cfg(test)]
+            EmbedderBackend::TestVec(v) => Ok(v.clone()),
         }
     }
 
@@ -143,6 +161,10 @@ impl Embedder {
                     }
                 }
             }
+            #[cfg(test)]
+            EmbedderBackend::TestVec(v) => {
+                texts.iter().map(|_| Ok(v.clone())).collect()
+            }
         }
     }
 
@@ -150,6 +172,8 @@ impl Embedder {
         match &self.backend {
             EmbedderBackend::Onnx { .. } => EmbedderStatus::Ready,
             EmbedderBackend::Api { .. } => EmbedderStatus::Ready,
+            #[cfg(test)]
+            EmbedderBackend::TestVec(_) => EmbedderStatus::Ready,
         }
     }
 
@@ -157,6 +181,8 @@ impl Embedder {
         match &self.backend {
             EmbedderBackend::Onnx { model_id, .. } => model_id,
             EmbedderBackend::Api { model_id, .. } => model_id,
+            #[cfg(test)]
+            EmbedderBackend::TestVec(_) => "test-vector",
         }
     }
 
@@ -175,6 +201,12 @@ impl Embedder {
             EmbedderBackend::Api { .. } => {
                 return Err(EmbedderError::Inference(
                     "embed_batch_inner called on API backend".to_string()
+                ));
+            }
+            #[cfg(test)]
+            EmbedderBackend::TestVec(_) => {
+                return Err(EmbedderError::Inference(
+                    "embed_batch_inner called on test backend".to_string()
                 ));
             }
         };
@@ -480,6 +512,8 @@ pub enum EmbedderError {
     Inference(String),
     #[error("unavailable: {0}")]
     Unavailable(String),
+    #[error("monthly embedding API limit reached ({used}/{limit}, {month})")]
+    UsageLimitExceeded { limit: u64, used: u64, month: String },
 }
 
 // ── tests ────────────────────────────────────────────────────────────
