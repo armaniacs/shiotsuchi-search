@@ -15,6 +15,18 @@ pub struct ConfigArgs {
 pub enum ConfigCommands {
     /// ボールト内の除外候補を再検出する
     DetectNoise(DetectNoiseArgs),
+    /// Set a config value
+    Set(SetArgs),
+    /// Reset the embedding API usage counter
+    ResetUsage,
+}
+
+#[derive(Args, Debug)]
+pub struct SetArgs {
+    /// Config key (e.g., embedding_usage.enabled)
+    pub key: String,
+    /// Value to set
+    pub value: String,
 }
 
 #[derive(Args, Debug)]
@@ -40,12 +52,48 @@ fn print_noise_candidates(candidates: &[ExclusionCandidate], label: &str) {
     }
 }
 
+fn run_set(args: &SetArgs, config_path: &std::path::Path) -> Result<(), Box<dyn std::error::Error>> {
+    let content = std::fs::read_to_string(config_path)?;
+    let mut cfg: toml::Value = toml::from_str(&content)?;
+
+    let parts: Vec<&str> = args.key.split('.').collect();
+    match parts.as_slice() {
+        ["embedding_usage", "enabled"] => {
+            let val: bool = args.value.parse()
+                .map_err(|_| format!("Expected bool (true/false), got '{}'", args.value))?;
+            cfg["embedding_usage"]["enabled"] = toml::Value::Boolean(val);
+        }
+        ["embedding_usage", "monthly_limit"] => {
+            let val: u64 = args.value.parse()
+                .map_err(|_| format!("Expected number, got '{}'", args.value))?;
+            cfg["embedding_usage"]["monthly_limit"] = toml::Value::Integer(val as i64);
+        }
+        _ => return Err(format!("Unknown config key: {}", args.key).into()),
+    }
+
+    let toml_str = toml::to_string_pretty(&cfg)?;
+    let tmp = config_path.with_extension("toml.tmp");
+    std::fs::write(&tmp, &toml_str)?;
+    std::fs::rename(&tmp, config_path)?;
+    println!("Set {} = {}", args.key, args.value);
+    Ok(())
+}
+
+fn run_reset_usage(config_dir: &std::path::Path) -> Result<(), Box<dyn std::error::Error>> {
+    let tracker = shiotsuchi_core::usage_tracker::UsageTracker::new(config_dir, true, None);
+    tracker.reset()?;
+    println!("Embedding API usage counter has been reset.");
+    Ok(())
+}
+
 pub fn run_config(
     args: &ConfigArgs,
     vaults: &[(String, PathBuf)],
     include_extensions: &[String],
     auto_exclude_hidden: bool,
     dynamic_threshold: usize,
+    config_path: &std::path::Path,
+    config_dir: &std::path::Path,
 ) -> Result<(), Box<dyn std::error::Error>> {
     match &args.command {
         ConfigCommands::DetectNoise(detect_args) => {
@@ -71,6 +119,8 @@ pub fn run_config(
                 }
             }
         }
+        ConfigCommands::Set(set_args) => run_set(set_args, config_path)?,
+        ConfigCommands::ResetUsage => run_reset_usage(config_dir)?,
     }
 
     println!();
