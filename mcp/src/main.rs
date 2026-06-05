@@ -7,6 +7,7 @@ use protocol::{McpNotification, McpRequest, McpResponse};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use shiotsuchi_core::config::{DatabaseConfig, VaultEntry};
+use shiotsuchi_core::sensitive::SensitiveDataConfig;
 use shiotsuchi_core::paths::default_db_path as core_default_db_path;
 use std::{
     collections::HashMap,
@@ -160,7 +161,7 @@ struct Cli {
     config: Option<PathBuf>,
 }
 
-pub fn dispatch(req: McpRequest, vaults: &[(String, PathBuf)], db_path: &Path, backlink_scoring: bool, sensitive_config: Option<&shiotsuchi_core::sensitive::SensitiveDataConfig>) -> McpResponse {
+pub fn dispatch(req: McpRequest, vaults: &[(String, PathBuf)], db_path: &Path, backlink_scoring: bool, sensitive_config: &SensitiveDataConfig) -> McpResponse {
     let params = req.params.clone().unwrap_or(serde_json::Value::Null);
 
     match req.method.as_str() {
@@ -310,6 +311,7 @@ async fn main() {
         }
     }
 
+    let sensitive_config = SensitiveDataConfig::default();
     let stdin = io::stdin();
     let stdout: Arc<Mutex<dyn io::Write + Send>> = Arc::new(Mutex::new(io::stdout()));
 
@@ -351,10 +353,10 @@ async fn main() {
                             )
                         }
                     } else {
-                        dispatch(req, &vaults, &db_path, cfg.backlink_scoring, None)
+                        dispatch(req, &vaults, &db_path, cfg.backlink_scoring, &sensitive_config)
                     }
                 } else {
-                    dispatch(req, &vaults, &db_path, cfg.backlink_scoring, None)
+                    dispatch(req, &vaults, &db_path, cfg.backlink_scoring, &sensitive_config)
                 }
             }
             Err(_) => McpResponse::error(0, -32700, "Parse error"),
@@ -527,7 +529,7 @@ notes_dir = "/tmp/partial-notes"
             req,
             &vaults,
             std::path::Path::new("/tmp/db"),
-            true, None,
+            true, &SensitiveDataConfig::default(),
         );
         let json = serde_json::to_string(&resp).unwrap();
         assert!(json.contains("search_local_notes"));
@@ -546,7 +548,7 @@ notes_dir = "/tmp/partial-notes"
             req,
             &vaults,
             std::path::Path::new("/tmp/db"),
-            true, None,
+            true, &SensitiveDataConfig::default(),
         );
         let json = serde_json::to_string(&resp).unwrap();
         assert!(json.contains("\"error\""));
@@ -565,7 +567,7 @@ notes_dir = "/tmp/partial-notes"
             req,
             &vaults,
             std::path::Path::new("/tmp/db"),
-            true, None,
+            true, &SensitiveDataConfig::default(),
         );
         let json = serde_json::to_string(&resp).unwrap();
         assert!(json.contains("protocolVersion"));
@@ -585,7 +587,7 @@ notes_dir = "/tmp/partial-notes"
             req,
             &vaults,
             std::path::Path::new("/tmp/db"),
-            true, None,
+            true, &SensitiveDataConfig::default(),
         );
         let json = serde_json::to_string(&resp).unwrap();
         assert!(json.contains("\"result\""));

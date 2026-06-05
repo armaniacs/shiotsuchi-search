@@ -6,7 +6,7 @@
 //!
 //! # Design Decisions
 //! - Masking is applied ONLY on output, NOT on stored data
-//! - Default: disabled (opt-in via configuration)
+//! - Default: enabled (safe by default, opt-out via configuration)
 //! - Patterns are derived from TruffleHog detectors (regex only, no verification)
 
 use regex::Regex;
@@ -14,13 +14,22 @@ use regex::Regex;
 use crate::sensitive_patterns::{get_builtin_patterns, get_placeholder};
 
 /// Configuration for sensitive data detection and masking.
-#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct SensitiveDataConfig {
     /// Whether to enable sensitive data masking
     pub detection: bool,
     /// Custom regex patterns to add (space-separated placeholders will be auto-generated)
     pub patterns: Vec<String>,
+}
+
+impl Default for SensitiveDataConfig {
+    fn default() -> Self {
+        Self {
+            detection: true,  // safe by default
+            patterns: Vec::new(),
+        }
+    }
 }
 
 impl SensitiveDataConfig {

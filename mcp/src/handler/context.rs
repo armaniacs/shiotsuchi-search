@@ -50,7 +50,7 @@ pub(crate) fn handle_get_surrounding_context(
     }
 
     let masked_out =
-        shiotsuchi_core::sensitive::mask_sensitive_data(&out, ctx.sensitive_config);
+        shiotsuchi_core::sensitive::mask_sensitive_data(&out, Some(ctx.sensitive_config));
     Ok(json!({
         "content": [{"type": "text", "text": masked_out}]
     }))

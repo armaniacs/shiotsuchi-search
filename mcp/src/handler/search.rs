@@ -118,7 +118,7 @@ pub(crate) fn handle_search_local_notes(
 
     let markdown = format_results_markdown(&results, &query);
     let masked =
-        shiotsuchi_core::sensitive::mask_sensitive_data(&markdown, ctx.sensitive_config);
+        shiotsuchi_core::sensitive::mask_sensitive_data(&markdown, Some(ctx.sensitive_config));
     Ok(json!({
         "content": [{"type": "text", "text": masked}]
     }))

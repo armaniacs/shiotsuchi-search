@@ -8,6 +8,11 @@ use shiotsuchi_core::sensitive::SensitiveDataConfig;
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
+/// Default sensitive config used in tests when no explicit config is needed.
+#[cfg(test)]
+static DEFAULT_TEST_SENSITIVE_CONFIG: LazyLock<SensitiveDataConfig> =
+    LazyLock::new(|| SensitiveDataConfig::default());
+
 pub(crate) use context::handle_get_surrounding_context;
 pub(crate) use search::handle_search_local_notes;
 pub(crate) use status::handle_index_status;
@@ -46,7 +51,7 @@ pub(crate) struct ToolContext<'a> {
     pub vaults: &'a [(String, PathBuf)],
     pub db_path: &'a Path,
     pub backlink_scoring: bool,
-    pub sensitive_config: Option<&'a SensitiveDataConfig>,
+    pub sensitive_config: &'a SensitiveDataConfig,
 }
 
 /// Dispatch a tool call to the appropriate handler.
@@ -56,7 +61,7 @@ pub fn call_tool(
     vaults: &[(String, PathBuf)],
     db_path: &Path,
     backlink_scoring: bool,
-    sensitive_config: Option<&SensitiveDataConfig>,
+    sensitive_config: &SensitiveDataConfig,
 ) -> Result<Value, Box<dyn std::error::Error>> {
     if !check_rate_limit() {
         return Ok(rate_limit_error());
@@ -111,7 +116,7 @@ pub(crate) mod test_helpers {
             vaults,
             db_path,
             backlink_scoring: true,
-            sensitive_config: None,
+            sensitive_config: &super::DEFAULT_TEST_SENSITIVE_CONFIG,
         }
     }
 }
@@ -133,7 +138,7 @@ mod tests {
         shiotsuchi_core::db::NoteDatabase::open(&db_path).unwrap();
         let args = serde_json::json!({"query": "test", "mode": "fts"});
         let result =
-            call_tool("search_local_notes", &args, &vaults, &db_path, true, None);
+            call_tool("search_local_notes", &args, &vaults, &db_path, true, &SensitiveDataConfig::default());
         assert!(result.is_err());
         let msg = format!("{}", result.unwrap_err());
         assert!(
@@ -154,7 +159,7 @@ mod tests {
         shiotsuchi_core::db::NoteDatabase::open(&db_path).unwrap();
         let args = serde_json::json!({"query": "test", "mode": "fts", "vault": "hobby"});
         let result =
-            call_tool("search_local_notes", &args, &vaults, &db_path, true, None);
+            call_tool("search_local_notes", &args, &vaults, &db_path, true, &SensitiveDataConfig::default());
         assert!(result.is_ok());
         let resp = result.unwrap();
         assert_eq!(resp["isError"], true);
@@ -172,7 +177,7 @@ mod tests {
         };
         let args = serde_json::json!({"query": "Rust programming", "mode": "fts"});
         let result =
-            call_tool("search_local_notes", &args, &vaults, &db_path, true, None);
+            call_tool("search_local_notes", &args, &vaults, &db_path, true, &SensitiveDataConfig::default());
         assert!(result.is_ok(), "search_local_notes failed: {:?}", result.err());
         let text = result.unwrap()["content"][0]["text"]
             .as_str()
@@ -198,7 +203,7 @@ mod tests {
         shiotsuchi_core::db::NoteDatabase::open(&db_path).unwrap();
         let args = serde_json::json!({"query": "Rust", "mode": "vec"});
         let result =
-            call_tool("search_local_notes", &args, &vaults, &db_path, true, None).unwrap();
+            call_tool("search_local_notes", &args, &vaults, &db_path, true, &SensitiveDataConfig::default()).unwrap();
         let text = result["content"][0]["text"].as_str().unwrap();
         assert!(
             text.contains("fts") || text.contains("model") || text.contains("setup"),
@@ -215,7 +220,7 @@ mod tests {
             return;
         };
         let result =
-            call_tool("index_status", &serde_json::json!({}), &vaults, &db_path, true, None)
+            call_tool("index_status", &serde_json::json!({}), &vaults, &db_path, true, &SensitiveDataConfig::default())
                 .unwrap();
         let text = result["content"][0]["text"].as_str().unwrap();
         assert!(
@@ -254,7 +259,7 @@ mod tests {
         let middle_id = ids[ids.len() / 2];
         let args = serde_json::json!({"chunk_id": middle_id, "window": 1});
         let result =
-            call_tool("get_surrounding_context", &args, &vaults, &db_path, true, None);
+            call_tool("get_surrounding_context", &args, &vaults, &db_path, true, &SensitiveDataConfig::default());
         assert!(
             result.is_ok(),
             "get_surrounding_context failed: {:?}",
@@ -282,7 +287,7 @@ mod tests {
         let vaults = vec![("default".to_string(), temp.path().to_path_buf())];
         let db_path = temp.path().join("nonexistent.db");
         let result =
-            call_tool("nonexistent_tool", &serde_json::json!({}), &vaults, &db_path, true, None);
+            call_tool("nonexistent_tool", &serde_json::json!({}), &vaults, &db_path, true, &SensitiveDataConfig::default());
         assert!(result.is_err());
     }
 
@@ -295,7 +300,7 @@ mod tests {
         let long_query = "x".repeat(501);
         let args = serde_json::json!({"query": long_query, "mode": "fts"});
         let result =
-            call_tool("search_local_notes", &args, &vaults, &db_path, true, None).unwrap();
+            call_tool("search_local_notes", &args, &vaults, &db_path, true, &SensitiveDataConfig::default()).unwrap();
         let text = result["content"][0]["text"].as_str().unwrap();
         assert!(text.contains("max 500"), "expected max length error, got: {}", text);
     }
@@ -332,7 +337,7 @@ mod tests {
     ) {
         while GENERAL_RATE_LIMITER.allow() {}
 
-        let result = call_tool(tool, &args, vaults, db_path, true, None);
+        let result = call_tool(tool, &args, vaults, db_path, true, &SensitiveDataConfig::default());
         assert!(result.is_ok());
         let resp = result.unwrap();
         assert_eq!(resp["isError"], true);
@@ -481,7 +486,7 @@ mod tests {
         shiotsuchi_core::db::NoteDatabase::open(&db_path).unwrap();
         // Querying "work" vault whose dir does not exist must fail
         let args = json!({"query": "test", "mode": "fts", "vault": "work"});
-        let result = call_tool("search_local_notes", &args, &vaults, &db_path, true, None);
+        let result = call_tool("search_local_notes", &args, &vaults, &db_path, true, &SensitiveDataConfig::default());
         assert!(result.is_err(), "expected error for non-existent vault dir");
         let msg = format!("{}", result.unwrap_err());
         assert!(
