@@ -3,20 +3,14 @@ mod search;
 mod status;
 
 use serde_json::Value;
-use shiotsuchi_core::{
-    rate_limiter::SlidingWindowRateLimiter,
-    search::extract_snippet,
-    sensitive::SensitiveDataConfig,
-};
+use shiotsuchi_core::sensitive::SensitiveDataConfig;
+#[cfg(test)]
+use shiotsuchi_core::rate_limiter::SlidingWindowRateLimiter;
 use std::path::{Path, PathBuf};
-use std::sync::LazyLock;
 
 pub(crate) use context::handle_get_surrounding_context;
 pub(crate) use search::handle_search_local_notes;
 pub(crate) use status::handle_index_status;
-
-static SEARCH_RATE_LIMITER: LazyLock<SlidingWindowRateLimiter> =
-    LazyLock::new(|| SlidingWindowRateLimiter::new(10));
 
 /// Shared context passed to all tool handlers.
 pub(crate) struct ToolContext<'a> {
@@ -24,35 +18,6 @@ pub(crate) struct ToolContext<'a> {
     pub db_path: &'a Path,
     pub backlink_scoring: bool,
     pub sensitive_config: Option<&'a SensitiveDataConfig>,
-}
-
-fn format_results_markdown(
-    results: &[shiotsuchi_core::models::ChunkSearchResult],
-    query: &str,
-) -> String {
-    if results.is_empty() {
-        return "No results found.".to_string();
-    }
-
-    let mut out = String::from("### RETRIEVED CONTEXT ###\n\n");
-    for (i, r) in results.iter().enumerate() {
-        let header = r.parent_header.as_deref().unwrap_or("(top level)");
-        out.push_str(&format!(
-            "## Source {}: {} > {}\n\n",
-            i + 1,
-            r.file_path,
-            header
-        ));
-        // extract_snippet(text, query, max_lines, max_chars)
-        let snippet = extract_snippet(&r.content, query, 3, 800);
-        out.push_str(&snippet);
-        out.push_str(&format!(
-            "\n\n_Chunk ID: {} | Score: {:.4} | Tags: {} | Date: {} | Title: {}_\n\n---\n\n",
-            r.chunk_id, r.score, r.tags, r.frontmatter_date, r.title
-        ));
-    }
-    out.push_str("### END RETRIEVED CONTEXT ###\n");
-    out
 }
 
 /// Dispatch a tool call to the appropriate handler.
@@ -393,5 +358,65 @@ mod tests {
         let text = result["content"][0]["text"].as_str().unwrap();
         assert!(text.contains("Total chunks"));
         assert!(text.contains("Indexed files"));
+    }
+
+    #[test]
+    fn test_handle_search_local_notes_rejects_unknown_mode() {
+        let temp = TempDir::new().unwrap();
+        let vaults = vec![("default".to_string(), temp.path().to_path_buf())];
+        let db_path = temp.path().join("test.db");
+        shiotsuchi_core::db::NoteDatabase::open(&db_path).unwrap();
+        let ctx = make_test_ctx(&temp, &vaults, &db_path);
+        let args = json!({"query": "test", "mode": "unsupported_mode"});
+        let result = handle_search_local_notes(&ctx, &args).unwrap();
+        assert_eq!(result["isError"], true);
+        let text = result["content"][0]["text"].as_str().unwrap();
+        assert!(text.contains("Unknown mode"), "expected unknown mode error, got: {}", text);
+        assert!(text.contains("unsupported_mode"), "expected mode name in error, got: {}", text);
+    }
+
+    #[test]
+    fn test_handle_search_local_notes_path_traversal_checks_correct_vault() {
+        let temp = TempDir::new().unwrap();
+        let home_dir = temp.path().join("home_vault");
+        let work_dir = temp.path().join("work_vault"); // does not exist
+        std::fs::create_dir(&home_dir).unwrap();
+        let vaults = vec![
+            ("home".to_string(), home_dir),
+            ("work".to_string(), work_dir),
+        ];
+        let db_path = temp.path().join("test.db");
+        shiotsuchi_core::db::NoteDatabase::open(&db_path).unwrap();
+        // Querying "work" vault whose dir does not exist must fail
+        let args = json!({"query": "test", "mode": "fts", "vault": "work"});
+        let result = call_tool("search_local_notes", &args, &vaults, &db_path, true, None);
+        assert!(result.is_err(), "expected error for non-existent vault dir");
+        let msg = format!("{}", result.unwrap_err());
+        assert!(
+            msg.contains("not accessible") || msg.contains("does not exist"),
+            "expected directory error, got: {}",
+            msg
+        );
+    }
+
+    #[test]
+    fn test_get_surrounding_context_returns_unified_error_for_nonexistent_chunk() {
+        let temp = TempDir::new().unwrap();
+        let vaults = vec![("default".to_string(), temp.path().to_path_buf())];
+        let Some(db_path) = setup_db(&temp) else {
+            return;
+        };
+        let ctx = make_test_ctx(&temp, &vaults, &db_path);
+        // A non-existent chunk_id must return the unified error message
+        // ("chunk not found or inaccessible") rather than revealing existence info.
+        let args = json!({"chunk_id": 99999, "window": 1});
+        let result = handle_get_surrounding_context(&ctx, &args);
+        assert!(result.is_err(), "expected error for non-existent chunk");
+        let msg = format!("{}", result.unwrap_err());
+        assert!(
+            msg.contains("chunk not found or inaccessible"),
+            "expected unified error message, got: {}",
+            msg
+        );
     }
 }

@@ -17,9 +17,9 @@ pub(crate) fn handle_get_surrounding_context(
     // Validate that the chunk belongs to a known vault
     let chunk_vault = db
         .get_chunk_vault_name(chunk_id)?
-        .ok_or("chunk not found")?;
+        .ok_or("chunk not found or inaccessible")?;
     if !ctx.vaults.iter().any(|(name, _)| name == &chunk_vault) {
-        return Err("chunk vault is not configured in this server".into());
+        return Err("chunk not found or inaccessible".into());
     }
     let chunks = db.get_surrounding_chunks(chunk_id, window)?;
 
