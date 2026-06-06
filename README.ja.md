@@ -171,6 +171,7 @@ SHIOTSUCHI_MODEL_PATH=models/bccwj-suw+unidic_pos+kana.model.zst \
 - [docs/CLI-USE.ja.md](docs/CLI-USE.ja.md) — CLI コマンド詳細リファレンス
 - [docs/MCP-SETUP.ja.md](docs/MCP-SETUP.ja.md) — マルチvault MCP セットアップガイド
 - [docs/FTS5.ja.md](docs/FTS5.ja.md) — FTS5 クエリ構文とヒント
+- [docs/LOG.ja.md](docs/LOG.ja.md) — ログ設定と設計判断
 - [CHANGELOG.md](CHANGELOG.md) — リリース履歴
 - [ref/architecture.md](ref/architecture.md) — 設計とデータモデル
 

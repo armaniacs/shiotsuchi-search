@@ -151,7 +151,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS vec_chunks USING vec0(
 
 ### `embedder.rs` — ONNX Embedding Inference (RAG)
 
-**Type**: `Embedder { session: RefCell<Session>, tokenizer: Tokenizer, model_id: String }`
+**Type**: `Embedder { backend: EmbedderBackend }` where `EmbedderBackend::Onnx { session: RefCell<Session>, tokenizer: Box<Tokenizer>, model_id: String }` or `EmbedderBackend::Api { client: ApiClient, model_id: String }`
 
 **Construction**:
 - `Embedder::load(model_path)` — Load ONNX model + HuggingFace tokenizer from `model.onnx` / `tokenizer.json`
@@ -205,7 +205,7 @@ Progress is cumulative: `(processed_so_far, total_across_all_vaults)`.
 ### `search.rs` — Search Engine
 
 **Key Function**:
-- `search(db, tokenizer, query, limit, mode, embedder, min_score, vault_filter, tag_filter, since_date, user_dictionary, synonyms, fuzzy, alpha, mmr, lambda, backlink_scoring)` → `Result<Vec<ChunkSearchResult>>`
+- `search(db, tokenizer, req: &SearchRequest)` → `Result<Vec<ChunkSearchResult>>`
 
 **Modes** (`SearchMode` enum):
 - `Fts` — Keyword search via FTS5 BM25 (works without model). Lower score = more relevant.
