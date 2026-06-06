@@ -78,7 +78,7 @@ pub(crate) fn delete_db_files(db_path: &Path) {
         let path = Path::new(name);
         if path.exists() {
             if path.is_symlink() {
-                log::warn!("Refusing to remove symlink: {}", path.display());
+                tracing::warn!("Refusing to remove symlink: {}", path.display());
                 continue;
             }
             let _ = std::fs::remove_file(path);

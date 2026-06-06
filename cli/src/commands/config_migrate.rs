@@ -83,7 +83,7 @@ pub fn run_config_migrate(args: &ConfigMigrateArgs) -> Result<(), Box<dyn std::e
     }
     #[cfg(not(unix))]
     {
-        log::warn!("Config file permissions not restricted — not supported on this platform.");
+        tracing::warn!("Config file permissions not restricted — not supported on this platform.");
     }
 
     eprintln!("{}", messages::CONFIG_MIGRATED);

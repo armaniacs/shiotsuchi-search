@@ -14,7 +14,7 @@ pub fn dialoguer_theme() -> Box<dyn dialoguer::theme::Theme> {
 ///
 /// Creates the parent if it doesn't exist. Safe to call on any platform:
 /// the operation is a no-op on non-Unix targets. Errors are logged via
-/// `log::warn!` but do not abort execution (best-effort security).
+/// `tracing::warn!` but do not abort execution (best-effort security).
 ///
 /// Currently only called from tests; kept for future use in new commands
 /// that create database directories.
@@ -29,13 +29,13 @@ pub fn secure_parent_dir(path: &Path) {
                     if let Err(e) =
                         std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700))
                     {
-                        log::warn!("Failed to set parent directory permissions to 0o700: {}", e);
+                        tracing::warn!("Failed to set parent directory permissions to 0o700: {}", e);
                     }
                 }
             }
             #[cfg(not(unix))]
             {
-                log::warn!("Directory permissions not restricted — not supported on this platform.");
+                tracing::warn!("Directory permissions not restricted — not supported on this platform.");
             }
         }
         let _ = parent;

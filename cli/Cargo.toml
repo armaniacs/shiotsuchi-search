@@ -25,8 +25,8 @@ config = { version = "0.15", features = ["toml"] }
 dirs = "6"
 thiserror = "2"
 notify = "9.0.0-rc.4"
-log = "0.4"
-env_logger = "0.11"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 toml = "1.1"
 dialoguer = "0.12"
 walkdir = "2"

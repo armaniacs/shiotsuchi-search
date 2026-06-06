@@ -127,9 +127,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .long_version(build_info::long_version());
     let cli = <Cli as clap::FromArgMatches>::from_arg_matches(&cmd.get_matches())?;
 
-    let env = env_logger::Env::default()
-        .filter_or("RUST_LOG", if cli.verbose { "debug" } else { "warn" });
-    env_logger::Builder::from_env(env).init();
+    let filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| {
+            if cli.verbose {
+                tracing_subscriber::EnvFilter::new("debug")
+            } else {
+                tracing_subscriber::EnvFilter::new("warn")
+            }
+        });
+    tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .compact()
+        .with_target(false)
+        .init();
 
     let mut cfg = config::ShiotsuchiConfig::load();
     if let Some(ref dir) = cli.notes_dir {

@@ -91,7 +91,7 @@ pub fn scan_vault(
         .filter_map(|e| match e {
             Ok(e) => Some(e),
             Err(err) => {
-                log::warn!("Directory scan error: {}", err);
+                tracing::warn!("Directory scan error: {}", err);
                 None
             }
         })
