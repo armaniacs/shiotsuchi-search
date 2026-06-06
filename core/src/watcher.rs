@@ -5,7 +5,7 @@ use crate::{
     models::{IndexConfig, IndexParams},
     tokenizer::JapaneseTokenizer,
 };
-use log;
+
 use notify::{Event, RecursiveMode, Watcher};
 use std::{
     path::{Path, PathBuf},
@@ -150,7 +150,7 @@ impl VaultWatcher {
                 for path in &event.paths {
                     // Symlink-safe vault check: resolve path to detect symlink escapes
                     if !self.is_path_in_notes_dir(path, &notes_dir) {
-                        log::warn!(
+                        tracing::warn!(
                             "watcher: path outside vault (symlink?), skipping: {}",
                             path.display()
                         );
@@ -172,7 +172,7 @@ impl VaultWatcher {
                             config: &self.config,
                             path_map: &path_map,
                         }) {
-                            log::warn!("watcher: failed to index {}: {}", rel_str, e);
+                            tracing::warn!("watcher: failed to index {}: {}", rel_str, e);
                         }
                     }
                 }
@@ -184,7 +184,7 @@ impl VaultWatcher {
                         let db = self.db.lock().expect("watcher mutex poisoned");
                         // Atomic delete: tag_counts + chunks + FTS/vec + file_cache + note_links
                         if let Err(e) = db.delete_file_fully(vault_name, &rel_str) {
-                            log::warn!(
+                            tracing::warn!(
                                 "watcher: failed to delete {}: {}",
                                 rel_str,
                                 e
@@ -192,7 +192,7 @@ impl VaultWatcher {
                         }
                         if self.config.backlink_scoring {
                             if let Err(e) = db.update_backlink_counts_for_vault(vault_name) {
-                                log::warn!("watcher: failed to update backlink counts: {}", e);
+                                tracing::warn!("watcher: failed to update backlink counts: {}", e);
                             }
                         }
                     }
@@ -213,7 +213,7 @@ impl VaultWatcher {
                             let db = self.db.lock().expect("watcher mutex poisoned");
                             // Atomic delete: tag_counts + chunks + FTS/vec + file_cache + note_links
                             if let Err(e) = db.delete_file_fully(vault_name, &rel_str) {
-                                log::warn!(
+                                tracing::warn!(
                                     "watcher: failed to delete old path {}: {}",
                                     rel_str,
                                     e
@@ -237,7 +237,7 @@ impl VaultWatcher {
                                 config: &self.config,
                                 path_map: &path_map,
                             }) {
-                                log::warn!(
+                                tracing::warn!(
                                     "watcher: failed to index new path {}: {}",
                                     new_rel.to_string_lossy(),
                                     e
@@ -245,7 +245,7 @@ impl VaultWatcher {
                             }
                         }
                     } else {
-                        log::warn!(
+                        tracing::warn!(
                             "watcher: renamed path outside vault, skipping: {}",
                             new.display()
                         );

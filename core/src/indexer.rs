@@ -57,7 +57,7 @@ fn build_exclude_globset(patterns: &[String]) -> (GlobSet, usize) {
         let glob = match Glob::new(&wrapped) {
             Ok(g) => g,
             Err(e) => {
-                log::warn!("Skipping invalid exclude pattern {:?}: {}", pat, e);
+                tracing::warn!("Skipping invalid exclude pattern {:?}: {}", pat, e);
                 invalid += 1;
                 continue;
             }
@@ -65,7 +65,7 @@ fn build_exclude_globset(patterns: &[String]) -> (GlobSet, usize) {
         builder.add(glob);
     }
     let set = builder.build().unwrap_or_else(|e| {
-        log::warn!("Failed to build exclude GlobSet: {}", e);
+        tracing::warn!("Failed to build exclude GlobSet: {}", e);
         GlobSet::empty()
     });
     (set, invalid)
@@ -229,6 +229,10 @@ pub fn index_file(
 /// `(Vec<(vault_name, relative_path, IndexResult)>, invalid_pattern_count, excluded_file_count)` on success.
 /// The caller always destructures the pair; a struct would only add field-name noise.
 #[allow(clippy::type_complexity)]
+#[tracing::instrument(
+    skip(db, tokenizer, config, embedder, progress),
+    fields(vault_count = config.vaults.len())
+)]
 pub fn index_directory(
     db: &NoteDatabase,
     tokenizer: &JapaneseTokenizer,
@@ -291,7 +295,7 @@ pub fn index_directory(
             .filter_map(|e| match e {
                 Ok(entry) => Some(entry),
                 Err(err) => {
-                    log::warn!("Directory scan error: {}", err);
+                    tracing::warn!("Directory scan error: {}", err);
                     None
                 }
             })
@@ -317,14 +321,14 @@ pub fn index_directory(
                 let relative = if path.starts_with(notes_dir) {
                     path.strip_prefix(notes_dir).unwrap_or(path)
                 } else {
-                    log::warn!("File path {:?} outside vault root {:?}", path, notes_dir);
+                    tracing::warn!("File path {:?} outside vault root {:?}", path, notes_dir);
                     return false;
                 };
                 let rel_str = relative.to_string_lossy();
                 let is_excluded = exclude_globset.is_match(rel_str.as_ref());
                 if is_excluded {
                     vault_excluded += 1;
-                    log::debug!("Excluded {} (matched exclude pattern)", rel_str);
+                    tracing::debug!("Excluded {} (matched exclude pattern)", rel_str);
                 }
                 !is_excluded
             })
@@ -356,9 +360,9 @@ pub fn index_directory(
         // instead of once per file (which would be O(N²)).
         if config.backlink_scoring && !vault_file_paths.is_empty() {
             if let Err(e) = db.update_backlink_counts_for_vault(vault_name) {
-                log::warn!("Failed to update backlink counts for vault {}: {}", vault_name, e);
+                tracing::warn!("Failed to update backlink counts for vault {}: {}", vault_name, e);
             } else {
-                log::debug!("Updated backlink counts for vault {}", vault_name);
+                tracing::debug!("Updated backlink counts for vault {}", vault_name);
             }
         }
 
@@ -379,7 +383,7 @@ pub fn cleanup_deleted(db: &NoteDatabase, config: &IndexConfig) -> Result<Vec<St
             if !full_path.exists() {
                 // Atomic delete: tag_counts + chunks + file_cache + note_links all in one tx
                 if let Err(e) = db.delete_file_fully(vault_name, &path) {
-                    log::warn!("cleanup_deleted: failed to fully delete {}: {}", path, e);
+                    tracing::warn!("cleanup_deleted: failed to fully delete {}: {}", path, e);
                 }
                 removed.push(path);
                 vault_removed = true;
@@ -388,7 +392,7 @@ pub fn cleanup_deleted(db: &NoteDatabase, config: &IndexConfig) -> Result<Vec<St
         // Recalculate backlink counts if any files were removed
         if vault_removed && config.backlink_scoring {
             if let Err(e) = db.update_backlink_counts_for_vault(vault_name) {
-                log::warn!("Failed to update backlink counts after cleanup: {}", e);
+                tracing::warn!("Failed to update backlink counts after cleanup: {}", e);
             }
         }
     }
@@ -429,7 +433,7 @@ pub fn index_file_with_embedder(p: &IndexParams<'_>) -> IndexResult {
                     match crate::pdf::extract_text(file_path) {
                         Ok(text) => text,
                         Err(e) => {
-                            log::warn!("PDF extraction error for {}: {}; falling back to VLM if configured", relative_path, e);
+                            tracing::warn!("PDF extraction error for {}: {}; falling back to VLM if configured", relative_path, e);
                             String::new()
                         }
                     }
@@ -479,7 +483,7 @@ pub fn index_file_with_embedder(p: &IndexParams<'_>) -> IndexResult {
             use std::sync::atomic::{AtomicBool, Ordering};
             static VLM_WARNING_SENT: AtomicBool = AtomicBool::new(false);
             if !VLM_WARNING_SENT.swap(true, Ordering::Relaxed) {
-                log::warn!(
+                tracing::warn!(
                     "VLM extraction enabled: PDF content will be sent to {} API for text extraction. \
                      Set [vlm] enabled = false to disable.",
                     config.vlm_provider
@@ -501,7 +505,7 @@ pub fn index_file_with_embedder(p: &IndexParams<'_>) -> IndexResult {
                     Ok(Some(text)) => content = text,
                     Ok(None) => {}, // VLM returned nothing, keep empty
                     Err(e) => {
-                        log::warn!("VLM extraction failed for {}: {}", relative_path, e);
+                        tracing::warn!("VLM extraction failed for {}: {}", relative_path, e);
                         // keep empty, fall back to native result
                     }
                 }
@@ -537,7 +541,7 @@ pub fn index_file_with_embedder(p: &IndexParams<'_>) -> IndexResult {
             .map(|(i, result)| match result {
                 Ok(e) => Some(e),
                 Err(e) => {
-                    log::warn!("Failed to embed chunk {}: {}", i, e);
+                    tracing::warn!("Failed to embed chunk {}: {}", i, e);
                     None
                 }
             })

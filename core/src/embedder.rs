@@ -9,7 +9,7 @@ use std::fs::File;
 use std::io::Read;
 use hex;
 use sha2::{Digest, Sha256};
-use log;
+
 use crate::api_embedder::ApiClient;
 
 /// Maximum sequence length for the embedding model (Qwen3-Embedding supports up to 32K,
@@ -84,7 +84,7 @@ impl Embedder {
         let model_id = match compute_model_id(model_path) {
             Ok(id) => id,
             Err(e) => {
-                log::warn!("Failed to compute model hash: {}", e);
+                tracing::warn!("Failed to compute model hash: {}", e);
                 "unknown".to_string()
             }
         };

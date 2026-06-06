@@ -71,7 +71,7 @@ impl NoteDatabase {
                         if let Err(e) =
                             std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700))
                         {
-                            log::warn!("Failed to set parent directory permissions to 0o700: {}", e);
+                            tracing::warn!("Failed to set parent directory permissions to 0o700: {}", e);
                         }
                     }
                 }
@@ -85,14 +85,14 @@ impl NoteDatabase {
         if is_fresh {
             use std::os::unix::fs::PermissionsExt;
             if let Err(e) = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)) {
-                log::warn!("Failed to set DB file permissions to 0o600: {}", e);
+                tracing::warn!("Failed to set DB file permissions to 0o600: {}", e);
             }
             for suffix in ["-wal", "-shm"] {
                 let companion = path.as_ref().with_extension(format!("db{}", suffix));
                 if companion.exists() {
                     if let Err(e) = std::fs::set_permissions(&companion, std::fs::Permissions::from_mode(0o600))
                     {
-                        log::warn!("Failed to set companion file permissions to 0o600: {}", e);
+                        tracing::warn!("Failed to set companion file permissions to 0o600: {}", e);
                     }
                 }
             }

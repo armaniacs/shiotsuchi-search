@@ -3908,7 +3908,6 @@ dependencies = [
  "globset",
  "hex",
  "indicatif",
- "log",
  "notify 9.0.0-rc.4",
  "ort",
  "pdfium-auto",

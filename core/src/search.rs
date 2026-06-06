@@ -5,7 +5,7 @@ use crate::{
     tokenizer::{apply_user_dictionary, normalize, simple_and_query, JapaneseTokenizer},
 };
 use std::collections::HashMap;
-use log;
+
 
 /// All parameters for a search operation, grouped for maintainability.
 #[derive(Debug, Clone)]
@@ -204,7 +204,7 @@ pub fn search(
             match search_hybrid(db, tokenizer, emb_vec, req.query, req.limit, vec_fetch_limit, req.min_score, req.vault_filter, req.tag_filter, req.since_date, req.user_dictionary, req.synonyms, req.fuzzy, req.hybrid_alpha, include_embeddings) {
                 Ok(result) => result,
                 Err(e) => {
-                    log::warn!("Hybrid search vec component failed ({}), falling back to FTS only", e);
+                    tracing::warn!("Hybrid search vec component failed ({}), falling back to FTS only", e);
                     effective_mode = SearchMode::Fts;
                     (search_fts(db, tokenizer, req.query, req.limit, req.min_score, req.vault_filter, req.tag_filter, req.since_date, req.user_dictionary, req.synonyms, req.fuzzy)?, HashMap::new())
                 }
@@ -398,7 +398,7 @@ pub(crate) fn build_results(
             let id = match c.id {
                 Some(id) => id,
                 None => {
-                    log::warn!("{:?} search: chunk from DB has no id, skipping", mode);
+                    tracing::warn!("{:?} search: chunk from DB has no id, skipping", mode);
                     return None;
                 }
             };
@@ -656,7 +656,7 @@ fn search_hybrid(
             let id = match c.id {
                 Some(id) => id,
                 None => {
-                    log::warn!("Hybrid search: chunk from DB has no id, skipping");
+                    tracing::warn!("Hybrid search: chunk from DB has no id, skipping");
                     return None;
                 }
             };

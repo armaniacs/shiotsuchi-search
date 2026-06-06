@@ -41,7 +41,6 @@ thiserror = "2"
 ort = { version = "2.0.0-rc.12", default-features = false, features = ["std", "download-binaries", "tls-rustls"], optional = true }
 indicatif = "0.17"
 notify = { version = "9.0.0-rc.4", optional = true }
-log = "0.4"
 dirs = "6"
 config = { version = "0.15", features = ["toml"] }
 sqlite-vec = "0.1"

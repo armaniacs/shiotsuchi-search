@@ -80,7 +80,7 @@ where
 {
     let val = usize::deserialize(deserializer)?;
     if val > 200 {
-        log::warn!("limit clamped from {} to 200", val);
+        tracing::warn!("limit clamped from {} to 200", val);
     }
     Ok(val.min(200))
 }
@@ -93,7 +93,7 @@ where
 {
     let val = usize::deserialize(deserializer)?;
     if val > MAX_OFFSET {
-        log::warn!("offset clamped from {} to {}", val, MAX_OFFSET);
+        tracing::warn!("offset clamped from {} to {}", val, MAX_OFFSET);
     }
     Ok(val.min(MAX_OFFSET))
 }

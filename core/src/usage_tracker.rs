@@ -39,7 +39,7 @@ impl UsageTracker {
                 Ok(content) => match serde_json::from_str::<UsageFile>(&content) {
                     Ok(f) => f,
                     Err(e) => {
-                        log::warn!(
+                        tracing::warn!(
                             "Failed to parse usage.json ({}), resetting",
                             e
                         );
@@ -51,7 +51,7 @@ impl UsageTracker {
                     }
                 },
                 Err(e) => {
-                    log::warn!("Failed to read usage.json: {}", e);
+                    tracing::warn!("Failed to read usage.json: {}", e);
                     UsageFile {
                         current_month: now_month.clone(),
                         current_count: 0,
@@ -87,7 +87,7 @@ impl UsageTracker {
         file.current_count += 1;
 
         if let Err(e) = self.write_usage(&file) {
-            log::warn!("Failed to write usage.json: {}", e);
+            tracing::warn!("Failed to write usage.json: {}", e);
         }
 
         Ok(())

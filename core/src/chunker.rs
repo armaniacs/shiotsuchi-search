@@ -28,7 +28,7 @@ pub fn split_into_chunks(
     // on commas downstream in reindex_file, fragmenting the tag.
     for tag in &frontmatter.tags {
         if tag.contains(',') {
-            log::warn!(
+            tracing::warn!(
                 "Tag '{}' in '{}' contains a comma — will be split on reindex",
                 tag, file_path
             );
