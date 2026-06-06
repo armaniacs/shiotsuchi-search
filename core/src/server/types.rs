@@ -68,6 +68,8 @@ pub struct SearchParams {
     /// Result offset for pagination (default: 0, max: 10000)
     #[serde(default, deserialize_with = "deserialize_clamped_offset")]
     pub offset: usize,
+    /// Cursor for keyset pagination (opaque base64 string). FTS mode only.
+    pub cursor: Option<String>,
 }
 
 fn default_limit() -> usize {

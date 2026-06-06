@@ -1522,8 +1522,9 @@ mod tests {
                 mmr: false,
                 lambda: 0.5,
                 backlink_scoring: false,
+                cursor: None,
             },
-        ).unwrap();
+        ).unwrap().results;
         assert!(
             !hits.is_empty(),
             "should find 'Hello' in indexed PDF, but got no results"

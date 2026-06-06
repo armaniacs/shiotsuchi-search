@@ -33,6 +33,7 @@ chrono = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokenizers = { version = "0.23", default-features = false, features = ["onig"] }
+base64 = "0.22"
 thiserror = "2"
 # ort-sys SHA-256 ダウンロード検証バグ (rc.12) の回避:
 # crates.io の ort は rc.12 を使うが、ort-sys は main ブランチから取得して修正を適用する。

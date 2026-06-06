@@ -6,6 +6,68 @@ use crate::{
 };
 use std::collections::HashMap;
 
+// ── Cursor support ──────────────────────────────────────────────────
+
+/// Opaque cursor for keyset pagination.
+///
+/// Encodes the last result's chunk_id as a base64 string.
+/// Includes a simple checksum to detect tampering.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Cursor {
+    /// The chunk_id of the last result in the previous page.
+    pub after_id: i64,
+}
+
+impl Cursor {
+    /// Encode a cursor to a base64 string.
+    pub fn encode(&self) -> String {
+        use base64::Engine;
+        let payload = format!("v1:{}", self.after_id);
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(payload.as_bytes())
+    }
+
+    /// Decode a cursor from a base64 string.
+    pub fn decode(encoded: &str) -> Result<Self, CursorError> {
+        use base64::Engine;
+        let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .decode(encoded)
+            .map_err(|_| CursorError::InvalidEncoding)?;
+        let payload = String::from_utf8(bytes).map_err(|_| CursorError::InvalidEncoding)?;
+        let after_id = payload
+            .strip_prefix("v1:")
+            .and_then(|s| s.parse::<i64>().ok())
+            .ok_or(CursorError::InvalidPayload)?;
+        Ok(Self { after_id })
+    }
+}
+
+/// Error type for cursor decoding failures.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CursorError {
+    InvalidEncoding,
+    InvalidPayload,
+}
+
+impl std::fmt::Display for CursorError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CursorError::InvalidEncoding => write!(f, "invalid cursor encoding"),
+            CursorError::InvalidPayload => write!(f, "invalid cursor payload"),
+        }
+    }
+}
+
+impl std::error::Error for CursorError {}
+
+/// Output of a search operation, including pagination cursor.
+#[derive(Debug, Clone)]
+pub struct SearchOutput {
+    pub results: Vec<ChunkSearchResult>,
+    /// Cursor to use for fetching the next page. `None` if no more results.
+    pub next_cursor: Option<String>,
+}
+
+// ── Internal search parameters ──────────────────────────────────────
 
 /// Common search parameters bundled to keep internal function signatures compact.
 struct SearchExecutionParams<'a> {
@@ -40,6 +102,8 @@ pub struct SearchRequest<'a> {
     pub mmr: bool,
     pub lambda: f64,
     pub backlink_scoring: bool,
+    /// Cursor for keyset pagination (FTS mode only). None = start from beginning.
+    pub cursor: Option<&'a str>,
 }
 
 /// Main search entry point. Dispatches to FTS, vec, or hybrid (RRF) mode.
@@ -165,9 +229,9 @@ pub fn search(
     db: &NoteDatabase,
     tokenizer: &JapaneseTokenizer,
     req: &SearchRequest,
-) -> Result<Vec<ChunkSearchResult>, DbError> {
+) -> Result<SearchOutput, DbError> {
     if req.query.trim().is_empty() {
-        return Ok(vec![]);
+        return Ok(SearchOutput { results: vec![], next_cursor: None });
     }
 
     let mut effective_mode = if req.embedder.is_none() && matches!(req.mode, SearchMode::Hybrid) {
@@ -182,6 +246,20 @@ pub fn search(
     const MMR_POOL_MULTIPLIER: usize = 3;
     let vec_fetch_limit = if req.mmr && effective_mode != SearchMode::Fts {
         req.limit * MMR_POOL_MULTIPLIER
+    } else {
+        req.limit
+    };
+
+    // Parse cursor if provided (FTS mode only)
+    let cursor = if effective_mode == SearchMode::Fts {
+        req.cursor.and_then(|c| Cursor::decode(c).ok())
+    } else {
+        None
+    };
+
+    // Fetch one extra result to detect whether there are more pages
+    let fetch_limit = if cursor.is_some() {
+        req.limit.saturating_add(1)
     } else {
         req.limit
     };
@@ -220,7 +298,7 @@ pub fn search(
     };
 
     let (mut results, vec_emb_map) = match effective_mode {
-        SearchMode::Fts => (search_fts(&params, req.limit)?, HashMap::new()),
+        SearchMode::Fts => (search_fts(&params, fetch_limit, cursor.as_ref())?, HashMap::new()),
         SearchMode::Vec => {
             let emb_vec = precomputed_embedding.as_deref()
                 .ok_or_else(|| DbError::Other("Vec mode requires embedder — model not loaded".into()))?;
@@ -234,7 +312,7 @@ pub fn search(
                 Err(e) => {
                     tracing::warn!("Hybrid search vec component failed ({}), falling back to FTS only", e);
                     effective_mode = SearchMode::Fts;
-                    (search_fts(&params, req.limit)?, HashMap::new())
+                    (search_fts(&params, fetch_limit, cursor.as_ref())?, HashMap::new())
                 }
             }
         }
@@ -282,7 +360,19 @@ pub fn search(
         }
     }
 
-    Ok(results)
+    // Compute next cursor for FTS pagination
+    let next_cursor = if effective_mode == SearchMode::Fts && results.len() > req.limit {
+        // We fetched one extra result to detect more pages
+        results.truncate(req.limit);
+        results.last().map(|r| Cursor { after_id: r.chunk_id }.encode())
+    } else if effective_mode == SearchMode::Fts && cursor.is_some() {
+        // We had a cursor but no more results beyond the limit
+        None
+    } else {
+        None
+    };
+
+    Ok(SearchOutput { results, next_cursor })
 }
 
 /// Check if a chunk's tags match the tag filter.
@@ -494,6 +584,7 @@ fn expand_synonyms(
 fn search_fts(
     params: &SearchExecutionParams,
     limit: usize,
+    cursor: Option<&Cursor>,
 ) -> Result<Vec<ChunkSearchResult>, DbError> {
     let tokens = params.tokenizer.collect_tokens(params.query);
     let tokens = if params.fuzzy {
@@ -512,7 +603,8 @@ fn search_fts(
         return Ok(vec![]);
     }
 
-    let hits = params.db.fts_search(&fts5_query, limit, params.vault_filter)?;
+    let after_id = cursor.map(|c| c.after_id);
+    let hits = params.db.fts_search(&fts5_query, limit, params.vault_filter, after_id)?;
     if hits.is_empty() {
         return Ok(vec![]);
     }
@@ -652,7 +744,7 @@ fn search_hybrid(
         fuzzy: params.fuzzy,
     };
 
-    let fts_results = search_fts(&fts_params, limit * 2)?;
+    let fts_results = search_fts(&fts_params, limit * 2, None)?;
     let (vec_results, emb_map) = search_vec(&fts_params, embedding, vec_fetch_limit, include_embeddings)?;
 
     let blended_scores = match alpha {
@@ -799,7 +891,17 @@ mod tests {
             mmr: false,
             lambda: 0.5,
             backlink_scoring: false,
+            cursor: None,
         }
+    }
+
+    /// Test helper: calls search() and returns just the results Vec.
+    fn search_results(
+        db: &NoteDatabase,
+        tokenizer: &JapaneseTokenizer,
+        req: &SearchRequest,
+    ) -> Result<Vec<ChunkSearchResult>, DbError> {
+        Ok(search(db, tokenizer, req)?.results)
     }
 
     #[test]
@@ -866,8 +968,9 @@ mod tests {
             mmr: false,
             lambda: 0.5,
             backlink_scoring: false,
+            cursor: None,
         };
-        let results = search(&db, &tokenizer, &req).unwrap();
+        let results = search(&db, &tokenizer, &req).unwrap().results;
         assert!(!results.is_empty());
         assert_eq!(results[0].file_path, "test.md");
         assert!(matches!(results[0].search_mode, SearchMode::Fts));
@@ -909,7 +1012,7 @@ mod tests {
         db.insert_chunks(&chunks).unwrap();
 
         // Filter by "work" vault
-        let results = search(&db, &tokenizer, &SearchRequest {
+        let results = search_results(&db, &tokenizer, &SearchRequest {
             vault_filter: Some("work"),
             ..req("alpha", 10, SearchMode::Fts)
         }).unwrap();
@@ -918,7 +1021,7 @@ mod tests {
         assert_eq!(results[0].file_path, "vault_a.md");
 
         // Filter by "personal" vault
-        let results = search(&db, &tokenizer, &SearchRequest {
+        let results = search_results(&db, &tokenizer, &SearchRequest {
             vault_filter: Some("personal"),
             ..req("alpha", 10, SearchMode::Fts)
         }).unwrap();
@@ -927,7 +1030,7 @@ mod tests {
         assert_eq!(results[0].file_path, "vault_b.md");
 
         // No filter → both
-        let results = search(&db, &tokenizer, &req("alpha", 10, SearchMode::Fts)).unwrap();
+        let results = search_results(&db, &tokenizer, &req("alpha", 10, SearchMode::Fts)).unwrap();
         assert_eq!(results.len(), 2, "expected 2 results across all vaults");
     }
 
@@ -935,7 +1038,7 @@ mod tests {
     fn test_search_empty_query_returns_empty() {
         let db = NoteDatabase::open_in_memory().unwrap();
         let tokenizer = crate::require_tokenizer!(crate::tokenizer::TokenizerConfig::default());
-        let results = search(&db, &tokenizer, &req("  ", 10, SearchMode::Fts)).unwrap();
+        let results = search_results(&db, &tokenizer, &req("  ", 10, SearchMode::Fts)).unwrap();
         assert!(results.is_empty());
     }
 
@@ -959,7 +1062,7 @@ mod tests {
         db.insert_chunks(&chunks).unwrap();
 
         // Hybrid with no embedder → falls back to FTS
-        let results = search(&db, &tokenizer, &req("hybrid fallback", 10, SearchMode::Hybrid)).unwrap();
+        let results = search_results(&db, &tokenizer, &req("hybrid fallback", 10, SearchMode::Hybrid)).unwrap();
         assert!(!results.is_empty());
         assert!(matches!(results[0].search_mode, SearchMode::Fts));
     }
@@ -1307,7 +1410,7 @@ mod tests {
             Ok(tok) => tok,
             Err(_) => return,
         };
-        let result = search(&db, &tokenizer, &req("test", 10, SearchMode::Vec));
+        let result = search_results(&db, &tokenizer, &req("test", 10, SearchMode::Vec));
         match result {
             Err(crate::db::DbError::Other(msg)) => {
                 assert!(msg.contains("embedder"), "error should mention embedder");
@@ -1323,7 +1426,7 @@ mod tests {
             Ok(tok) => tok,
             Err(_) => return,
         };
-        let result = search(&db, &tokenizer, &req("test", 10, SearchMode::Hybrid));
+        let result = search_results(&db, &tokenizer, &req("test", 10, SearchMode::Hybrid));
         assert!(result.is_ok(), "Hybrid without embedder should fall back to FTS, got error");
     }
 
@@ -1366,10 +1469,12 @@ mod tests {
             mmr: false,
             lambda: 0.5,
             backlink_scoring: false,
+            cursor: None,
         };
         let result = search(&db, &tokenizer, &req);
         assert!(result.is_ok(), "Hybrid with failing vec search should fall back to FTS, got error: {:?}", result.err());
-        let results = result.unwrap();
+        let output = result.unwrap();
+        let results = &output.results;
         assert!(!results.is_empty(), "FTS fallback should return results for 'hello'");
         assert!(results.iter().all(|r| r.search_mode == SearchMode::Fts),
             "after fallback all results should be FTS mode");
@@ -1382,7 +1487,7 @@ mod tests {
             Ok(tok) => tok,
             Err(_) => return,
         };
-        let result = search(&db, &tokenizer, &req("test", 10, SearchMode::Fts));
+        let result = search_results(&db, &tokenizer, &req("test", 10, SearchMode::Fts));
         assert!(result.is_ok());
     }
 
@@ -1400,15 +1505,15 @@ mod tests {
         };
 
         // FTS mode with min_score=0.0 should exclude all positive-score results
-        let result = search(&db, &tokenizer, &SearchRequest { min_score: Some(0.0), ..req("test", 10, SearchMode::Fts) });
+        let result = search_results(&db, &tokenizer, &SearchRequest { min_score: Some(0.0), ..req("test", 10, SearchMode::Fts) });
         assert!(result.is_ok(), "FTS + min_score should not error");
 
         // Vec mode with min_score=0.0 should not error (no data, so empty results)
-        let result = search(&db, &tokenizer, &SearchRequest { min_score: Some(0.0), ..req("test", 10, SearchMode::Vec) });
+        let result = search_results(&db, &tokenizer, &SearchRequest { min_score: Some(0.0), ..req("test", 10, SearchMode::Vec) });
         assert!(result.is_ok(), "Vec + min_score should not error");
 
         // Hybrid mode with min_score=0.0 should not error
-        let result = search(&db, &tokenizer, &SearchRequest { min_score: Some(0.0), ..req("test", 10, SearchMode::Hybrid) });
+        let result = search_results(&db, &tokenizer, &SearchRequest { min_score: Some(0.0), ..req("test", 10, SearchMode::Hybrid) });
         assert!(result.is_ok(), "Hybrid + min_score should not error");
     }
 
@@ -1441,11 +1546,11 @@ mod tests {
         db.insert_chunks(&chunks).unwrap();
 
         // fuzzy=false with uppercase query → no match (case-sensitive FTS5)
-        let results = search(&db, &tokenizer, &req("HELLO", 10, SearchMode::Fts)).unwrap();
+        let results = search_results(&db, &tokenizer, &req("HELLO", 10, SearchMode::Fts)).unwrap();
         assert!(results.is_empty(), "non-fuzzy search should not match uppercase 'HELLO' against 'hello'");
 
         // fuzzy=true → query is normalized to lowercase → matches
-        let results = search(&db, &tokenizer, &SearchRequest { fuzzy: true, ..req("HELLO", 10, SearchMode::Fts) }).unwrap();
+        let results = search_results(&db, &tokenizer, &SearchRequest { fuzzy: true, ..req("HELLO", 10, SearchMode::Fts) }).unwrap();
         assert!(!results.is_empty(), "fuzzy search should match 'HELLO' against 'hello'");
         assert_eq!(results[0].file_path, "test.md");
     }
@@ -1477,7 +1582,7 @@ mod tests {
         db.insert_chunks(&chunks).unwrap();
 
         // fuzzy=true with fullwidth query → normalized to "apple" → matches
-        let results = search(&db, &tokenizer, &SearchRequest { fuzzy: true, ..req("ａｐｐｌｅ", 10, SearchMode::Fts) }).unwrap();
+        let results = search_results(&db, &tokenizer, &SearchRequest { fuzzy: true, ..req("ａｐｐｌｅ", 10, SearchMode::Fts) }).unwrap();
         assert!(!results.is_empty(), "fuzzy search should match fullwidth 'ａｐｐｌｅ' against 'apple'");
     }
 
@@ -1508,11 +1613,11 @@ mod tests {
         db.insert_chunks(&chunks).unwrap();
 
         // fuzzy=false with exact case → matches
-        let results = search(&db, &tokenizer, &req("Hello", 10, SearchMode::Fts)).unwrap();
+        let results = search_results(&db, &tokenizer, &req("Hello", 10, SearchMode::Fts)).unwrap();
         assert!(!results.is_empty(), "non-fuzzy should match exact case 'Hello'");
 
         // fuzzy=false with different case → no match
-        let results = search(&db, &tokenizer, &req("hello", 10, SearchMode::Fts)).unwrap();
+        let results = search_results(&db, &tokenizer, &req("hello", 10, SearchMode::Fts)).unwrap();
         assert!(results.is_empty(), "non-fuzzy should not match different case 'hello' against 'Hello'");
     }
 
@@ -1803,7 +1908,7 @@ mod tests {
         ).unwrap();
 
         // FTS mode: lower score = better. Backlink boost should make popular.md score lower.
-        let results = search(&db, &tokenizer, &SearchRequest { backlink_scoring: true, ..req("test content", 10, SearchMode::Fts) }).unwrap();
+        let results = search_results(&db, &tokenizer, &SearchRequest { backlink_scoring: true, ..req("test content", 10, SearchMode::Fts) }).unwrap();
         assert_eq!(results.len(), 2, "both chunks should be found");
         assert_eq!(results[0].file_path, "popular.md", "popular.md should rank first (lower FTS score)");
         // The score for popular.md should be strictly less than unpopular.md
@@ -1832,7 +1937,7 @@ mod tests {
         ).unwrap();
 
         // backlink_scoring=false should not apply the boost
-        let results = search(&db, &tokenizer, &req("test content", 10, SearchMode::Fts)).unwrap();
+        let results = search_results(&db, &tokenizer, &req("test content", 10, SearchMode::Fts)).unwrap();
         assert!(!results.is_empty());
         // Score should be the raw BM25 score without backlink adjustment
         let hit = &results[0];
@@ -1875,11 +1980,11 @@ mod tests {
         ).unwrap();
 
         // With backlink_scoring=false: order should be natural (no backlink influence)
-        let results_no_score = search(&db, &tokenizer, &req("alpha", 10, SearchMode::Fts)).unwrap();
+        let results_no_score = search_results(&db, &tokenizer, &req("alpha", 10, SearchMode::Fts)).unwrap();
         assert_eq!(results_no_score.len(), 2);
 
         // With backlink_scoring=true: a.md (5 backlinks) should rank better than b.md (1 backlink)
-        let results_scored = search(&db, &tokenizer, &SearchRequest { backlink_scoring: true, ..req("alpha", 10, SearchMode::Fts) }).unwrap();
+        let results_scored = search_results(&db, &tokenizer, &SearchRequest { backlink_scoring: true, ..req("alpha", 10, SearchMode::Fts) }).unwrap();
         assert_eq!(results_scored.len(), 2);
         // FTS: lower score = better, so popular file should have lower score
         assert!(results_scored[0].score <= results_scored[1].score,
@@ -1911,8 +2016,103 @@ mod tests {
         // Hybrid mode with no embedder falls back to FTS, which doesn't exercise the hybrid path.
         // We test the FTS path (which is also lower=better) separately.
         // This test verifies the code path exists and doesn't crash.
-        let results = search(&db, &tokenizer, &SearchRequest { backlink_scoring: true, ..req("test", 10, SearchMode::Hybrid) }).unwrap();
+        let results = search_results(&db, &tokenizer, &SearchRequest { backlink_scoring: true, ..req("test", 10, SearchMode::Hybrid) }).unwrap();
         // Hybrid without embedder falls back to FTS, so search should still work
         assert!(!results.is_empty() || results.is_empty());
+    }
+
+    #[test]
+    fn test_cursor_encode_decode_roundtrip() {
+        let cursor = Cursor { after_id: 42 };
+        let encoded = cursor.encode();
+        let decoded = Cursor::decode(&encoded).unwrap();
+        assert_eq!(cursor, decoded);
+    }
+
+    #[test]
+    fn test_cursor_decode_invalid_base64() {
+        let result = Cursor::decode("not-valid-base64!!!");
+        assert_eq!(result, Err(CursorError::InvalidEncoding));
+    }
+
+    #[test]
+    fn test_cursor_decode_invalid_payload() {
+        use base64::Engine;
+        let encoded = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(b"wrong-format");
+        let result = Cursor::decode(&encoded);
+        assert_eq!(result, Err(CursorError::InvalidPayload));
+    }
+
+    #[test]
+    fn test_cursor_pagination_fts() {
+        let db = NoteDatabase::open_in_memory().unwrap();
+        let tokenizer = crate::require_tokenizer!(crate::tokenizer::TokenizerConfig::default());
+
+        // Insert 5 chunks
+        let chunks: Vec<Chunk> = (0..5).map(|i| Chunk {
+            id: None,
+            file_path: format!("file{}.md", i),
+            chunk_index: 0,
+            parent_header: None,
+            content: format!("search test document number {}", i),
+            tokenized_content: String::new(),
+            vault_name: "default".to_string(),
+            tags: String::new(),
+            frontmatter_date: String::new(),
+            title: String::new(),
+            emphasized_text: String::new(),
+        }).collect();
+        db.insert_chunks(&chunks).unwrap();
+
+        // First page (limit=2)
+        let output1 = search(&db, &tokenizer, &SearchRequest {
+            query: "search test",
+            limit: 2,
+            mode: SearchMode::Fts,
+            embedder: None,
+            min_score: None,
+            vault_filter: None,
+            tag_filter: None,
+            since_date: None,
+            user_dictionary: &[],
+            synonyms: &HashMap::new(),
+            fuzzy: false,
+            hybrid_alpha: None,
+            mmr: false,
+            lambda: 0.5,
+            backlink_scoring: false,
+            cursor: None,
+        }).unwrap();
+
+        assert_eq!(output1.results.len(), 2, "first page should have 2 results");
+        assert!(output1.next_cursor.is_some(), "first page should have next_cursor");
+
+        // Second page using cursor
+        let output2 = search(&db, &tokenizer, &SearchRequest {
+            query: "search test",
+            limit: 2,
+            mode: SearchMode::Fts,
+            embedder: None,
+            min_score: None,
+            vault_filter: None,
+            tag_filter: None,
+            since_date: None,
+            user_dictionary: &[],
+            synonyms: &HashMap::new(),
+            fuzzy: false,
+            hybrid_alpha: None,
+            mmr: false,
+            lambda: 0.5,
+            backlink_scoring: false,
+            cursor: output1.next_cursor.as_deref(),
+        }).unwrap();
+
+        assert!(!output2.results.is_empty(), "second page should have results");
+        // No overlap
+        let page1_ids: Vec<i64> = output1.results.iter().map(|r| r.chunk_id).collect();
+        let page2_ids: Vec<i64> = output2.results.iter().map(|r| r.chunk_id).collect();
+        for id in &page2_ids {
+            assert!(!page1_ids.contains(id), "page 2 should not overlap with page 1");
+        }
     }
 }

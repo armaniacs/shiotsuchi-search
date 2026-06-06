@@ -173,13 +173,14 @@ pub fn run_dive(
         mmr,
         lambda,
         backlink_scoring,
+        cursor: None,
     };
-    let results = search(
+    let output = search(
         &db,
         &tokenizer,
         &request,
     )?;
-    Ok(results)
+    Ok(output.results)
 }
 
 /// Print search results in the specified format.

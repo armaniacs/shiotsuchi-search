@@ -113,10 +113,11 @@ pub(crate) fn handle_search_local_notes(
         mmr: false,
         lambda: 0.5,
         backlink_scoring: ctx.backlink_scoring,
+        cursor: None,
     };
-    let results = search(&db, &tokenizer, &request)?;
+    let output = search(&db, &tokenizer, &request)?;
 
-    let markdown = format_results_markdown(&results, &query);
+    let markdown = format_results_markdown(&output.results, &query);
     let masked =
         shiotsuchi_core::sensitive::mask_sensitive_data(&markdown, Some(ctx.sensitive_config));
     Ok(json!({

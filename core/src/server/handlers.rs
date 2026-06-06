@@ -113,9 +113,16 @@ pub async fn handle_search(
 
     let db = state.db.lock().await;
 
-    let effective_limit = params.limit.saturating_add(params.offset);
+    // Cursor takes priority over offset for FTS mode
+    let use_cursor = params.cursor.is_some() && mode == crate::models::SearchMode::Fts;
+    let effective_limit = if use_cursor {
+        // For cursor-based pagination, just fetch the page size
+        params.limit
+    } else {
+        params.limit.saturating_add(params.offset)
+    };
 
-    let results = if let Some(tokenizer) = &state.tokenizer {
+    let (results, next_cursor) = if let Some(tokenizer) = &state.tokenizer {
         let backlink_scoring = state.config.as_ref()
             .map(|c| c.indexing.backlink_scoring)
             .unwrap_or(true);
@@ -135,56 +142,80 @@ pub async fn handle_search(
             mmr: false,
             lambda: 0.5,
             backlink_scoring,
+            cursor: params.cursor.as_deref(),
         };
-        crate::search::search(&db, tokenizer, &request)
-            .map_err(|e| ApiError::Internal(format!("search failed: {}", e)))?
+        let output = crate::search::search(&db, tokenizer, &request)
+            .map_err(|e| ApiError::Internal(format!("search failed: {}", e)))?;
+        (output.results, output.next_cursor)
     } else {
         let fts5_query = crate::tokenizer::simple_and_query(&query);
-        let hits = db.fts_search(&fts5_query, effective_limit, params.vault.as_deref())
+        let hits = db.fts_search(&fts5_query, effective_limit, params.vault.as_deref(), None)
             .map_err(|e| ApiError::Internal(format!("search failed: {}", e)))?;
         if hits.is_empty() {
-            vec![]
+            (vec![], None)
         } else {
-            crate::search::build_results(&db, hits, crate::models::SearchMode::Fts, None)
-                .map_err(|e| ApiError::Internal(format!("search failed: {}", e)))?
+            let results = crate::search::build_results(&db, hits, crate::models::SearchMode::Fts, None)
+                .map_err(|e| ApiError::Internal(format!("search failed: {}", e)))?;
+            (results, None)
         }
     };
 
     let total = if params.mode == "fts" {
         let fts5_query = crate::tokenizer::simple_and_query(&query);
-        db.fts_search(&fts5_query, 1_000_000, params.vault.as_deref())
+        db.fts_search(&fts5_query, 1_000_000, params.vault.as_deref(), None)
             .map(|hits| hits.len())
             .unwrap_or_else(|_| results.len())
     } else {
         results.len()
     };
 
-    let items: Vec<SearchResultItem> = results
-        .into_iter()
-        .skip(params.offset)
-        .take(params.limit)
-        .map(|r| {
-            let snippet = crate::search::extract_snippet(&r.content, &query, 5, 200);
-            let snippet =
-                crate::sensitive::mask_sensitive_data(&snippet, state.sensitive_config.as_ref());
-            SearchResultItem {
-                file_path: r.file_path,
-                title: r.title,
-                parent_header: r.parent_header,
-                snippet,
-                score: r.score,
-                vault_name: r.vault_name,
-            }
-        })
-        .collect();
+    // Apply offset/limit slicing (skip for cursor-based — already paginated)
+    let items: Vec<SearchResultItem> = if use_cursor {
+        results
+            .into_iter()
+            .map(|r| {
+                let snippet = crate::search::extract_snippet(&r.content, &query, 5, 200);
+                let snippet =
+                    crate::sensitive::mask_sensitive_data(&snippet, state.sensitive_config.as_ref());
+                SearchResultItem {
+                    file_path: r.file_path,
+                    title: r.title,
+                    parent_header: r.parent_header,
+                    snippet,
+                    score: r.score,
+                    vault_name: r.vault_name,
+                }
+            })
+            .collect()
+    } else {
+        results
+            .into_iter()
+            .skip(params.offset)
+            .take(params.limit)
+            .map(|r| {
+                let snippet = crate::search::extract_snippet(&r.content, &query, 5, 200);
+                let snippet =
+                    crate::sensitive::mask_sensitive_data(&snippet, state.sensitive_config.as_ref());
+                SearchResultItem {
+                    file_path: r.file_path,
+                    title: r.title,
+                    parent_header: r.parent_header,
+                    snippet,
+                    score: r.score,
+                    vault_name: r.vault_name,
+                }
+            })
+            .collect()
+    };
 
     let count = items.len();
     Ok(Json(serde_json::json!({
         "results": items,
         "count": count,
         "total": total,
-        "offset": params.offset,
+        "offset": if use_cursor { 0 } else { params.offset },
         "limit": params.limit,
+        "next_cursor": next_cursor,
     })))
 }
 

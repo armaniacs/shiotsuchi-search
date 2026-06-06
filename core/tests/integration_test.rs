@@ -64,7 +64,8 @@ fn test_end_to_end_index_and_search() {
         mmr: false,
         lambda: 0.5,
         backlink_scoring: false,
-    }).unwrap();
+        cursor: None,
+    }).unwrap().results;
 
     let ja_results = search(&db, &tokenizer, &SearchRequest {
         query: "形態素",
@@ -82,7 +83,8 @@ fn test_end_to_end_index_and_search() {
         mmr: false,
         lambda: 0.5,
         backlink_scoring: false,
-    }).unwrap();
+        cursor: None,
+    }).unwrap().results;
     assert!(!ja_results.is_empty());
 
     // Stats
