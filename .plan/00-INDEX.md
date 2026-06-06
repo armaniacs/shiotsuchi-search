@@ -100,4 +100,5 @@
 | `2026-06-06-53b-backlog-tracing-http.md` | PBI-53b: HTTP サーバーへの TraceLayer + リクエストID 導入 |
 | `2026-06-06-53c-backlog-tracing-core.md` | PBI-53c: core ライブラリの log:: → tracing:: 移行 + #[instrument] |
 | `2026-06-06-53d-backlog-tracing-cli.md` | PBI-53d: CLI の env_logger → tracing-subscriber 移行 |
+| `2026-06-04-53-backlog-structured-logging.md` | PBI-53: 構造化ログ・トレーシング導入（→ 53a/53b/53c/53d に分割、全完了） |
 
