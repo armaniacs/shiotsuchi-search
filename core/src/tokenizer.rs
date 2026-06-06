@@ -266,16 +266,16 @@ pub fn apply_user_dictionary(tokens: &[String], dict: &[String]) -> Vec<String> 
         let mut spaced = String::new();
         let mut concat = String::new();
         let search_end = tokens.len().min(i + max_entry_tokens);
-        for j in i..search_end {
-            if j > i {
+        for (offset, token) in tokens[i..search_end].iter().enumerate() {
+            if offset > 0 {
                 spaced.push(' ');
             }
-            spaced.push_str(&tokens[j]);
-            concat.push_str(&tokens[j]);
+            spaced.push_str(token);
+            concat.push_str(token);
 
             for entry in dict {
                 if spaced == *entry || concat == *entry {
-                    let span_len = j - i + 1;
+                    let span_len = offset + 1;
                     if span_len > best_len {
                         best_len = span_len;
                         best_entry = Some(entry.as_str());

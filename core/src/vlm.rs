@@ -102,7 +102,7 @@ mod tests {
         assert!(!config.enabled, "VLM should be disabled by default");
         assert_eq!(config.provider, "openai");
         assert_eq!(config.model, "gpt-4.1-nano");
-        assert!(config.max_pages_per_doc.is_none());
+        assert_eq!(config.max_pages_per_doc, Some(10), "VLM should default to 10 pages max");
     }
 
     #[test]

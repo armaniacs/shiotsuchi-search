@@ -214,7 +214,7 @@ impl NoteDatabase {
     /// `char_count` from chunk content lengths atomically. This method requires
     /// `char_count` to be provided by the caller to prevent accidental zero values
     /// that would cause `stats().total_chars` to undercount.
-    #[allow(dead_code)]
+    #[allow(dead_code, clippy::too_many_arguments)]
     pub(crate) fn upsert_file_cache(
         &self,
         vault_name: &str,

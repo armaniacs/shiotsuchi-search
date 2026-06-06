@@ -101,5 +101,6 @@
 | `2026-06-06-53c-backlog-tracing-core.md` | PBI-53c: core ライブラリの log:: → tracing:: 移行 + #[instrument] |
 | `2026-06-06-53d-backlog-tracing-cli.md` | PBI-53d: CLI の env_logger → tracing-subscriber 移行 |
 | `2026-06-06-62-feat-search-pagination-cursor.md` | PBI-62: カーソルベースページネーション (composite rank+rowid keyset) |
+| `2026-06-06-60-fix-embedder-large-enum.md` | PBI-60: EmbedderBackend large_enum_variant 修正（PBI 作成時点で既に完了済み） |
 | `2026-06-04-53-backlog-structured-logging.md` | PBI-53: 構造化ログ・トレーシング導入（→ 53a/53b/53c/53d に分割、全完了） |
 

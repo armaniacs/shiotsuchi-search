@@ -6,6 +6,9 @@ use crate::{
 };
 use std::collections::HashMap;
 
+/// Internal result type shared by `search_vec` and `search_hybrid`.
+type VecSearchResult = Result<(Vec<ChunkSearchResult>, HashMap<i64, Vec<f32>>), DbError>;
+
 // ── Cursor support ──────────────────────────────────────────────────
 
 /// Opaque cursor for keyset pagination.
@@ -624,7 +627,7 @@ fn search_vec(
     embedding: &[f32],
     limit: usize,
     include_embeddings: bool,
-) -> Result<(Vec<ChunkSearchResult>, HashMap<i64, Vec<f32>>), DbError> {
+) -> VecSearchResult {
     let raw_hits = params.db.vec_search(embedding, limit, params.vault_filter, include_embeddings)?;
     if raw_hits.is_empty() {
         return Ok((vec![], HashMap::new()));
@@ -731,7 +734,7 @@ fn search_hybrid(
     vec_fetch_limit: usize,
     alpha: Option<f64>,
     include_embeddings: bool,
-) -> Result<(Vec<ChunkSearchResult>, HashMap<i64, Vec<f32>>), DbError> {
+) -> VecSearchResult {
     const K: f64 = 60.0;
 
     // Internal FTS call ignores tag_filter and since_date (applied after RRF merge)

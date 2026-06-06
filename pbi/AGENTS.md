@@ -83,6 +83,18 @@ MCP 経由によるノートの作成・編集・削除は厳密に禁止する�
 - `mcp/src/handler/search.rs` + `context.rs`: wrap in `Some()` for `mask_sensitive_data()`
 - `mcp/src/main.rs`: `dispatch()` parameter non-Option, `let sensitive_config = SensitiveDataConfig::default()`
 
+### PBI-59: search_* 引数を SearchExecutionParams 構造体に統合
+
+**Completed — SearchExecutionParams + VecSearchResult 型エイリアス導入、残存 Clippy 警告0。**
+
+### PBI-60: EmbedderBackend large_enum_variant 修正
+
+**Completed — PBI 作成時点で既に `Box<Tokenizer>` 化済み。アーカイブ。**
+
+### PBI-61: 依存クレートの定期アップデート
+
+**Completed — `criterion` 0.5→0.8.2。`rusqlite`・`indicatif` は PBI 作成前に既に最新。**
+
 ### PBI-13: 埋め込みモデルの差し替え（API 方式）
 
 **Completed in v0.4.12**

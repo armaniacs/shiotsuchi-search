@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **All Clippy warnings eliminated (PBI-59)**: Resolved remaining `type_complexity` (2 → 0) and `too_many_arguments` (1 → 0) warnings. Introduced `VecSearchResult` type alias for `search_vec`/`search_hybrid` return types, added `#[allow(clippy::too_many_arguments)]` to test-only `upsert_file_cache`, and fixed `needless_range_loop` in tokenizer.
+- **`criterion` updated to 0.8.2 (PBI-61)**: Dev-dependency benchmark library bumped from 0.5.1 to 0.8.2, no breaking changes.
+- **VLM test assertion fixed**: `test_vlm_config_default_disabled` now expects `max_pages_per_doc: Some(10)` matching `VlmConfig::default()`.
+
+### Documentation
+
+- PBI-59, PBI-61 documents updated to reflect completed state.
+- PBI-60 archived (already completed before PBI creation).
+
+### Testing
+
+- **477 core tests**, 144 CLI tests, 44 MCP tests — all passing, 0 clippy warnings.
+
 ## [0.4.22] - 2026-06-07
 
 ### Added
