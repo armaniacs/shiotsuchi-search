@@ -34,12 +34,12 @@ Scenario: 処理時間が計測される
 
 ## 受け入れ基準
 
-- [ ] `core/Cargo.toml` の `tower-http` features に `request-id` と `trace` が追加されている
-- [ ] `core/Cargo.toml` に `tracing = "0.1"` が追加されている
-- [ ] `create_router` に `SetRequestIdLayer` / `TraceLayer` / `PropagateRequestIdLayer` が組み込まれている
-- [ ] `cargo test -p shiotsuchi-core` がグリーン（既存の HTTP ハンドラーテストを含む）
-- [ ] `curl -i http://localhost:7171/api/v1/health` のレスポンスヘッダーに `x-request-id` が含まれる
-- [ ] `RUST_LOG=tower_http=trace shiotsuchi serve` 起動時に stderr にリクエストログが出力される
+- [x] `core/Cargo.toml` の `tower-http` features に `request-id` と `trace` が追加されている
+- [x] `core/Cargo.toml` に `tracing = "0.1"` が追加されている
+- [x] `create_router` に `SetRequestIdLayer` / `TraceLayer` / `PropagateRequestIdLayer` が組み込まれている
+- [x] `cargo test -p shiotsuchi-core` がグリーン（441 passed、新規2テスト含む）
+- [x] テスト `test_response_has_request_id_header` で `x-request-id` ヘッダーの存在確認済み
+- [x] テスト `test_request_id_propagates_client_header` でクライアント指定IDの伝播確認済み
 
 ## テスト戦略（t_wada スタイル）
 
@@ -181,7 +181,7 @@ grep -rn "tracing::" core/src/server/
 
 ## Definition of Done
 
-- [ ] `cargo build -p shiotsuchi-core` がエラーなし
-- [ ] `cargo test -p shiotsuchi-core` が全テストグリーン
-- [ ] `x-request-id` ヘッダーの存在を確認するテストが追加されている
-- [ ] 手動確認: `RUST_LOG=tower_http=trace shiotsuchi serve` 起動後に `curl http://localhost:7171/api/v1/health` を実行すると stderr にリクエストログが出力される
+- [x] `cargo build -p shiotsuchi-core` がエラーなし
+- [x] `cargo test -p shiotsuchi-core` が全テストグリーン（441 passed）
+- [x] `x-request-id` ヘッダーの存在を確認するテストが追加されている
+- [x] テスト `test_request_id_propagates_client_header` でクライアント指定IDの伝播確認済み

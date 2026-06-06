@@ -13,6 +13,10 @@ use axum::routing::get;
 use axum::{Json, Router};
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock};
+use std::time::Duration;
+use tower::ServiceBuilder;
+use tower_http::request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetRequestIdLayer};
+use tower_http::trace::TraceLayer;
 
 static HTTP_RATE_LIMITER: LazyLock<SlidingWindowRateLimiter> = LazyLock::new(|| SlidingWindowRateLimiter::new(30));
 
@@ -348,6 +352,37 @@ pub fn create_router(state: Arc<AppState>, config: &ShiotsuchiConfig) -> Router 
         .layer(cors)
         .layer(axum::extract::Extension(state.clone()))
         .layer(axum::extract::Extension(config.clone()))
+        .layer(
+            ServiceBuilder::new()
+                .layer(SetRequestIdLayer::x_request_id(MakeRequestUuid))
+                .layer(
+                    TraceLayer::new_for_http()
+                        .make_span_with(|req: &axum::http::Request<_>| {
+                            let id = req
+                                .extensions()
+                                .get::<tower_http::request_id::RequestId>()
+                                .and_then(|id| id.header_value().to_str().ok())
+                                .unwrap_or("-");
+                            tracing::info_span!(
+                                "request",
+                                request_id = id,
+                                method = %req.method(),
+                                path = %req.uri().path()
+                            )
+                        })
+                        .on_response(
+                            |res: &axum::http::Response<_>,
+                             latency: Duration,
+                             _span: &tracing::Span| {
+                                tracing::info!(
+                                    status = res.status().as_u16(),
+                                    latency_ms = latency.as_millis()
+                                );
+                            },
+                        ),
+                )
+                .layer(PropagateRequestIdLayer::x_request_id()),
+        )
         .with_state(state)
 }
 
@@ -387,6 +422,45 @@ mod tests {
             .unwrap();
         let resp = router.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_response_has_request_id_header() {
+        let (router, _tmp) = setup_test_router();
+        let resp = router
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/health")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert!(
+            resp.headers().contains_key("x-request-id"),
+            "response must include x-request-id header"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_request_id_propagates_client_header() {
+        let (router, _tmp) = setup_test_router();
+        let resp = router
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/health")
+                    .header("x-request-id", "my-trace-123")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let rid = resp
+            .headers()
+            .get("x-request-id")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        assert_eq!(rid, "my-trace-123", "client-specified x-request-id must propagate");
     }
 
     #[tokio::test]

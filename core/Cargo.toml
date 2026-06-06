@@ -55,7 +55,8 @@ pdfium-auto = { version = "0.3", features = ["bundled"], optional = true }
 edgequake-pdf2md = { version = "0.9", default-features = false, features = ["bundled"], optional = true }
 axum = "0.8"
 tower = { version = "0.5", features = ["util"] }
-tower-http = { version = "0.6", features = ["cors"] }
+tower-http = { version = "0.6", features = ["cors", "request-id", "trace"] }
+tracing = "0.1"
 
 [features]
 default = ["watcher", "async-index", "semantic", "pdf"]
