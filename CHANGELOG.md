@@ -9,6 +9,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.21] - 2026-06-06
+
+### Added
+
+- **Structured logging across all crates (PBI-53)**: Migrated the entire logging stack from `log` + `env_logger` to `tracing` + `tracing-subscriber` for structured, filterable logs with span support.
+  - **MCP server (PBI-53a)**: `tracing-subscriber` with `.with_writer(std::io::stderr).with_ansi(false)` to guarantee stdout purity for JSON-RPC protocol. `LogTracer` bridge ensures `log::` calls from dependencies are captured.
+  - **HTTP server (PBI-53b)**: `tower-http` `TraceLayer` with `SetRequestIdLayer` / `PropagateRequestIdLayer` — each request gets a UUID propagated as `x-request-id` response header. Latency and status logged automatically.
+  - **Core library (PBI-53c)**: All 33 `log::warn!`/`log::debug!` call sites across 8 files migrated to `tracing::warn!`/`tracing::debug!`. `#[tracing::instrument]` added to `index_directory` with `vault_count` span field.
+  - **CLI (PBI-53d)**: `env_logger` replaced with `tracing_subscriber` compact format. `--verbose` flag sets default filter to `debug` when `RUST_LOG` is unset.
+- **Logging guide** (`docs/LOG.ja.md` / `docs/LOG.md`): Documentation covering `RUST_LOG` usage, per-crate output destinations, log format reading, and design rationale.
+- **`SearchExecutionParams` struct (PBI-59)**: Extracted common search parameters from 3 internal functions — `search_fts` (11→2 args), `search_vec` (9→4 args), `search_hybrid` (15→6 args).
+
+### Changed
+
+- **`EmbedderBackend::Onnx` tokenizer boxed (PBI-60)**: `tokenizer: Tokenizer` → `tokenizer: Box<Tokenizer>` reduces Onnx variant from ~1200 bytes to ~24 bytes, eliminating `large_enum_variant` clippy warning.
+- **Dependency updates (PBI-61)**: `rusqlite` 0.39→0.40, `indicatif` 0.17→0.18.
+- Public `search()` API signature unchanged — all refactoring is internal.
+
+### Fixed
+
+- Clippy `too_many_arguments` warnings reduced from 4 to 1 (remaining: `upsert_file_cache` in `db.rs`).
+- Clippy `large_enum_variant` warning eliminated.
+
+### Testing
+
+- **468 core tests**, 148 CLI tests, 45 MCP tests — all passing.
+- 2 new HTTP handler tests: `test_response_has_request_id_header`, `test_request_id_propagates_client_header`.
+
+### Documentation
+
+- `docs/LOG.ja.md` / `docs/LOG.md`: New logging guide (Japanese and English).
+- PBI-53a–53d archived to `.plan/archived/`.
+- PBI-59–63 created and registered in Linear (DEV-64–DEV-68).
+
 ## [0.4.20] - 2026-06-06
 
 ### Added
