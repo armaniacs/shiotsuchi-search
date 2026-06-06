@@ -96,4 +96,5 @@
 | `2026-06-04-56-backlog-mcp-search-compat.md` | PBI-56: search() → SearchRequest 移行に伴うMCP互換性 — 内部移行のみ、外部互換レイヤー不要 |
 | `2026-06-06-57-backlog-mcp-rate-limiter-all-endpoints.md` | PBI-57: MCP 全エンドポイントにレート制限追加 — GENERAL 50 req/s + REBUILD 1 req/s |
 | `2026-06-06-58-backlog-mcp-sensitive-config-safe-default.md` | PBI-58: MCP 機密データマスキングのデフォルト有効化 — detection: true, Option 除去 |
+| `2026-06-06-53a-backlog-tracing-mcp.md` | PBI-53a: MCP サーバーの構造化ログ導入（tracing-subscriber + stderr 固定） |
 
