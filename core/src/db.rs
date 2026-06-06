@@ -575,13 +575,17 @@ impl NoteDatabase {
         fts5_query: &str,
         limit: usize,
         vault_filter: Option<&str>,
-        after_id: Option<i64>,
+        after_rank: Option<f64>,
+        after_rowid: Option<i64>,
     ) -> Result<Vec<(i64, f64)>, DbError> {
         let conn = self.write_conn.borrow();
 
-        // Build SQL with optional cursor (after_id) filter
+        // Build SQL with optional composite cursor (after_rank, after_rowid) filter.
+        // Keyset pagination: (rank > ? OR (rank = ? AND rowid > ?))
         let mut sql_parts = Vec::new();
         let mut params: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+
+        let use_cursor = after_rank.is_some() && after_rowid.is_some();
 
         if let Some(vault) = vault_filter {
             sql_parts.push(
@@ -593,32 +597,42 @@ impl NoteDatabase {
             );
             params.push(Box::new(fts5_query.to_string()));
             params.push(Box::new(vault.to_string()));
-            if let Some(aid) = after_id {
-                sql_parts.push(format!(" AND c.id < ?{}", params.len() + 1));
-                params.push(Box::new(aid));
+            if use_cursor {
+                let cursor_sql = format!(
+                    " AND (score > ?{} OR (score = ?{} AND c.id > ?{}))",
+                    params.len() + 1,
+                    params.len() + 2,
+                    params.len() + 3,
+                );
+                sql_parts.push(cursor_sql);
+                params.push(Box::new(after_rank.unwrap()));
+                params.push(Box::new(after_rank.unwrap()));
+                params.push(Box::new(after_rowid.unwrap()));
             }
-            sql_parts.push(format!(" ORDER BY score LIMIT ?{}", params.len() + 1));
+            sql_parts.push(format!(" ORDER BY score, c.id LIMIT ?{}", params.len() + 1));
             params.push(Box::new(limit as i64));
         } else {
-            // Without vault filter we can still use cursor
-            if let Some(aid) = after_id {
-                sql_parts.push(format!(
-                    "SELECT rowid, rank FROM fts_chunks WHERE fts_chunks MATCH ?1 AND rowid < ?2 ORDER BY rank LIMIT ?3"
-                ));
-                params.push(Box::new(fts5_query.to_string()));
-                params.push(Box::new(aid));
-                params.push(Box::new(limit as i64));
-            } else {
-                sql_parts.push(
-                    "SELECT rowid, rank FROM fts_chunks WHERE fts_chunks MATCH ?1 ORDER BY rank LIMIT ?2"
-                        .to_string(),
+            sql_parts.push(
+                "SELECT rowid, rank FROM fts_chunks WHERE fts_chunks MATCH ?1".to_string(),
+            );
+            params.push(Box::new(fts5_query.to_string()));
+            if use_cursor {
+                let cursor_sql = format!(
+                    " AND (rank > ?{} OR (rank = ?{} AND rowid > ?{}))",
+                    params.len() + 1,
+                    params.len() + 2,
+                    params.len() + 3,
                 );
-                params.push(Box::new(fts5_query.to_string()));
-                params.push(Box::new(limit as i64));
+                sql_parts.push(cursor_sql);
+                params.push(Box::new(after_rank.unwrap()));
+                params.push(Box::new(after_rank.unwrap()));
+                params.push(Box::new(after_rowid.unwrap()));
             }
+            sql_parts.push(format!(" ORDER BY rank, rowid LIMIT ?{}", params.len() + 1));
+            params.push(Box::new(limit as i64));
         }
 
-        let sql = sql_parts.join("");
+        let sql = sql_parts.join(" ");
         let params_refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|p| p.as_ref()).collect();
         let mut stmt = conn.prepare(&sql)?;
         let rows = stmt.query_map(params_refs.as_slice(), |r| {
@@ -1173,7 +1187,7 @@ mod tests {
             Chunk { id: None, file_path: "b.md".into(), chunk_index: 0, parent_header: None, content: "search engine test".into(), tokenized_content: "search engine test".into(), vault_name: "default".to_string(), tags: String::new(), frontmatter_date: String::new(), title: String::new(), emphasized_text: String::new() },
         ];
         db.insert_chunks(&chunks).unwrap();
-        let results = db.fts_search("search AND engine", 10, None, None).unwrap();
+        let results = db.fts_search("search AND engine", 10, None, None, None).unwrap();
         assert!(!results.is_empty());
     }
 
@@ -1260,10 +1274,10 @@ mod tests {
         ];
         db.insert_chunks(&chunks).unwrap();
         // Verify findable before delete
-        assert!(!db.fts_search("xyz987", 10, None, None).unwrap().is_empty());
+        assert!(!db.fts_search("xyz987", 10, None, None, None).unwrap().is_empty());
         db.delete_file_fully("default", "d.md").unwrap();
         // After delete, should not be found
-        assert!(db.fts_search("xyz987", 10, None, None).unwrap().is_empty());
+        assert!(db.fts_search("xyz987", 10, None, None, None).unwrap().is_empty());
     }
 
     #[test]
@@ -1403,7 +1417,7 @@ mod tests {
             },
         ];
         db.insert_chunks(&old_chunks).unwrap();
-        assert!(!db.fts_search("old content", 10, None, None).unwrap().is_empty());
+        assert!(!db.fts_search("old content", 10, None, None, None).unwrap().is_empty());
 
         // Reindex with new content
         let new_chunks = vec![
@@ -1431,9 +1445,9 @@ mod tests {
         }).unwrap();
 
         // Old content should not be findable
-        assert!(db.fts_search("old content", 10, None, None).unwrap().is_empty());
+        assert!(db.fts_search("old content", 10, None, None, None).unwrap().is_empty());
         // New content should be findable
-        assert!(!db.fts_search("brand new", 10, None, None).unwrap().is_empty());
+        assert!(!db.fts_search("brand new", 10, None, None, None).unwrap().is_empty());
     }
 
     #[test]
@@ -1536,7 +1550,7 @@ mod tests {
         };
 
         db.insert_chunks(&[chunk]).unwrap();
-        let results = db.fts_search("search", 10, None, None).unwrap();
+        let results = db.fts_search("search", 10, None, None, None).unwrap();
         assert_eq!(results.len(), 1, "unique chunks should appear once");
     }
 

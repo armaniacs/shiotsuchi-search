@@ -10,19 +10,22 @@ use std::collections::HashMap;
 
 /// Opaque cursor for keyset pagination.
 ///
-/// Encodes the last result's chunk_id as a base64 string.
-/// Includes a simple checksum to detect tampering.
+/// Encodes the last result's (rank, rowid) as a base64 string.
+/// Uses rank+rowid composite key for correct FTS5 pagination
+/// even when multiple results share the same rank.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Cursor {
-    /// The chunk_id of the last result in the previous page.
-    pub after_id: i64,
+    /// The BM25 rank of the last result in the previous page.
+    pub after_rank: f64,
+    /// The FTS rowid of the last result in the previous page.
+    pub after_rowid: i64,
 }
 
 impl Cursor {
     /// Encode a cursor to a base64 string.
     pub fn encode(&self) -> String {
         use base64::Engine;
-        let payload = format!("v1:{}", self.after_id);
+        let payload = format!("v2:{}:{}", self.after_rank, self.after_rowid);
         base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(payload.as_bytes())
     }
 
@@ -33,11 +36,13 @@ impl Cursor {
             .decode(encoded)
             .map_err(|_| CursorError::InvalidEncoding)?;
         let payload = String::from_utf8(bytes).map_err(|_| CursorError::InvalidEncoding)?;
-        let after_id = payload
-            .strip_prefix("v1:")
-            .and_then(|s| s.parse::<i64>().ok())
+        let inner = payload
+            .strip_prefix("v2:")
             .ok_or(CursorError::InvalidPayload)?;
-        Ok(Self { after_id })
+        let (rank_str, rowid_str) = inner.split_once(':').ok_or(CursorError::InvalidPayload)?;
+        let after_rank: f64 = rank_str.parse().map_err(|_| CursorError::InvalidPayload)?;
+        let after_rowid: i64 = rowid_str.parse().map_err(|_| CursorError::InvalidPayload)?;
+        Ok(Self { after_rank, after_rowid })
     }
 }
 
@@ -257,12 +262,9 @@ pub fn search(
         None
     };
 
-    // Fetch one extra result to detect whether there are more pages
-    let fetch_limit = if cursor.is_some() {
-        req.limit.saturating_add(1)
-    } else {
-        req.limit
-    };
+    // Fetch one extra result to detect whether there are more pages.
+    // This applies to both cursor and non-cursor paths for FTS mode.
+    let fetch_limit = req.limit.saturating_add(1);
 
     // Embed the query once and share it across vec search and MMR.
     // This avoids running the ONNX model twice for Vec/Hybrid + MMR combinations.
@@ -360,11 +362,11 @@ pub fn search(
         }
     }
 
-    // Compute next cursor for FTS pagination
+    // Compute next cursor for FTS pagination using composite (rank, rowid)
     let next_cursor = if effective_mode == SearchMode::Fts && results.len() > req.limit {
         // We fetched one extra result to detect more pages
         results.truncate(req.limit);
-        results.last().map(|r| Cursor { after_id: r.chunk_id }.encode())
+        results.last().map(|r| Cursor { after_rank: r.score, after_rowid: r.chunk_id }.encode())
     } else if effective_mode == SearchMode::Fts && cursor.is_some() {
         // We had a cursor but no more results beyond the limit
         None
@@ -603,8 +605,10 @@ fn search_fts(
         return Ok(vec![]);
     }
 
-    let after_id = cursor.map(|c| c.after_id);
-    let hits = params.db.fts_search(&fts5_query, limit, params.vault_filter, after_id)?;
+    // Pass cursor (after_rank, after_rowid) for keyset pagination
+    let after_rank = cursor.map(|c| c.after_rank);
+    let after_rowid = cursor.map(|c| c.after_rowid);
+    let hits = params.db.fts_search(&fts5_query, limit, params.vault_filter, after_rank, after_rowid)?;
     if hits.is_empty() {
         return Ok(vec![]);
     }
@@ -2023,7 +2027,7 @@ mod tests {
 
     #[test]
     fn test_cursor_encode_decode_roundtrip() {
-        let cursor = Cursor { after_id: 42 };
+        let cursor = Cursor { after_rank: -1.5, after_rowid: 42 };
         let encoded = cursor.encode();
         let decoded = Cursor::decode(&encoded).unwrap();
         assert_eq!(cursor, decoded);

@@ -42,7 +42,7 @@ fn test_insert_chunks_and_lookup() {
     assert!(paths.contains(&"note1.md".to_string()));
 
     // FTS search should find the chunk
-    let results = db.fts_search("Title", 10, None, None).unwrap();
+    let results = db.fts_search("Title", 10, None, None, None).unwrap();
     assert!(!results.is_empty());
 }
 

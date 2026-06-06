@@ -3818,7 +3818,7 @@ checksum = "dc6fe69c597f9c37bfeeeeeb33da3530379845f10be461a66d16d03eca2ded77"
 
 [[package]]
 name = "shiotsuchi"
-version = "0.4.20"
+version = "0.4.21"
 dependencies = [
  "axum",
  "clap",
@@ -3843,9 +3843,10 @@ dependencies = [
 
 [[package]]
 name = "shiotsuchi-core"
-version = "0.4.20"
+version = "0.4.21"
 dependencies = [
  "axum",
+ "base64 0.22.1",
  "chrono",
  "config",
  "criterion",
@@ -3883,7 +3884,7 @@ dependencies = [
 
 [[package]]
 name = "shiotsuchi-e2e"
-version = "0.4.20"
+version = "0.4.21"
 dependencies = [
  "notify 6.1.1",
  "serde_json",
@@ -3893,7 +3894,7 @@ dependencies = [
 
 [[package]]
 name = "shiotsuchi-mcp"
-version = "0.4.20"
+version = "0.4.21"
 dependencies = [
  "clap",
  "config",

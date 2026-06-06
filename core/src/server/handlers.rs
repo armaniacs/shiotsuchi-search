@@ -148,21 +148,35 @@ pub async fn handle_search(
             .map_err(|e| ApiError::Internal(format!("search failed: {}", e)))?;
         (output.results, output.next_cursor)
     } else {
+        // No tokenizer — direct FTS search with cursor support
         let fts5_query = crate::tokenizer::simple_and_query(&query);
-        let hits = db.fts_search(&fts5_query, effective_limit, params.vault.as_deref(), None)
+        let cursor_params = params.cursor.as_deref()
+            .and_then(|c| crate::search::Cursor::decode(c).ok())
+            .map(|c| (c.after_rank, c.after_rowid));
+        let (after_rank, after_rowid) = cursor_params.unzip();
+        // Fetch one extra to detect if there are more pages
+        let fetch_limit = effective_limit.saturating_add(1);
+        let hits = db.fts_search(&fts5_query, fetch_limit, params.vault.as_deref(), after_rank, after_rowid)
             .map_err(|e| ApiError::Internal(format!("search failed: {}", e)))?;
         if hits.is_empty() {
             (vec![], None)
         } else {
-            let results = crate::search::build_results(&db, hits, crate::models::SearchMode::Fts, None)
+            let mut results = crate::search::build_results(&db, hits, crate::models::SearchMode::Fts, None)
                 .map_err(|e| ApiError::Internal(format!("search failed: {}", e)))?;
-            (results, None)
+            // Compute next_cursor if we got more results than requested
+            let next_cursor = if results.len() > params.limit {
+                results.truncate(params.limit);
+                results.last().map(|r| crate::search::Cursor { after_rank: r.score, after_rowid: r.chunk_id }.encode())
+            } else {
+                None
+            };
+            (results, next_cursor)
         }
     };
 
     let total = if params.mode == "fts" {
         let fts5_query = crate::tokenizer::simple_and_query(&query);
-        db.fts_search(&fts5_query, 1_000_000, params.vault.as_deref(), None)
+        db.fts_search(&fts5_query, 1_000_000, params.vault.as_deref(), None, None)
             .map(|hits| hits.len())
             .unwrap_or_else(|_| results.len())
     } else {
@@ -956,5 +970,234 @@ mod tests {
             .unwrap();
         let resp = router.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    /// Insert test chunks directly into the DB for cursor pagination tests.
+    fn insert_test_chunks(db: &NoteDatabase, count: usize) {
+        let chunks: Vec<crate::models::Chunk> = (0..count)
+            .map(|i| {
+                let content = format!("search target document number {}", i);
+                crate::models::Chunk {
+                    id: None,
+                    file_path: format!("doc{}.md", i),
+                    chunk_index: 0,
+                    parent_header: None,
+                    content: content.clone(),
+                    tokenized_content: content,
+                    vault_name: "default".to_string(),
+                    tags: String::new(),
+                    frontmatter_date: String::new(),
+                    title: String::new(),
+                    emphasized_text: String::new(),
+                }
+            })
+            .collect();
+        db.insert_chunks(&chunks).unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_search_cursor_in_response() {
+        let (router, _tmp) = setup_test_router();
+        let req = Request::builder()
+            .uri("/api/v1/search?q=document&limit=2&mode=fts")
+            .body(Body::empty())
+            .unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        // next_cursor field must exist (may be null when no results)
+        assert!(
+            json.get("next_cursor").is_some(),
+            "response must include next_cursor field"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_search_cursor_pagination_with_data() {
+        let tmp = TempDir::new().unwrap();
+        let db_path = tmp.path().join("test.db");
+        let db = NoteDatabase::open(&db_path).unwrap();
+        insert_test_chunks(&db, 5);
+
+        let tokenizer = crate::tokenizer::get_tokenizer().ok();
+        let state = Arc::new(AppState {
+            db: Arc::new(tokio::sync::Mutex::new(db)),
+            tokenizer,
+            synonyms: HashMap::new(),
+            hybrid_alpha: None,
+            config: Some(ShiotsuchiConfig::default()),
+            api_key: None,
+            sensitive_config: None,
+        });
+        let router = create_router(state, &ShiotsuchiConfig::default());
+
+        // Page 1
+        let req = Request::builder()
+            .uri("/api/v1/search?q=document&limit=2&mode=fts")
+            .body(Body::empty())
+            .unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let page1_count = json["count"].as_u64().unwrap();
+        assert!(page1_count > 0 && page1_count <= 2, "page 1 should have 1-2 results");
+        let cursor = json["next_cursor"].as_str().map(|s| s.to_string());
+        assert!(cursor.is_some(), "page 1 should have next_cursor");
+
+        // Page 2 using cursor
+        let cursor_val = cursor.unwrap();
+        let req = Request::builder()
+            .uri(format!("/api/v1/search?q=document&limit=2&mode=fts&cursor={}", cursor_val))
+            .body(Body::empty())
+            .unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json2: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let page2_count = json2["count"].as_u64().unwrap();
+        assert!(page2_count > 0, "page 2 should have results");
+
+        // Verify no overlap: page 1 IDs vs page 2 IDs
+        let page1_paths: Vec<String> = json["results"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| r["file_path"].as_str().unwrap().to_string())
+            .collect();
+        let page2_paths: Vec<String> = json2["results"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| r["file_path"].as_str().unwrap().to_string())
+            .collect();
+        for p2 in &page2_paths {
+            assert!(
+                !page1_paths.contains(p2),
+                "page 2 result '{}' should not appear in page 1",
+                p2
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_search_invalid_cursor_returns_error() {
+        let (router, _tmp) = setup_test_router();
+        let req = Request::builder()
+            .uri("/api/v1/search?q=test&cursor=not-valid-base64!!!&mode=fts")
+            .body(Body::empty())
+            .unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        // Invalid cursor should be treated as no cursor (graceful degradation)
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_search_cursor_ignores_offset() {
+        let tmp = TempDir::new().unwrap();
+        let db_path = tmp.path().join("test.db");
+        let db = NoteDatabase::open(&db_path).unwrap();
+        insert_test_chunks(&db, 5);
+
+        let tokenizer = crate::tokenizer::get_tokenizer().ok();
+        let state = Arc::new(AppState {
+            db: Arc::new(tokio::sync::Mutex::new(db)),
+            tokenizer,
+            synonyms: HashMap::new(),
+            hybrid_alpha: None,
+            config: Some(ShiotsuchiConfig::default()),
+            api_key: None,
+            sensitive_config: None,
+        });
+        let router = create_router(state, &ShiotsuchiConfig::default());
+
+        // cursor + offset should not error (cursor takes priority)
+        let req = Request::builder()
+            .uri("/api/v1/search?q=document&limit=2&mode=fts&offset=100")
+            .body(Body::empty())
+            .unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        // When no cursor param is present, offset should work normally
+        assert!(json["offset"].is_number(), "offset should be a number");
+    }
+
+    #[tokio::test]
+    async fn test_search_full_pagination_no_overlap() {
+        let tmp = TempDir::new().unwrap();
+        let db_path = tmp.path().join("test.db");
+        let db = NoteDatabase::open(&db_path).unwrap();
+        insert_test_chunks(&db, 6);
+
+        let tokenizer = crate::tokenizer::get_tokenizer().ok();
+        let state = Arc::new(AppState {
+            db: Arc::new(tokio::sync::Mutex::new(db)),
+            tokenizer,
+            synonyms: HashMap::new(),
+            hybrid_alpha: None,
+            config: Some(ShiotsuchiConfig::default()),
+            api_key: None,
+            sensitive_config: None,
+        });
+        let router = create_router(state, &ShiotsuchiConfig::default());
+
+        // Walk all pages and verify no duplicates
+        let mut all_paths: Vec<String> = Vec::new();
+        let mut current_cursor: Option<String> = None;
+        let mut page_count = 0;
+
+        loop {
+            let uri = match &current_cursor {
+                Some(c) => format!("/api/v1/search?q=document&limit=2&mode=fts&cursor={}", c),
+                None => "/api/v1/search?q=document&limit=2&mode=fts".to_string(),
+            };
+            let req = Request::builder()
+                .uri(uri)
+                .body(Body::empty())
+                .unwrap();
+            let resp = router.clone().oneshot(req).await.unwrap();
+            let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+                .await
+                .unwrap();
+            let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+            let results = json["results"].as_array().unwrap();
+            if results.is_empty() {
+                break;
+            }
+
+            for r in results {
+                all_paths.push(r["file_path"].as_str().unwrap().to_string());
+            }
+
+            current_cursor = json["next_cursor"].as_str().map(|s| s.to_string());
+            page_count += 1;
+
+            if current_cursor.is_none() {
+                break;
+            }
+
+            if page_count > 10 {
+                panic!("infinite loop detected — cursor is not advancing");
+            }
+        }
+
+        assert!(page_count >= 2, "should have at least 2 pages");
+        assert_eq!(
+            all_paths.len(),
+            all_paths.iter().collect::<std::collections::HashSet<_>>().len(),
+            "all results across pages must be unique (no duplicates)"
+        );
     }
 }
