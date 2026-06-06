@@ -7,6 +7,21 @@ use crate::{
 use std::collections::HashMap;
 
 
+/// Common search parameters bundled to keep internal function signatures compact.
+struct SearchExecutionParams<'a> {
+    db: &'a NoteDatabase,
+    tokenizer: &'a JapaneseTokenizer,
+    query: &'a str,
+    min_score: Option<f64>,
+    vault_filter: Option<&'a str>,
+    tag_filter: Option<&'a str>,
+    since_date: Option<&'a str>,
+    user_dictionary: &'a [String],
+    synonyms: &'a HashMap<String, Vec<String>>,
+    fuzzy: bool,
+}
+
+
 /// All parameters for a search operation, grouped for maintainability.
 #[derive(Debug, Clone)]
 pub struct SearchRequest<'a> {
@@ -191,22 +206,35 @@ pub fn search(
     // unnecessary blob deserialization of potentially large embedding vectors.
     let include_embeddings = req.mmr && effective_mode != SearchMode::Fts;
 
+    let params = SearchExecutionParams {
+        db,
+        tokenizer,
+        query: req.query,
+        min_score: req.min_score,
+        vault_filter: req.vault_filter,
+        tag_filter: req.tag_filter,
+        since_date: req.since_date,
+        user_dictionary: req.user_dictionary,
+        synonyms: req.synonyms,
+        fuzzy: req.fuzzy,
+    };
+
     let (mut results, vec_emb_map) = match effective_mode {
-        SearchMode::Fts => (search_fts(db, tokenizer, req.query, req.limit, req.min_score, req.vault_filter, req.tag_filter, req.since_date, req.user_dictionary, req.synonyms, req.fuzzy)?, HashMap::new()),
+        SearchMode::Fts => (search_fts(&params, req.limit)?, HashMap::new()),
         SearchMode::Vec => {
             let emb_vec = precomputed_embedding.as_deref()
                 .ok_or_else(|| DbError::Other("Vec mode requires embedder — model not loaded".into()))?;
-            search_vec(db, emb_vec, req.query, vec_fetch_limit, req.min_score, req.vault_filter, req.tag_filter, req.since_date, include_embeddings)?
+            search_vec(&params, emb_vec, vec_fetch_limit, include_embeddings)?
         }
         SearchMode::Hybrid => {
             let emb_vec = precomputed_embedding.as_deref()
                 .ok_or_else(|| DbError::Other("Hybrid mode requires embedder — model not loaded".into()))?;
-            match search_hybrid(db, tokenizer, emb_vec, req.query, req.limit, vec_fetch_limit, req.min_score, req.vault_filter, req.tag_filter, req.since_date, req.user_dictionary, req.synonyms, req.fuzzy, req.hybrid_alpha, include_embeddings) {
+            match search_hybrid(&params, emb_vec, req.limit, vec_fetch_limit, req.hybrid_alpha, include_embeddings) {
                 Ok(result) => result,
                 Err(e) => {
                     tracing::warn!("Hybrid search vec component failed ({}), falling back to FTS only", e);
                     effective_mode = SearchMode::Fts;
-                    (search_fts(db, tokenizer, req.query, req.limit, req.min_score, req.vault_filter, req.tag_filter, req.since_date, req.user_dictionary, req.synonyms, req.fuzzy)?, HashMap::new())
+                    (search_fts(&params, req.limit)?, HashMap::new())
                 }
             }
         }
@@ -464,28 +492,19 @@ fn expand_synonyms(
 }
 
 fn search_fts(
-    db: &NoteDatabase,
-    tokenizer: &JapaneseTokenizer,
-    query: &str,
+    params: &SearchExecutionParams,
     limit: usize,
-    min_score: Option<f64>,
-    vault_filter: Option<&str>,
-    tag_filter: Option<&str>,
-    since_date: Option<&str>,
-    user_dictionary: &[String],
-    synonyms: &HashMap<String, Vec<String>>,
-    fuzzy: bool,
 ) -> Result<Vec<ChunkSearchResult>, DbError> {
-    let tokens = tokenizer.collect_tokens(query);
-    let tokens = if fuzzy {
+    let tokens = params.tokenizer.collect_tokens(params.query);
+    let tokens = if params.fuzzy {
         tokens.iter().map(|t| normalize(t)).collect()
     } else {
         tokens
     };
-    let tokens = apply_user_dictionary(&tokens, user_dictionary);
-    let fts5_query = expand_synonyms(&tokens, synonyms);
+    let tokens = apply_user_dictionary(&tokens, params.user_dictionary);
+    let fts5_query = expand_synonyms(&tokens, params.synonyms);
     let fts5_query = if fts5_query.is_empty() {
-        simple_and_query(query)
+        simple_and_query(params.query)
     } else {
         fts5_query
     };
@@ -493,29 +512,24 @@ fn search_fts(
         return Ok(vec![]);
     }
 
-    let hits = db.fts_search(&fts5_query, limit, vault_filter)?;
+    let hits = params.db.fts_search(&fts5_query, limit, params.vault_filter)?;
     if hits.is_empty() {
         return Ok(vec![]);
     }
 
-    let results = build_results(db, hits, SearchMode::Fts, min_score)?;
-    Ok(apply_filters_and_boost(results, tag_filter, since_date, query, SearchMode::Fts))
+    let results = build_results(params.db, hits, SearchMode::Fts, params.min_score)?;
+    Ok(apply_filters_and_boost(results, params.tag_filter, params.since_date, params.query, SearchMode::Fts))
 }
 
 /// Vec KNN search. Returns (results, embedding_map).
 /// The embedding_map can be reused by MMR re-ranking, avoiding a second DB query.
 fn search_vec(
-    db: &NoteDatabase,
+    params: &SearchExecutionParams,
     embedding: &[f32],
-    query: &str,
     limit: usize,
-    min_score: Option<f64>,
-    vault_filter: Option<&str>,
-    tag_filter: Option<&str>,
-    since_date: Option<&str>,
     include_embeddings: bool,
 ) -> Result<(Vec<ChunkSearchResult>, HashMap<i64, Vec<f32>>), DbError> {
-    let raw_hits = db.vec_search(embedding, limit, vault_filter, include_embeddings)?;
+    let raw_hits = params.db.vec_search(embedding, limit, params.vault_filter, include_embeddings)?;
     if raw_hits.is_empty() {
         return Ok((vec![], HashMap::new()));
     }
@@ -526,8 +540,8 @@ fn search_vec(
         .collect();
     let hits: Vec<(i64, f64)> = raw_hits.into_iter().map(|(id, dist, _)| (id, dist)).collect();
 
-    let results = build_results(db, hits, SearchMode::Vec, min_score)?;
-    Ok((apply_filters_and_boost(results, tag_filter, since_date, query, SearchMode::Vec), emb_map))
+    let results = build_results(params.db, hits, SearchMode::Vec, params.min_score)?;
+    Ok((apply_filters_and_boost(results, params.tag_filter, params.since_date, params.query, SearchMode::Vec), emb_map))
 }
 
 /// Internal RRF computation shared by `compute_rrf` and `compute_rrf_weighted`.
@@ -615,26 +629,31 @@ fn compute_rrf_weighted(
 /// RRF score = 1/(k + rank_fts) + 1/(k + rank_vec), higher = more relevant.
 /// Returns (results, embedding_map) where the embedding_map can be used by MMR.
 fn search_hybrid(
-    db: &NoteDatabase,
-    tokenizer: &JapaneseTokenizer,
+    params: &SearchExecutionParams,
     embedding: &[f32],
-    query: &str,
     limit: usize,
     vec_fetch_limit: usize,
-    min_score: Option<f64>,
-    vault_filter: Option<&str>,
-    tag_filter: Option<&str>,
-    since_date: Option<&str>,
-    user_dictionary: &[String],
-    synonyms: &HashMap<String, Vec<String>>,
-    fuzzy: bool,
     alpha: Option<f64>,
     include_embeddings: bool,
 ) -> Result<(Vec<ChunkSearchResult>, HashMap<i64, Vec<f32>>), DbError> {
     const K: f64 = 60.0;
 
-    let fts_results = search_fts(db, tokenizer, query, limit * 2, None, vault_filter, None, None, user_dictionary, synonyms, fuzzy)?;
-    let (vec_results, emb_map) = search_vec(db, embedding, query, vec_fetch_limit, None, vault_filter, None, None, include_embeddings)?;
+    // Internal FTS call ignores tag_filter and since_date (applied after RRF merge)
+    let fts_params = SearchExecutionParams {
+        db: params.db,
+        tokenizer: params.tokenizer,
+        query: params.query,
+        min_score: None,
+        vault_filter: params.vault_filter,
+        tag_filter: None,
+        since_date: None,
+        user_dictionary: params.user_dictionary,
+        synonyms: params.synonyms,
+        fuzzy: params.fuzzy,
+    };
+
+    let fts_results = search_fts(&fts_params, limit * 2)?;
+    let (vec_results, emb_map) = search_vec(&fts_params, embedding, vec_fetch_limit, include_embeddings)?;
 
     let blended_scores = match alpha {
         Some(a) => compute_rrf_weighted(&fts_results, &vec_results, limit, K, a.clamp(0.0, 1.0)),
@@ -647,7 +666,7 @@ fn search_hybrid(
 
     let ids: Vec<i64> = blended_scores.iter().map(|(id, _)| *id).collect();
     let score_map: HashMap<i64, f64> = blended_scores.into_iter().collect();
-    let chunks = db.get_chunks_by_ids(&ids)?;
+    let chunks = params.db.get_chunks_by_ids(&ids)?;
 
     // Build a lookup so we can re-order by score
     let mut chunk_map: HashMap<i64, _> = chunks
@@ -687,11 +706,11 @@ fn search_hybrid(
 
     results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
 
-    if let Some(ms) = min_score {
+    if let Some(ms) = params.min_score {
         results.retain(|r| r.score >= ms);
     }
 
-    Ok((apply_filters_and_boost(results, tag_filter, since_date, query, SearchMode::Hybrid), emb_map))
+    Ok((apply_filters_and_boost(results, params.tag_filter, params.since_date, params.query, SearchMode::Hybrid), emb_map))
 }
 
 /// Extract a snippet around the first query token match.
