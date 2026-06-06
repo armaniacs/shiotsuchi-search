@@ -99,4 +99,5 @@
 | `2026-06-06-53a-backlog-tracing-mcp.md` | PBI-53a: MCP サーバーの構造化ログ導入（tracing-subscriber + stderr 固定） |
 | `2026-06-06-53b-backlog-tracing-http.md` | PBI-53b: HTTP サーバーへの TraceLayer + リクエストID 導入 |
 | `2026-06-06-53c-backlog-tracing-core.md` | PBI-53c: core ライブラリの log:: → tracing:: 移行 + #[instrument] |
+| `2026-06-06-53d-backlog-tracing-cli.md` | PBI-53d: CLI の env_logger → tracing-subscriber 移行 |
 
