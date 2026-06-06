@@ -10,7 +10,7 @@ readme.workspace = true
 description = "Japanese-aware search engine core library — tokenizer, indexer, FTS5/vector search"
 
 [dependencies]
-rusqlite = { version = "0.39", features = ["bundled"] }
+rusqlite = { version = "0.40", features = ["bundled"] }
 # NOTE: "load_extension" は不要。Rust 側でトークナイズするため。
 
 # sqlite-vaporetto と同一の feature flags を指定する。
@@ -39,7 +39,7 @@ thiserror = "2"
 # main には VerifyReader をダウンロードフローに接続する修正が既にマージ済み。
 # 参考: https://github.com/pykeio/ort/releases/tag/v2.0.0-rc.12 (Build attestations セクション)
 ort = { version = "2.0.0-rc.12", default-features = false, features = ["std", "download-binaries", "tls-rustls"], optional = true }
-indicatif = "0.17"
+indicatif = "0.18"
 notify = { version = "9.0.0-rc.4", optional = true }
 dirs = "6"
 config = { version = "0.15", features = ["toml"] }
