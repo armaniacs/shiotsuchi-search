@@ -74,9 +74,18 @@ pub fn call_tool(
         sensitive_config,
     };
     match name {
-        "search_local_notes" => handle_search_local_notes(&ctx, args),
-        "get_surrounding_context" => handle_get_surrounding_context(&ctx, args),
-        "index_status" => handle_index_status(&ctx, args),
+        "search_local_notes" => {
+            tracing::info!(tool = "search_local_notes", "MCP tool called");
+            handle_search_local_notes(&ctx, args)
+        }
+        "get_surrounding_context" => {
+            tracing::info!(tool = "get_surrounding_context", "MCP tool called");
+            handle_get_surrounding_context(&ctx, args)
+        }
+        "index_status" => {
+            tracing::info!(tool = "index_status", "MCP tool called");
+            handle_index_status(&ctx, args)
+        }
         _ => Err(format!("Unknown tool: {}", name).into()),
     }
 }

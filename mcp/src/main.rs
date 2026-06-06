@@ -213,7 +213,7 @@ fn spawn_rebuild(
         let db = match shiotsuchi_core::db::NoteDatabase::open(&d_path) {
             Ok(db) => db,
             Err(e) => {
-                log::error!("Rebuild: failed to open DB {}: {}", d_path.display(), e);
+                tracing::error!("Rebuild: failed to open DB {}: {}", d_path.display(), e);
                 return;
             }
         };
@@ -222,7 +222,7 @@ fn spawn_rebuild(
         let tokenizer = match shiotsuchi_core::tokenizer::get_tokenizer() {
             Ok(t) => t,
             Err(_) => {
-                log::error!("Rebuild: no tokenizer model available — cannot index without one");
+                tracing::error!("Rebuild: no tokenizer model available — cannot index without one");
                 if let Some(pt) = progress_token {
                     emit_progress(&out, pt, 0, Some(1));
                 }
@@ -259,7 +259,7 @@ fn spawn_rebuild(
                     .filter(|(_, _, r)| matches!(r, shiotsuchi_core::IndexResult::Skipped))
                     .count();
                 let errors = results.len() - inserted - updated - skipped;
-                log::info!(
+                tracing::info!(
                     "Rebuild complete: {} inserted, {} updated, {} skipped, {} errors",
                     inserted,
                     updated,
@@ -268,7 +268,7 @@ fn spawn_rebuild(
                 );
             }
             Err(e) => {
-                log::error!("Rebuild failed: {}", e);
+                tracing::error!("Rebuild failed: {}", e);
             }
         }
     });
@@ -287,7 +287,12 @@ fn emit_progress(stdout: &Arc<Mutex<dyn io::Write + Send>>, progress_token: u64,
 
 #[tokio::main]
 async fn main() {
-    env_logger::init();
+    tracing_log::LogTracer::init().ok();
+    tracing_subscriber::fmt()
+        .with_writer(std::io::stderr)
+        .with_ansi(false)
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .init();
 
     let cli = Cli::parse();
     let cfg = match cli.config {
