@@ -33,7 +33,7 @@ pub struct Embedder {
 enum EmbedderBackend {
     Onnx {
         session: RefCell<Session>,
-        tokenizer: Tokenizer,
+        tokenizer: Box<Tokenizer>,
         model_id: String,
     },
     Api {
@@ -97,7 +97,7 @@ impl Embedder {
         Ok(Self {
             backend: EmbedderBackend::Onnx {
                 session: RefCell::new(session),
-                tokenizer,
+                tokenizer: Box::new(tokenizer),
                 model_id,
             },
         })
