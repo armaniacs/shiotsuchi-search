@@ -601,7 +601,7 @@ shiotsuchi serve --port 7171
 |------|------|
 | `GET /ui` | ブラウザ検索 UI |
 | `GET /api/v1/health` | ヘルスチェック |
-| `GET /api/v1/search?q=<query>&mode=<mode>&limit=<n>` | 検索 |
+| `GET /api/v1/search?q=<query>&mode=<mode>&limit=<n>&cursor=<cursor>` | 検索（cursor は keyset ページネーション用） |
 | `GET /api/v1/stats` | 統計情報 |
 | `GET /api/v1/list?offset=<n>&limit=<n>` | ファイル一覧 |
 | `GET /api/v1/read?path=<path>&vault=<vault>` | ファイル内容の読み取り |

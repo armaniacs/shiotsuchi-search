@@ -93,7 +93,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS vec_chunks USING vec0(
 - `delete_file_fully(vault_name, path)` — Atomically remove all data for a file: tag_counts, chunks, FTS/vec, tasks, file_cache, note_links — all in one transaction
 - `delete_chunks_for_file(vault_name, file_path)` — Remove all chunks/FTS/vec/tasks entries for a file in a specific vault
 - `delete_file_cache(vault_name, path)` / `delete_note_links_for_source(path, vault)` — Targeted cleanup
-- `fts_search(fts5_query, limit)` — Execute FTS5 MATCH with BM25 ranking (results joined with chunks for vault_name)
+- `fts_search(fts5_query, limit, vault_filter, after_rank, after_rowid)` — Execute FTS5 MATCH with BM25 ranking (results joined with chunks for vault_name). `after_rank`/`after_rowid` support composite keyset pagination via `(rank > ?) OR (rank = ? AND rowid > ?)`.
 - `vec_search(embedding, limit, vault_filter, include_embeddings)` — Execute vec0 KNN search with cosine distance
 - `get_chunks_by_ids(ids)` — Fetch chunks by IDs, preserving order (includes vault_name)
 - `get_surrounding_chunks(chunk_id, window)` — Fetch chunks before/after a given chunk (for context, includes vault_name)
@@ -205,7 +205,10 @@ Progress is cumulative: `(processed_so_far, total_across_all_vaults)`.
 ### `search.rs` — Search Engine
 
 **Key Function**:
-- `search(db, tokenizer, req: &SearchRequest)` → `Result<Vec<ChunkSearchResult>>`
+- `search(db, tokenizer, req: &SearchRequest)` → `Result<SearchOutput>`
+  - `SearchOutput { results: Vec<ChunkSearchResult>, next_cursor: Option<String> }`
+  - `next_cursor` is an opaque base64 string encoding `v2:rank:rowid`. `None` when no more pages.
+  - Use `next_cursor` as the `cursor` field in the next `SearchRequest` for keyset pagination.
 
 **Modes** (`SearchMode` enum):
 - `Fts` — Keyword search via FTS5 BM25 (works without model). Lower score = more relevant.
@@ -227,6 +230,13 @@ Progress is cumulative: `(processed_so_far, total_across_all_vaults)`.
 - `alpha`: Optional hybrid blend ratio (0.0 = vec only, 1.0 = FTS only, None = RRF)
 - `mmr`: When true, applies Maximal Marginal Relevance diversity re-ranking
 - `lambda`: MMR trade-off (0.0 = max diversity, 1.0 = pure relevance)
+- `cursor`: Optional opaque string from a previous `SearchOutput.next_cursor`. When set (FTS mode only), paginates from that position using composite (rank, rowid) keyset pagination.
+
+**Cursor Pagination** (requires `?mode=fts`):
+- Pass `cursor` from a previous response's `next_cursor` to get the next page.
+- Cursor uses composite keyset pagination with `(rank, rowid)` tiebreaker for deterministic order.
+- When `cursor` is provided, `offset` is ignored (cursor takes priority).
+- Hybrid and Vec modes do not support cursor pagination (use offset).
 
 **Snippet Extraction** (`extract_snippet`):
 - Finds first matching token position
@@ -243,6 +253,9 @@ Progress is cumulative: `(processed_so_far, total_across_all_vaults)`.
 | `Chunk` | id, vault_name, file_path, chunk_index, parent_header, content, tokenized_content, tags, frontmatter_date, title, emphasized_text |
 | `ChunkSearchResult` | vault_name, chunk_id, file_path, parent_header, content, score, search_mode, tags, frontmatter_date, title, emphasized_text |
 | `SearchMode` | `Fts` / `Vec` / `Hybrid` (default) |
+| `SearchOutput` | `results: Vec<ChunkSearchResult>, next_cursor: Option<String>` — search result container with pagination cursor |
+| `Cursor` | `after_rank: f64, after_rowid: i64` — composite keyset pagination cursor, encodes to `base64(v2:rank:rowid)` |
+| `CursorError` | `InvalidEncoding` / `InvalidPayload` — cursor decode failure |
 | `EmbedderStatus` | `Ready` / `Unavailable(String)` |
 | `NoteMetadata` | path, hash, mtime, indexed_at, title |
 | `Task` | id, vault_name, file_path, content, checked (bool), line_number |

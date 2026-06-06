@@ -569,7 +569,7 @@ Keyboard navigation and screen readers are supported.
 |------|-------------|
 | `GET /ui` | Browser search UI |
 | `GET /api/v1/health` | Health check |
-| `GET /api/v1/search?q=<query>&mode=<mode>&limit=<n>` | Search |
+| `GET /api/v1/search?q=<query>&mode=<mode>&limit=<n>&cursor=<cursor>` | Search (cursor for keyset pagination) |
 | `GET /api/v1/stats` | Index statistics |
 | `GET /api/v1/list?offset=<n>&limit=<n>` | Indexed file list |
 | `GET /api/v1/read?path=<path>&vault=<vault>` | Read file content |

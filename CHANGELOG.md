@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.22] - 2026-06-07
+
+### Added
+
+- **Cursor-based keyset pagination for FTS search (PBI-62)**: Added `cursor` query parameter to HTTP API `/api/v1/search`. Cursor encodes composite (rank, rowid) as opaque base64 string, supporting stable page traversal without offset performance degradation.
+  - New types: `Cursor` (encode/decode), `SearchOutput` (results + next_cursor)
+  - `fts_search` supports composite keyset: `(rank > ?) OR (rank = ? AND rowid > ?)`
+  - ORDER BY tiebreaker: `rank, rowid` for deterministic pagination
+  - Backward compatible: cursor=None preserves existing offset/limit behavior
+  - 9 new tests: encode/decode unit tests, HTTP handler integration, full page traversal without duplicates (477 core tests total)
+
+### Changed
+
+- `search()` return type from `Vec<ChunkSearchResult>` to `SearchOutput { results, next_cursor }`
+
 ## [0.4.21] - 2026-06-06
 
 ### Added
