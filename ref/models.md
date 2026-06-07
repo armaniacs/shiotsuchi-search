@@ -11,6 +11,10 @@ pub struct Chunk {
     pub parent_header: Option<String>,  // Ancestor heading path, e.g. "大見出し > 中見出し"
     pub content: String,                // Raw Markdown content (for snippets/display)
     pub tokenized_content: String,      // Vaporetto-tokenized, space-separated (for FTS5)
+    pub tags: String,                   // Frontmatter tags (comma-separated). Empty = none.
+    pub frontmatter_date: String,       // Frontmatter date (ISO 8601). Empty = none.
+    pub title: String,                  // Title from frontmatter or first heading. Empty = none.
+    pub emphasized_text: String,        // Text from ==highlight== and **bold** markers.
 }
 ```
 
@@ -25,6 +29,10 @@ pub struct ChunkSearchResult {
     pub content: String,
     pub score: f64,                      // Lower = more relevant for FTS; higher = more relevant for Hybrid
     pub search_mode: SearchMode,
+    pub tags: String,
+    pub frontmatter_date: String,
+    pub title: String,
+    pub emphasized_text: String,
 }
 ```
 
@@ -70,6 +78,8 @@ pub struct VaultStats {
     pub db_path: PathBuf,
     pub vec_indexed_chunks: usize,
     pub embedder_status: String,
+    pub total_chars: usize,                 // Sum of char_count from file_cache (O(N) with table scan)
+    pub top_tags: Vec<(String, usize)>,     // Top tags by frequency from tag_counts table (O(K))
 }
 ```
 
@@ -86,11 +96,30 @@ pub struct SearchConfig {
 ```rust
 pub struct IndexConfig {
     pub vaults: Vec<(String, PathBuf)>,        // (vault_name, notes_dir) — at least one entry
-    pub include_extensions: Vec<String>,       // ["md", "markdown"]
-    pub exclude_dirs: Vec<String>,              // ["node_modules"]
-    pub auto_exclude_hidden: bool,              // true
-    pub follow_links: bool,                     // false
-    pub dynamic_threshold: usize,               // 5
+    pub include_extensions: Vec<String>,       // ["md", "markdown", "pdf"]
+    pub exclude_dirs: Vec<String>,             // ["node_modules"]
+    pub auto_exclude_hidden: bool,             // true — skip dirs starting with '.'
+    pub follow_links: bool,                    // false
+    pub dynamic_threshold: usize,              // 5 — min files to flag noise candidates
+    pub user_dictionary: Vec<String>,          // custom Vaporetto post-processing entries
+    pub enable_pdf_extraction: bool,           // true — extract text from PDF files
+    pub backlink_scoring: bool,                // true — boost files with more wikilink backlinks
+    pub vlm_enabled: bool,                     // false — VLM-based PDF extraction (requires vlm feature)
+    pub vlm_consent_obtained: bool,            // must be true for VLM extraction to run
+    pub vlm_provider: String,                  // "openai"
+    pub vlm_model: String,                     // "gpt-4.1-nano"
+    pub vlm_max_pages_per_doc: Option<usize>,  // None = unlimited
+    pub embedding_usage: EmbeddingUsageConfig, // monthly API usage limits
+}
+```
+
+## `EmbedderConfig`
+
+```rust
+pub enum EmbedderConfig {
+    BuiltIn,                                  // Use SHIOTSUCHI_EMBED_MODEL_PATH or XDG default
+    OnnxFile { path: PathBuf },               // Specific .onnx model file on disk
+    Api { endpoint: String, model: String, api_key: Option<String> }, // OpenAI-compatible API
 }
 ```
 

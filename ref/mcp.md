@@ -117,6 +117,18 @@ Environment variables:
 - `SHIOTSUCHI_DB_PATH` — Database path (default: `~/.cache/shiotsuchi/db.sqlite3`)
 - `SHIOTSUCHI_MODEL_PATH` — Vaporetto tokenizer model path
 
+### Sensitive Data Masking
+
+MCP responses have sensitive data masking enabled by default. Configure via the `[sensitive_data]` section in `~/.config/shiotsuchi/config.toml` (MCP reads from the same config file as the CLI):
+
+```toml
+[sensitive_data]
+detection = true           # default: true (safe by default)
+patterns = []              # optional additional regex patterns
+```
+
+When `detection = true`, API keys, email addresses, tokens, and other secrets detected in search snippets are replaced with placeholder strings like `[API_KEY]`, `[EMAIL]`, etc. This masking is applied only on output and does not affect stored data.
+
 ## Claude Desktop Setup
 
 Add to `claude_desktop_config.json`:

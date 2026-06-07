@@ -11,7 +11,7 @@ High-performance Japanese-aware search engine for Markdown note vaults, powered 
 | Document | Purpose |
 |----------|---------|
 | [ref/architecture.md](ref/architecture.md) | Workspace structure, data flow, design decisions |
-| [ref/core.md](ref/core.md) | Core library: DB, tokenizer, indexer, search, watcher |
+| [ref/core.md](ref/core.md) | Core library: DB, tokenizer, indexer, search, watcher, sensitive masking, rate limiter |
 | [ref/cli.md](ref/cli.md) | CLI commands, config, entry points |
 | [ref/mcp.md](ref/mcp.md) | MCP server protocol, tools, Claude Desktop setup |
 | [ref/models.md](ref/models.md) | Data models, FTS5 query format, file hash |
@@ -31,7 +31,7 @@ High-performance Japanese-aware search engine for Markdown note vaults, powered 
 | [core/src/server/handlers.rs](core/src/server/handlers.rs) | HTTP API server handlers |
 | [core/src/server/ui.html](core/src/server/ui.html) | Browser-based search UI |
 | [mcp/src/main.rs](mcp/src/main.rs) | MCP server stdio loop |
-| [mcp/src/handler.rs](mcp/src/handler.rs) | MCP tool handlers |
+| [mcp/src/handler/mod.rs](mcp/src/handler/mod.rs) | MCP tool handlers |
 
 ## Quick Commands
 
@@ -80,12 +80,12 @@ linear issue list
 ## Important Context
 
 - Uses **Vaporetto** for Japanese tokenization (not SQLite extension)
-- Tokenized body stored as space-separated tokens in FTS5 `body` column
-- Two-table design: `notes_fts` (FTS5 virtual) + `notes_meta` (metadata)
-- SHA-256 hash tracking for incremental indexing
-- WAL mode enabled for concurrent CLI + MCP access
-- Transactions wrap FTS + meta updates
-- Path traversal protection on both search snippets and MCP `read_full_note`
-- HTTP server (`shiotsuchi serve`) provides REST API + browser UI at `/ui`
+- Tokenized body stored as space-separated tokens in FTS5 `tokenized_content` column
+- Chunk-based schema: `chunks` + `fts_chunks` (FTS5) + `vec_chunks` (vec0) + `file_cache` + `tasks` + `note_links` + `tag_counts`
+- SHA-256 hash tracking for incremental indexing (`file_cache` table)
 - WAL mode allows concurrent CLI + MCP + HTTP server access
+- Transactions wrap FTS + vec + meta updates (`reindex_file` is fully atomic)
+- Path traversal protection on search snippets and MCP/HTTP read endpoints
+- HTTP server (`shiotsuchi serve`) provides REST API + browser UI at `/ui` (rate-limited 30 req/s)
+- Sensitive data masking on MCP and HTTP API outputs (enabled by default via `sensitive.rs`)
 - Model embedding at compile time via `core/build.rs` and `SHIOTSUCHI_MODEL_PATH`

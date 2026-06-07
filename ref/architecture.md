@@ -69,6 +69,9 @@ shiotsuchi-search/
 12. **Tag counts caching**: `tag_counts` table is maintained incrementally during `reindex_file` and decremented atomically during `delete_file_fully`. `stats()` reads from this table (O(K)) instead of scanning all chunks (O(N)).
 13. **O(1) wikilink resolution**: `build_path_map()` pre-builds a `HashMap<String, String>` mapping lowercase stems to shortest paths, called once per vault in `index_directory`.
 14. **pdfium-render 0.8 unification**: Core uses `pdfium-render 0.8` to match `pdfium-auto` and `edgequake-pdf2md`, eliminating the duplicate build artifact that existed with v0.9.
+15. **Sensitive data masking on output**: MCP and HTTP API responses run detected secrets (API keys, emails, tokens) through `sensitive.rs` and replace them with placeholders. Masking is applied only at the output layer — stored data is never modified. Enabled by default; opt-out via `[sensitive_data] detection = false` in config.
+16. **Sliding-window rate limiter**: `core/src/rate_limiter.rs` implements a 30 req/s limit applied globally to all HTTP server endpoints via a `LazyLock<SlidingWindowRateLimiter>`.
+17. **Monthly embedding API usage tracking**: `usage_tracker.rs` persists monthly request counts to `~/.config/shiotsuchi/usage.json` to enforce optional `monthly_limit` on API-backed embedders. Enabled per `[embedding_usage]` config section.
 
 ## Data Flow
 
@@ -119,6 +122,7 @@ Search flow:
 |--------|------|---------|
 | `shiotsuchi` | `cli/src/main.rs` | CLI tool (index, search, watch, stats, prune, list, clean, config-migrate, init, setup, delete, doctor, synonym, tasks, check-ignore, serve) |
 | `shiotsuchi-mcp` | `mcp/src/main.rs` | MCP server for Claude Desktop (tokio async) |
+| HTTP server | `core/src/server/` | REST API + browser UI, launched via `shiotsuchi serve`. Provides `/ui`, `/api/v1/{search,stats,list,read,health}`. Rate-limited to 30 req/s. Auth via `X-API-Key` or `Authorization: Bearer` header. |
 
 ## Crate Dependencies
 

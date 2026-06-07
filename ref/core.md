@@ -268,6 +268,32 @@ Progress is cumulative: `(processed_so_far, total_across_all_vaults)`.
 | `Config` | synonyms: HashMap, vault_default: Option\<String\>, hybrid_alpha: Option\<f64\>, semantic_threshold: Option\<f64\>, embedder: EmbedderConfig |
 | `EmbedderConfig` | `BuiltIn` (default) / `OnnxFile { path: PathBuf }` / `Api { endpoint, model, api_key }` — embedding model provider; see `[embedder]` config section |
 
+### `sensitive.rs` / `sensitive_patterns.rs` — Sensitive Data Masking
+
+**Type**: `SensitiveDataConfig { detection: bool, patterns: Vec<String> }`
+
+- Applied on **output only** (not on stored data) for MCP and HTTP API responses
+- Default: `detection = true` (safe by default; opt-out via config)
+- Built-in patterns derived from TruffleHog regex detectors (email, API keys, tokens, etc.)
+- `mask_sensitive_data(text, config)` → replaces matches with `[EMAIL]`, `[API_KEY]`, etc.
+- Custom patterns can be added via the `patterns` field in `[sensitive_data]` config section
+
+### `usage_tracker.rs` — Embedding API Usage Tracking
+
+**Type**: `UsageTracker { path: PathBuf, enabled: bool, monthly_limit: Option<u64> }`
+
+- Persists monthly request counts to `~/.config/shiotsuchi/usage.json`
+- `check_and_increment()` → atomically checks limit and increments counter; returns `EmbedderError::UsageLimitExceeded` if over quota
+- Enabled via `[embedding_usage] enabled = true` with optional `monthly_limit`
+
+### `rate_limiter.rs` — HTTP Rate Limiter
+
+**Type**: `SlidingWindowRateLimiter`
+
+- Sliding-window rate limiter used by the HTTP server
+- Default: 30 requests/second
+- Applied globally in `core/src/server/handlers.rs` via `HTTP_RATE_LIMITER`
+
 ### `watcher.rs` — File System Watcher
 
 **Type**: `VaultWatcher { db, tokenizer, config: IndexConfig, embedder, watchers }`
