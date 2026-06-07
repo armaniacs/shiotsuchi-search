@@ -42,6 +42,7 @@ pub mod embedder {
     use crate::models::EmbedderStatus;
 
     /// Stub embedder — always returns errors / no-ops.
+    #[derive(Debug)]
     pub struct Embedder;
 
     impl Embedder {
@@ -60,8 +61,12 @@ pub mod embedder {
                 "compiled without the 'semantic' feature".into(),
             ))
         }
-        pub fn embed_batch(&self, _texts: &[&str]) -> Vec<Result<Vec<f32>, EmbedderError>> {
-            vec![]
+        pub fn embed_batch(&self, texts: &[&str]) -> Vec<Result<Vec<f32>, EmbedderError>> {
+            texts.iter().map(|_| {
+                Err(EmbedderError::Unavailable(
+                    "compiled without the 'semantic' feature".into(),
+                ))
+            }).collect()
         }
         pub fn status(&self) -> EmbedderStatus {
             EmbedderStatus::Unavailable("compiled without the 'semantic' feature".into())
@@ -71,15 +76,15 @@ pub mod embedder {
         }
     }
 
-    #[derive(Debug, thiserror::Error)]
+    #[derive(Debug, Clone, thiserror::Error)]
     pub enum EmbedderError {
-        #[error("load error: {0}")]
+        #[error("model load error: {0}")]
         Load(String),
-        #[error("inference error: {0}")]
+        #[error("embedding error: {0}")]
         Inference(String),
         #[error("unavailable: {0}")]
         Unavailable(String),
-        #[error("monthly usage limit exceeded: {used}/{limit} requests in {month}")]
+        #[error("monthly embedding API limit reached ({used}/{limit} requests in {month})")]
         UsageLimitExceeded { limit: u64, used: u64, month: String },
     }
 
@@ -96,8 +101,10 @@ pub mod embedder {
 
 pub use db::NoteDatabase;
 pub use indexer::IndexResult;
+pub use paths::{resolve_vault_dir, resolve_file_in_vault};
 pub use models::{
-    Chunk, ChunkSearchResult, EmbedderStatus, NoteMetadata, SearchConfig, SearchMode, Task, VaultStats,
+    Chunk, ChunkSearchResult, EmbedderStatus, NoteMetadata, SearchConfig, SearchMode, SearchModeError,
+    Task, VaultStats,
 };
 pub use tokenizer::{JapaneseTokenizer, TokenizerConfig};
 pub use sensitive::SensitiveDataConfig;

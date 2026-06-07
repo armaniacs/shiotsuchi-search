@@ -62,12 +62,16 @@ fn find_unknown_indexing_fields(config_path: &Path) -> Vec<String> {
     };
     // Keep this list in sync with `core::config::IndexingConfig` fields.
     // If new fields are added to IndexingConfig, add them here too.
-    let known: [&str; 6] = [
+    let known: [&str; 10] = [
         "include_extensions",
         "exclude_dirs",
         "auto_exclude_hidden",
         "follow_links",
         "dynamic_threshold",
+        "user_dictionary",
+        "enable_pdf_extraction",
+        "backlink_scoring",
+        "retention_days",
         "embedding_usage",
     ];
     match table.get("indexing").and_then(|v| v.as_table()) {
@@ -187,23 +191,7 @@ fn index_vault(
 ) -> Result<(usize, usize), Box<dyn std::error::Error>> {
     let db = NoteDatabase::open(db_path)?;
     let tokenizer = get_tokenizer()?;
-    let config = IndexConfig {
-        vaults: vaults.to_vec(),
-        include_extensions: indexing_cfg.include_extensions.clone(),
-        exclude_dirs: indexing_cfg.exclude_dirs.clone(),
-        auto_exclude_hidden: indexing_cfg.auto_exclude_hidden,
-        follow_links: indexing_cfg.follow_links,
-        dynamic_threshold: indexing_cfg.dynamic_threshold,
-        user_dictionary: indexing_cfg.user_dictionary.clone(),
-        enable_pdf_extraction: indexing_cfg.enable_pdf_extraction,
-        backlink_scoring: indexing_cfg.backlink_scoring,
-        vlm_enabled: vlm_cfg.enabled,
-        vlm_consent_obtained: vlm_cfg.consent_obtained,
-        vlm_provider: vlm_cfg.provider.clone(),
-        vlm_model: vlm_cfg.model.clone(),
-        vlm_max_pages_per_doc: vlm_cfg.max_pages_per_doc,
-        embedding_usage: indexing_cfg.embedding_usage.clone(),
-    };
+    let config = IndexConfig::from_cli_configs(vaults.to_vec(), indexing_cfg, vlm_cfg);
     let embedder = resolve_model_path(None).and_then(|p| match Embedder::load(&p) {
         Ok(e) => {
             eprintln!("{}", messages::INFO_EMBEDDER_LOADED);

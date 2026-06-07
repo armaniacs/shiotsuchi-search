@@ -438,6 +438,7 @@ impl NoteDatabase {
             .write_conn
             .borrow()
             .execute("UPDATE file_cache SET vlm_hash = NULL WHERE vlm_hash IS NOT NULL", [])?;
+        self.wal_checkpoint()?;
         Ok(count)
     }
 
@@ -552,10 +553,18 @@ impl NoteDatabase {
             tx.execute_batch("DELETE FROM vec_chunks")?;
             tx.execute_batch("DELETE FROM chunks")?;
             tx.execute_batch("DELETE FROM file_cache")?;
-            // Best-effort: these tables may not exist in older schema versions
-            let _ = tx.execute_batch("DELETE FROM tasks");
-            let _ = tx.execute_batch("DELETE FROM note_links");
-            let _ = tx.execute_batch("DELETE FROM tag_counts");
+            // Conditionally delete legacy tables that may not exist in older schemas.
+            // Check table existence first to avoid suppressing real I/O errors.
+            for table in &["tasks", "note_links", "tag_counts"] {
+                let exists: bool = tx.query_row(
+                    "SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1)",
+                    [table],
+                    |r| r.get(0),
+                )?;
+                if exists {
+                    tx.execute_batch(&format!("DELETE FROM {}", table))?;
+                }
+            }
 
             tx.commit()?;
             // tx and conn drop at end of scope
@@ -639,6 +648,38 @@ impl NoteDatabase {
             Ok((r.get::<_, i64>(0)?, r.get::<_, f64>(1)?))
         })?;
         rows.collect::<SqliteResult<Vec<_>>>().map_err(DbError::Sqlite)
+    }
+
+    /// Return the total number of matching rows for an FTS5 query.
+    ///
+    /// Unlike `fts_search`, this uses `SELECT count(*)` instead of fetching
+    /// result rows, so it is efficient even for large result sets.
+    pub(crate) fn fts_search_count(
+        &self,
+        fts5_query: &str,
+        vault_filter: Option<&str>,
+    ) -> Result<usize, DbError> {
+        let conn = self.write_conn.borrow();
+        let (sql, params): (String, Vec<Box<dyn rusqlite::ToSql>>) =
+            if let Some(vault) = vault_filter {
+                let sql = format!(
+                    "SELECT count(*) FROM fts_chunks JOIN chunks c ON c.id = fts_chunks.rowid \
+                     WHERE fts_chunks MATCH ?1 AND c.vault_name = ?2"
+                );
+                let p: Vec<Box<dyn rusqlite::ToSql>> = vec![
+                    Box::new(fts5_query.to_string()),
+                    Box::new(vault.to_string()),
+                ];
+                (sql, p)
+            } else {
+                let sql = "SELECT count(*) FROM fts_chunks WHERE fts_chunks MATCH ?1".to_string();
+                let p: Vec<Box<dyn rusqlite::ToSql>> =
+                    vec![Box::new(fts5_query.to_string())];
+                (sql, p)
+            };
+        let params_refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+        let count: i64 = conn.query_row(&sql, params_refs.as_slice(), |r| r.get(0))?;
+        Ok(count as usize)
     }
 
     /// Vector KNN search on vec_chunks.
@@ -827,6 +868,33 @@ impl NoteDatabase {
         rows.collect::<SqliteResult<Vec<_>>>().map_err(DbError::Sqlite)
     }
 
+    /// Return the number of cached file paths for a vault.
+    pub fn count_cached_paths(&self, vault_name: &str) -> Result<usize, DbError> {
+        let conn = self.write_conn.borrow();
+        let count: i64 = conn.query_row(
+            "SELECT count(*) FROM file_cache WHERE vault_name = ?1",
+            params![vault_name],
+            |r| r.get(0),
+        )?;
+        Ok(count as usize)
+    }
+
+    /// Return a paginated slice of cached file paths for a vault.
+    /// Uses SQL-level `LIMIT/OFFSET` to avoid loading all paths into memory.
+    pub fn list_cached_paths_paginated(
+        &self,
+        vault_name: &str,
+        limit: usize,
+        offset: usize,
+    ) -> Result<Vec<String>, DbError> {
+        let conn = self.write_conn.borrow();
+        let mut stmt = conn.prepare(
+            "SELECT path FROM file_cache WHERE vault_name = ?1 ORDER BY path LIMIT ?2 OFFSET ?3",
+        )?;
+        let rows = stmt.query_map(params![vault_name, limit as i64, offset as i64], |r| r.get(0))?;
+        rows.collect::<SqliteResult<Vec<_>>>().map_err(DbError::Sqlite)
+    }
+
     /// Get all chunks for a file, ordered by chunk_index.
     /// Used as a fallback when the file no longer exists on disk.
     pub fn get_chunks_for_file(
@@ -897,6 +965,13 @@ impl NoteDatabase {
         })?;
         rows.collect::<rusqlite::Result<std::collections::HashMap<i64, i64>>>()
             .map_err(DbError::Sqlite)
+    }
+
+    /// Lightweight DB connectivity check. Used by health/readiness probes.
+    pub fn ping(&self) -> Result<(), DbError> {
+        let conn = self.write_conn.borrow();
+        conn.query_row("SELECT 1", [], |_| Ok(()))?;
+        Ok(())
     }
 
     /// Execute WAL checkpoint(TRUNCATE) to flush all WAL data into the main .db file.

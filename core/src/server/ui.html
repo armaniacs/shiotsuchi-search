@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ja">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>shiotsuchi search</title>
+  <title>shiotsuchi 検索</title>
   <style>
     :root {
       --bg: #0f172a;
@@ -278,6 +278,7 @@
     /* Loading & empty */
     .loading { text-align: center; color: var(--text-muted); padding: 2rem; }
     .empty { text-align: center; color: var(--text-muted); padding: 2rem; font-size: 0.9rem; }
+    .query-error { color: var(--error); font-size: 0.85rem; margin-top: 0.25rem; }
     .error { color: var(--error); padding: 1rem; text-align: center; }
 
     .panel { display: none; }
@@ -292,17 +293,18 @@
     </header>
 
     <div class="tabs" role="tablist" aria-label="Navigation tabs">
-      <button class="tab active" role="tab" aria-selected="true" aria-controls="search" id="tab-search" data-tab="search">Search</button>
-      <button class="tab" role="tab" aria-selected="false" aria-controls="stats" id="tab-stats" data-tab="stats">Stats</button>
+      <button class="tab active" role="tab" aria-selected="true" aria-controls="search" id="tab-search" data-tab="search">検索</button>
+      <button class="tab" role="tab" aria-selected="false" aria-controls="stats" id="tab-stats" data-tab="stats">統計</button>
       <button class="tab" role="tab" aria-selected="false" aria-controls="files" id="tab-files" data-tab="files">Files</button>
     </div>
 
     <!-- Search Panel -->
     <div id="search" class="panel active" role="tabpanel" aria-labelledby="tab-search">
       <div class="search-box">
-        <label for="query" class="sr-only">Search notes</label>
-        <input type="text" id="query" placeholder="Search notes..." autofocus aria-label="Search notes">
-        <button id="searchBtn" onclick="doSearch()">Search</button>
+        <label for="query" class="sr-only">ノートを検索</label>
+        <input type="text" id="query" placeholder="ノートを検索..." aria-label="ノートを検索" aria-required="true">
+        <button id="searchBtn" onclick="doSearch()">検索</button>
+        <div id="queryError" role="alert" class="query-error" style="display:none">検索クエリを入力してください</div>
       </div>
       <div class="options">
         <div>
@@ -405,6 +407,9 @@
     $('#query').addEventListener('keydown', (e) => {
       if (e.key === 'Enter') doSearch();
     });
+    document.getElementById('query').addEventListener('input', function() {
+      $('#queryError').style.display = 'none';
+    });
 
     // --- Modal focus trap ---
     let previousFocus = null;
@@ -454,13 +459,17 @@
     // --- Search ---
     async function doSearch() {
       const q = $('#query').value.trim();
-      if (!q) return;
+      if (!q) {
+        $('#queryError').style.display = 'block';
+        return;
+      }
+      $('#queryError').style.display = 'none';
       const mode = $('#mode').value;
       const limit = $('#limit').value;
       const btn = $('#searchBtn');
       btn.disabled = true;
-      btn.textContent = 'Searching...';
-      $('#searchResults').innerHTML = '<div class="loading">Searching...</div>';
+      btn.textContent = '検索中...';
+      $('#searchResults').innerHTML = '<div class="loading">検索中...</div>';
 
       try {
         const data = await apiWithTimeout(`/api/v1/search?q=${encodeURIComponent(q)}&mode=${mode}&limit=${limit}`);
@@ -469,19 +478,18 @@
           return;
         }
         if (data.results.length === 0) {
-          $('#searchResults').innerHTML = '<div class="empty">No results found</div>';
-          return;
-        }
-        $('#searchResults').innerHTML = `
-          <div class="results-info">${data.count} results</div>
+          $('#searchResults').innerHTML = '<div class="empty">見つかりませんでした</div>';
+        } else {
+          let html = `<div class="results-info">${data.count} 件の結果</div>
           ${data.results.map(r => `
             <div class="result-card" role="button" tabindex="0"
-                 onclick="openFile('${esc(r.file_path)}', '${esc(r.vault_name)}')"
-                 onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openFile('${esc(r.file_path)}', '${esc(r.vault_name)}')}">
-              <div class="result-title">${esc(r.title || '(untitled)')}</div>
+                 aria-label="${esc(r.title || '無題')} — ${esc(r.file_path)}"
+                 onclick="openFile('${esc(r.vault_name)}','${esc(r.file_path)}')"
+                 onkeydown="if(event.key==='Enter') openFile('${esc(r.vault_name)}','${esc(r.file_path)}')">
+              <div class="result-title">${esc(r.title || '(無題)')}</div>
               <div class="result-path">${esc(r.file_path)}</div>
               <div class="result-snippet">${esc(r.snippet)}</div>
-              <div class="result-score">score: ${r.score.toFixed(3)}</div>
+              <div class="result-score">スコア: ${r.score.toFixed(3)}</div>
             </div>
           `).join('')}
         `;
@@ -495,7 +503,7 @@
 
     // --- Stats ---
     async function loadStats() {
-      $('#statsContent').innerHTML = '<div class="loading">Loading...</div>';
+      $('#statsContent').innerHTML = '<div class="loading">読み込み中...</div>';
       try {
         const d = await apiWithTimeout('/api/v1/stats');
         $('#statsContent').innerHTML = `
@@ -531,7 +539,7 @@
     async function loadFiles(reset = true) {
       if (reset) {
         filesOffset = 0;
-        $('#filesContent').innerHTML = '<div class="loading">Loading...</div>';
+        $('#filesContent').innerHTML = '<div class="loading">読み込み中...</div>';
       }
 
       try {
@@ -553,7 +561,7 @@
           </li>
         `).join('');
 
-        let html = `<div class="results-info">${d.count} of ${filesTotal} files</div>`;
+        let html = `<div class="results-info">${d.count} / ${filesTotal} ファイル</div>`;
         if (reset) {
           html += `<ul class="file-list" id="fileListUl">${newItems}</ul>`;
         } else {
@@ -600,7 +608,7 @@
       previousFocus = document.activeElement;
       title.textContent = path;
       modal.setAttribute('aria-label', 'Note content: ' + path);
-      body.innerHTML = '<div class="modal-loading">Loading...</div>';
+      body.innerHTML = '<div class="modal-loading">読み込み中...</div>';
       modal.classList.add('open');
       openModalFocusTrap();
 

@@ -7,6 +7,7 @@ use crate::{
 };
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use sha2::{Digest, Sha256};
+use std::io::Read;
 use std::{fs, path::{Path, PathBuf}, time::SystemTime};
 use walkdir::WalkDir;
 
@@ -127,10 +128,21 @@ fn sha256_hex(content: &str) -> String {
     hex::encode(hasher.finalize())
 }
 
-fn sha256_bytes(bytes: &[u8]) -> String {
+/// Compute SHA-256 of a file using streaming I/O (8 KB buffer).
+/// Does not load the entire file into memory.
+pub(crate) fn sha256_file(path: &Path) -> std::io::Result<String> {
+    use sha2::{Digest, Sha256};
+    let mut file = std::fs::File::open(path)?;
     let mut hasher = Sha256::new();
-    hasher.update(bytes);
-    hex::encode(hasher.finalize())
+    let mut buffer = [0; 8192];
+    loop {
+        let bytes = file.read(&mut buffer)?;
+        if bytes == 0 {
+            break;
+        }
+        hasher.update(&buffer[..bytes]);
+    }
+    Ok(hex::encode(hasher.finalize()))
 }
 
 fn file_mtime(path: &Path) -> i64 {
@@ -187,11 +199,9 @@ fn extract_wikilinks(content: &str) -> Vec<String> {
 pub fn build_path_map(vault_paths: &[String]) -> std::collections::HashMap<String, String> {
     let mut map: std::collections::HashMap<String, String> = std::collections::HashMap::new();
     for p in vault_paths {
-        // Extract the filename stem: the last component without .md suffix.
         if let Some(filename) = p.rsplit('/').next() {
             if let Some(stem) = filename.strip_suffix(".md") {
                 let stem_lower = stem.to_lowercase();
-                // Prefer the shortest path for ambiguous names (Obsidian convention).
                 let current_len = map.get(&stem_lower).map(|existing| existing.len()).unwrap_or(usize::MAX);
                 if p.len() < current_len {
                     map.insert(stem_lower, p.clone());
@@ -457,8 +467,8 @@ pub fn index_file_with_embedder(p: &IndexParams<'_>) -> IndexResult {
     let mut vlm_hash: Option<String> = None;
     if ext == "pdf" && content.is_empty() && config.vlm_enabled && config.vlm_consent_obtained {
         // VLM cache: compute PDF binary hash and compare with cached value
-        let pdf_binary_hash = match std::fs::read(file_path) {
-            Ok(bytes) => sha256_bytes(&bytes),
+        let pdf_binary_hash = match sha256_file(file_path) {
+            Ok(hash) => hash,
             Err(e) => return IndexResult::Error(format!("Read error: {}", e)),
         };
         vlm_hash = Some(pdf_binary_hash.clone());

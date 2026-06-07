@@ -14,13 +14,12 @@ pub(crate) fn handle_get_surrounding_context(
     let window = args["window"].as_u64().unwrap_or(2).min(5) as usize;
 
     let db = NoteDatabase::open(ctx.db_path)?;
-    // Validate that the chunk belongs to a known vault
+    // Validate that the chunk belongs to a known, accessible vault
     let chunk_vault = db
         .get_chunk_vault_name(chunk_id)?
         .ok_or("chunk not found or inaccessible")?;
-    if !ctx.vaults.iter().any(|(name, _)| name == &chunk_vault) {
-        return Err("chunk not found or inaccessible".into());
-    }
+    shiotsuchi_core::resolve_vault_dir(ctx.vaults, &chunk_vault)
+        .map_err(|_| "chunk not found or inaccessible".to_string())?;
     let chunks = db.get_surrounding_chunks(chunk_id, window)?;
 
     const MAX_CHARS: usize = 100_000;

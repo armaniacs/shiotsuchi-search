@@ -10,7 +10,7 @@ pub fn migrate(conn: &Connection) -> Result<(), crate::db::DbError> {
     let has_vault_name = cols.iter().any(|c| c == "vault_name");
 
     if !has_vault_name {
-        conn.execute_batch("BEGIN TRANSACTION")?;
+        // Transaction is managed by migration::run() — don't BEGIN/COMMIT here.
         conn.execute_batch("ALTER TABLE chunks ADD COLUMN vault_name TEXT NOT NULL DEFAULT 'default'")?;
         conn.execute_batch("DROP INDEX IF EXISTS idx_chunks_file_path")?;
         conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_chunks_file_path ON chunks(vault_name, file_path)")?;
@@ -46,7 +46,6 @@ pub fn migrate(conn: &Connection) -> Result<(), crate::db::DbError> {
         conn.execute_batch("DROP TABLE file_cache")?;
         conn.execute_batch("ALTER TABLE file_cache_v3 RENAME TO file_cache")?;
         conn.execute_batch("PRAGMA user_version = 3")?;
-        conn.execute_batch("COMMIT")?;
     } else {
         // Already partially/fully migrated — just ensure user_version is correct
         conn.execute_batch("PRAGMA user_version = 3")?;

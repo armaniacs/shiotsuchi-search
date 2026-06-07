@@ -57,10 +57,9 @@ pub(crate) fn handle_search_local_notes(
         }));
     }
 
-    let mode = match mode_str {
-        "fts" => SearchMode::Fts,
-        "hybrid" => SearchMode::Hybrid,
-        _ => {
+    let mode: SearchMode = match mode_str.parse() {
+        Ok(m) => m,
+        Err(_) => {
             return Ok(json!({
                 "content": [{"type": "text", "text": format!("Unknown mode '{}'. Supported modes: fts, hybrid", mode_str)}],
                 "isError": true
@@ -79,14 +78,11 @@ pub(crate) fn handle_search_local_notes(
     }
 
     // Validate vault dir is reachable (path traversal check).
-    let target_vault = vault_filter
-        .and_then(|vf| ctx.vaults.iter().find(|(name, _)| name == vf))
-        .or_else(|| ctx.vaults.first());
-    if let Some((_, notes_dir)) = target_vault {
-        let _canonical_vault = notes_dir
-            .canonicalize()
-            .map_err(|_| "Vault directory is not accessible or does not exist")?;
-    }
+    let target_name = vault_filter
+        .or_else(|| ctx.vaults.first().map(|(n, _)| n.as_str()))
+        .unwrap_or("default");
+    shiotsuchi_core::resolve_vault_dir(ctx.vaults, target_name)
+        .map_err(|e| e.to_string())?;
 
     let db = NoteDatabase::open(ctx.db_path)?;
     let tokenizer = match get_tokenizer() {

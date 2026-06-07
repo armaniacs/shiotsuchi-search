@@ -50,9 +50,8 @@ pub fn extract_text_with_vlm(
         .provider_name(&vlm_config.provider)
         .model(&vlm_config.model);
 
-    if let Some(max_pages) = vlm_config.max_pages_per_doc {
-        builder = builder.pages(edgequake_pdf2md::PageSelection::Range(1, max_pages));
-    }
+    let max_pages = vlm_config.effective_max_pages_per_doc();
+    builder = builder.pages(edgequake_pdf2md::PageSelection::Range(1, max_pages));
 
     let config = builder
         .build()

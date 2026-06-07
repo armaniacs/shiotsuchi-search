@@ -79,23 +79,7 @@ pub fn run_scan(
     }
 
     let tokenizer = get_tokenizer()?;
-    let config = IndexConfig {
-        vaults: vaults.to_vec(),
-        include_extensions: indexing_cfg.include_extensions.clone(),
-        exclude_dirs: indexing_cfg.exclude_dirs.clone(),
-        auto_exclude_hidden: indexing_cfg.auto_exclude_hidden,
-        follow_links: indexing_cfg.follow_links,
-        dynamic_threshold: indexing_cfg.dynamic_threshold,
-        user_dictionary: indexing_cfg.user_dictionary.clone(),
-        enable_pdf_extraction: indexing_cfg.enable_pdf_extraction,
-        backlink_scoring: indexing_cfg.backlink_scoring,
-        vlm_enabled: vlm_cfg.enabled,
-        vlm_consent_obtained: vlm_cfg.consent_obtained,
-        vlm_provider: vlm_cfg.provider.clone(),
-        vlm_model: vlm_cfg.model.clone(),
-        vlm_max_pages_per_doc: vlm_cfg.max_pages_per_doc,
-        embedding_usage: indexing_cfg.embedding_usage.clone(),
-    };
+    let config = IndexConfig::from_cli_configs(vaults.to_vec(), indexing_cfg, vlm_cfg);
     let watcher = VaultWatcher::new(db, tokenizer, config, embedder);
     watcher.watch()
 }

@@ -312,6 +312,17 @@ impl VlmConfig {
     pub fn resolved_endpoint(&self) -> String {
         self.endpoint.clone().unwrap_or_else(|| resolved_vlm_endpoint_for_provider(&self.provider))
     }
+
+    /// Return the effective max pages per document, capped at a system-level limit.
+    /// When `max_pages_per_doc` is `None` or exceeds the hard cap, the cap is used
+    /// to prevent runaway API costs from unusually large documents.
+    pub fn effective_max_pages_per_doc(&self) -> usize {
+        const HARD_CAP: usize = 50;
+        match self.max_pages_per_doc {
+            Some(n) => n.min(HARD_CAP),
+            None => HARD_CAP,
+        }
+    }
 }
 
 fn resolved_vlm_endpoint_for_provider(provider: &str) -> String {

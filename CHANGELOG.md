@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **BREAKING**: `SearchMode::FromStr` error type changed from `&'static str` to `SearchModeError` (thiserror). Code explicitly matching `Result<SearchMode, &'static str>` will not compile. Most consumers using `Err(_)` or `e.to_string()` are unaffected. `SearchModeError` implements `Display` and is re-exported from `shiotsuchi_core` crate root.
+
 ## [0.4.23] - 2026-06-07
 
 ### Fixed

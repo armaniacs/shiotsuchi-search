@@ -30,8 +30,8 @@ fn resolve_path_env(var: &str, default: PathBuf) -> PathBuf {
             // Absolute paths like /home/user/../config could bypass vault boundaries
             // when combined with symbolic links.
             if p.to_string_lossy().contains("..") {
-                eprintln!(
-                    "Warning: {} contains '..' (path traversal), using config default",
+                tracing::warn!(
+                    "{} contains '..' (path traversal), using config default",
                     var
                 );
                 default
@@ -53,6 +53,9 @@ struct McpConfig {
     db_path: PathBuf,                // legacy flat field (old config format)
     #[serde(default = "default_backlink_scoring")]
     backlink_scoring: bool,
+    /// Sensitive data detection and masking configuration.
+    #[serde(default)]
+    sensitive_data: SensitiveDataConfig,
 }
 
 fn default_backlink_scoring() -> bool {
@@ -68,49 +71,49 @@ impl Default for McpConfig {
             notes_dir: PathBuf::from("."),
             db_path: core_default_db_path(),
             backlink_scoring: true,
+            sensitive_data: SensitiveDataConfig::default(),
         }
     }
 }
 
 impl McpConfig {
-    fn resolved_vaults(&self) -> Vec<(String, PathBuf)> {
-        let mut vaults: Vec<(String, PathBuf)> = Vec::new();
+    /// Convert this MCP-specific config into the core `ShiotsuchiConfig`.
+    ///
+    /// This single bridge point replaces the previously duplicated `resolved_vaults`,
+    /// `resolved_db_path`, and `backlink_scoring` access.  All new config fields
+    /// added to `ShiotsuchiConfig` only need to be wired once here.
+    fn to_core_config(&self) -> shiotsuchi_core::config::ShiotsuchiConfig {
+        let mut cfg = shiotsuchi_core::config::ShiotsuchiConfig {
+            database: self.database.clone(),
+            vaults: self.vaults.clone(),
+            vault: self.vault.clone(),
+            sensitive_data: self.sensitive_data.clone(),
+            indexing: {
+                let mut ic = shiotsuchi_core::config::IndexingConfig::default();
+                ic.backlink_scoring = self.backlink_scoring;
+                ic
+            },
+            ..Default::default()
+        };
 
-        // Legacy single vault formats
-        if let Some(ref v) = self.vault {
-            if let Some(ref dir) = v.notes_dir {
-                vaults.push(("default".to_string(), dir.clone()));
-            }
-        }
-        if self.vault.is_none() {
-            // Check the flat notes_dir field (old format without [vault] section)
-            let nd = &self.notes_dir;
-            if nd != &PathBuf::from(".") || vaults.is_empty() {
-                vaults.push(("default".to_string(), nd.clone()));
-            }
+        // Backward-compat: flat `notes_dir` field (old MCP config format)
+        let default_notes = PathBuf::from(".");
+        if self.notes_dir != default_notes {
+            cfg.vaults
+                .entry("default".to_string())
+                .or_insert_with(|| shiotsuchi_core::config::VaultEntry {
+                    notes_dir: Some(self.notes_dir.clone()),
+                    db_path: None,
+                });
         }
 
-        // Named vaults (new format)
-        for (name, entry) in &self.vaults {
-            if let Some(ref dir) = entry.notes_dir {
-                vaults.push((name.clone(), dir.clone()));
-            }
+        // Backward-compat: flat `db_path` field
+        let default_db = core_default_db_path();
+        if self.db_path != default_db && cfg.database.db_path.is_none() {
+            cfg.database.db_path = Some(self.db_path.clone());
         }
 
-        if vaults.is_empty() {
-            vaults.push(("default".to_string(), PathBuf::from(".")));
-        }
-        vaults
-    }
-
-    fn resolved_db_path(&self) -> PathBuf {
-        self.database.db_path.clone()
-            .or_else(|| self.vault.as_ref().and_then(|v| v.db_path.clone()))
-            .or_else(|| {
-                let default_p = core_default_db_path();
-                if self.db_path != default_p { Some(self.db_path.clone()) } else { None }
-            })
-            .unwrap_or_else(core_default_db_path)
+        cfg
     }
 
     fn load(path: &Path) -> Self {
@@ -121,8 +124,8 @@ impl McpConfig {
         {
             Ok(cfg) => cfg,
             Err(e) => {
-                eprintln!(
-                    "Warning: failed to load config from {}: {}. Using defaults.",
+                tracing::warn!(
+                    "failed to load config from {}: {}. Using defaults.",
                     path.display(),
                     e
                 );
@@ -182,7 +185,10 @@ pub fn dispatch(req: McpRequest, vaults: &[(String, PathBuf)], db_path: &Path, b
             let args = &params["arguments"];
             match handler::call_tool(name, args, vaults, db_path, backlink_scoring, sensitive_config) {
                 Ok(result) => McpResponse::success(req.id, result),
-                Err(_) => McpResponse::error(req.id, -32000, "Internal tool execution error"),
+                Err(e) => {
+                    tracing::error!(tool = %name, error = %e, "MCP tool execution failed");
+                    McpResponse::error(req.id, -32000, "Internal tool execution error")
+                }
             }
         }
         "ping" => McpResponse::success(req.id, serde_json::json!({})),
@@ -193,13 +199,12 @@ pub fn dispatch(req: McpRequest, vaults: &[(String, PathBuf)], db_path: &Path, b
 /// Spawn a background task that calls `shiotsuchi_core::indexer::index_directory`
 /// and sends MCP `notifications/progress` notifications on stdout.
 fn spawn_rebuild(
-    vaults: Vec<(String, PathBuf)>,
+    config: shiotsuchi_core::models::IndexConfig,
     db_path: &Path,
     stdout: &Arc<Mutex<dyn io::Write + Send>>,
     _args: &serde_json::Value,
     progress_token: Option<u64>,
 ) {
-    let v = vaults;
     let d_path = db_path.to_path_buf();
     let out = Arc::clone(stdout);
 
@@ -228,12 +233,6 @@ fn spawn_rebuild(
                 }
                 return;
             }
-        };
-
-        // Build IndexConfig (defaults: .md/.markdown, exclude node_modules, auto-exclude hidden)
-        let config = shiotsuchi_core::models::IndexConfig {
-            vaults: v,
-            ..Default::default()
         };
 
         // Set up progress callback
@@ -295,10 +294,11 @@ async fn main() {
         .init();
 
     let cli = Cli::parse();
-    let cfg = match cli.config {
+    let mcp_cfg = match cli.config {
         Some(ref path) => McpConfig::load(path),
         None => McpConfig::load_default(),
     };
+    let cfg = mcp_cfg.to_core_config();
 
     let mut vaults = cfg.resolved_vaults();
     let notes_dir_override = resolve_path_env("SHIOTSUCHI_NOTES_DIR", PathBuf::new());
@@ -312,13 +312,14 @@ async fn main() {
     if let Some(parent) = db_path.parent() {
         if !parent.exists() {
             std::fs::create_dir_all(parent)
-                .unwrap_or_else(|e| eprintln!("Warning: failed to create parent dir: {}", e));
+                .unwrap_or_else(|e| tracing::warn!("failed to create parent dir: {}", e));
         }
     }
 
-    let sensitive_config = SensitiveDataConfig::default();
+    let sensitive_config = cfg.sensitive_data.clone();
     let stdin = io::stdin();
     let stdout: Arc<Mutex<dyn io::Write + Send>> = Arc::new(Mutex::new(io::stdout()));
+    let backlink_scoring = cfg.indexing.backlink_scoring;
 
     // Send notifications/initialized on startup
     {
@@ -346,7 +347,12 @@ async fn main() {
                         } else {
                             let args = &params["arguments"];
                             let progress_token = params["_meta"]["progressToken"].as_u64();
-                            spawn_rebuild(vaults.clone(), &db_path, &stdout, args, progress_token);
+                            let rebuild_config = shiotsuchi_core::models::IndexConfig::from_cli_configs(
+                                vaults.clone(),
+                                &cfg.indexing,
+                                &cfg.vlm,
+                            );
+                            spawn_rebuild(rebuild_config, &db_path, &stdout, args, progress_token);
                             McpResponse::success(
                                 req.id,
                                 json!({
@@ -358,10 +364,10 @@ async fn main() {
                             )
                         }
                     } else {
-                        dispatch(req, &vaults, &db_path, cfg.backlink_scoring, &sensitive_config)
+                        dispatch(req, &vaults, &db_path, backlink_scoring, &sensitive_config)
                     }
                 } else {
-                    dispatch(req, &vaults, &db_path, cfg.backlink_scoring, &sensitive_config)
+                    dispatch(req, &vaults, &db_path, backlink_scoring, &sensitive_config)
                 }
             }
             Err(_) => McpResponse::error(0, -32700, "Parse error"),
@@ -463,21 +469,24 @@ notes_dir = "/tmp/my-notes"
 db_path   = "/tmp/my-notes/search.db"
 "#,
         );
-        let cfg = McpConfig::load(&path);
-        assert_eq!(cfg.notes_dir, PathBuf::from("/tmp/my-notes"));
-        let vaults = cfg.resolved_vaults();
+        let mcp_cfg = McpConfig::load(&path);
+        assert_eq!(mcp_cfg.notes_dir, PathBuf::from("/tmp/my-notes"));
+        let core_cfg = mcp_cfg.to_core_config();
+        let vaults = core_cfg.resolved_vaults();
         assert_eq!(vaults, vec![("default".to_string(), PathBuf::from("/tmp/my-notes"))]);
-        assert_eq!(cfg.resolved_db_path(), PathBuf::from("/tmp/my-notes/search.db"));
+        assert_eq!(core_cfg.resolved_db_path(), PathBuf::from("/tmp/my-notes/search.db"));
     }
 
     #[test]
     fn test_config_defaults_when_file_missing() {
-        let cfg = McpConfig::load(Path::new("/nonexistent/path/config.toml"));
+        let mcp_cfg = McpConfig::load(Path::new("/nonexistent/path/config.toml"));
         let default = McpConfig::default();
-        assert_eq!(cfg.notes_dir, default.notes_dir);
-        assert_eq!(cfg.db_path, default.db_path);
-        assert_eq!(cfg.resolved_vaults(), default.resolved_vaults());
-        assert_eq!(cfg.resolved_db_path(), default.resolved_db_path());
+        assert_eq!(mcp_cfg.notes_dir, default.notes_dir);
+        assert_eq!(mcp_cfg.db_path, default.db_path);
+        let core_cfg = mcp_cfg.to_core_config();
+        let default_core = default.to_core_config();
+        assert_eq!(core_cfg.resolved_vaults(), default_core.resolved_vaults());
+        assert_eq!(core_cfg.resolved_db_path(), default_core.resolved_db_path());
     }
 
     #[test]
@@ -489,10 +498,11 @@ db_path   = "/tmp/my-notes/search.db"
 notes_dir = "/tmp/partial-notes"
 "#,
         );
-        let cfg = McpConfig::load(&path);
-        assert_eq!(cfg.notes_dir, PathBuf::from("/tmp/partial-notes"));
-        assert_eq!(cfg.resolved_db_path(), McpConfig::default().db_path);
-        let vaults = cfg.resolved_vaults();
+        let mcp_cfg = McpConfig::load(&path);
+        assert_eq!(mcp_cfg.notes_dir, PathBuf::from("/tmp/partial-notes"));
+        let core_cfg = mcp_cfg.to_core_config();
+        assert_eq!(core_cfg.resolved_db_path(), McpConfig::default().db_path);
+        let vaults = core_cfg.resolved_vaults();
         assert_eq!(vaults, vec![("default".to_string(), PathBuf::from("/tmp/partial-notes"))]);
     }
 
@@ -500,24 +510,28 @@ notes_dir = "/tmp/partial-notes"
     fn test_config_invalid_toml_falls_back_to_defaults() {
         let tmp = TempDir::new().unwrap();
         let path = write_config(&tmp, "this is not valid toml ][[[");
-        let cfg = McpConfig::load(&path);
+        let mcp_cfg = McpConfig::load(&path);
         let default = McpConfig::default();
-        assert_eq!(cfg.notes_dir, default.notes_dir);
-        assert_eq!(cfg.db_path, default.db_path);
-        assert_eq!(cfg.resolved_vaults(), default.resolved_vaults());
-        assert_eq!(cfg.resolved_db_path(), default.resolved_db_path());
+        assert_eq!(mcp_cfg.notes_dir, default.notes_dir);
+        assert_eq!(mcp_cfg.db_path, default.db_path);
+        let core_cfg = mcp_cfg.to_core_config();
+        let default_core = default.to_core_config();
+        assert_eq!(core_cfg.resolved_vaults(), default_core.resolved_vaults());
+        assert_eq!(core_cfg.resolved_db_path(), default_core.resolved_db_path());
     }
 
     #[test]
     fn test_config_load_default_returns_defaults_when_no_file() {
         let path = McpConfig::default_config_path();
         if !path.exists() {
-            let cfg = McpConfig::load_default();
+            let mcp_cfg = McpConfig::load_default();
             let default = McpConfig::default();
-            assert_eq!(cfg.notes_dir, default.notes_dir);
-            assert_eq!(cfg.db_path, default.db_path);
-            assert_eq!(cfg.resolved_vaults(), default.resolved_vaults());
-            assert_eq!(cfg.resolved_db_path(), default.resolved_db_path());
+            assert_eq!(mcp_cfg.notes_dir, default.notes_dir);
+            assert_eq!(mcp_cfg.db_path, default.db_path);
+            let core_cfg = mcp_cfg.to_core_config();
+            let default_core = default.to_core_config();
+            assert_eq!(core_cfg.resolved_vaults(), default_core.resolved_vaults());
+            assert_eq!(core_cfg.resolved_db_path(), default_core.resolved_db_path());
         }
     }
 
@@ -639,7 +653,8 @@ notes_dir = "/tmp/partial-notes"
             let args = serde_json::json!({});
             let progress_token = Some(42u64);
 
-            spawn_rebuild(vaults, &db_path_clone, &writer, &args, progress_token);
+            let config = shiotsuchi_core::models::IndexConfig::with_vaults(vaults);
+            spawn_rebuild(config, &db_path_clone, &writer, &args, progress_token);
 
             // Wait for rebuild to complete (poll DB). The timeout is generous
             // because ONNX embedder model loading can take 60+ seconds.

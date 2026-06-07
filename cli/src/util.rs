@@ -33,10 +33,10 @@ pub fn secure_parent_dir(path: &Path) {
                     }
                 }
             }
-            #[cfg(not(unix))]
-            {
-                tracing::warn!("Directory permissions not restricted — not supported on this platform.");
-            }
+        }
+        #[cfg(not(unix))]
+        {
+            tracing::warn!("Directory permissions not restricted — not supported on this platform.");
         }
         let _ = parent;
     }

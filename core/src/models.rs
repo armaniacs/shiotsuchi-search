@@ -1,6 +1,11 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+/// Error returned when parsing a search mode string fails.
+#[derive(Debug, Clone, thiserror::Error)]
+#[error("invalid search mode '{0}'; expected 'fts', 'vec', or 'hybrid'")]
+pub struct SearchModeError(String);
+
 /// A single chunk split from a Markdown file.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Chunk {
@@ -52,6 +57,20 @@ pub enum SearchMode {
     Vec,
     #[default]
     Hybrid,
+}
+
+impl std::str::FromStr for SearchMode {
+    type Err = SearchModeError;
+
+    /// Parse a search mode string (`fts`, `vec`, or `hybrid`). Case-sensitive.
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "fts" => Ok(SearchMode::Fts),
+            "vec" => Ok(SearchMode::Vec),
+            "hybrid" => Ok(SearchMode::Hybrid),
+            _ => Err(SearchModeError(s.to_string())),
+        }
+    }
 }
 
 /// Status of the embedder (model availability).
@@ -210,6 +229,35 @@ impl IndexConfig {
         Self {
             vaults,
             ..Default::default()
+        }
+    }
+
+    /// Build an `IndexConfig` from CLI-level config structs.
+    ///
+    /// Consolidates the field-by-field mapping from [`crate::config::IndexingConfig`]
+    /// and [`crate::config::VlmConfig`] that was previously duplicated across 5 CLI
+    /// command files.
+    pub fn from_cli_configs(
+        vaults: Vec<(String, PathBuf)>,
+        indexing_cfg: &crate::config::IndexingConfig,
+        vlm_cfg: &crate::config::VlmConfig,
+    ) -> Self {
+        Self {
+            vaults,
+            include_extensions: indexing_cfg.include_extensions.clone(),
+            exclude_dirs: indexing_cfg.exclude_dirs.clone(),
+            auto_exclude_hidden: indexing_cfg.auto_exclude_hidden,
+            follow_links: indexing_cfg.follow_links,
+            dynamic_threshold: indexing_cfg.dynamic_threshold,
+            user_dictionary: indexing_cfg.user_dictionary.clone(),
+            enable_pdf_extraction: indexing_cfg.enable_pdf_extraction,
+            backlink_scoring: indexing_cfg.backlink_scoring,
+            vlm_enabled: vlm_cfg.enabled,
+            vlm_consent_obtained: vlm_cfg.consent_obtained,
+            vlm_provider: vlm_cfg.provider.clone(),
+            vlm_model: vlm_cfg.model.clone(),
+            vlm_max_pages_per_doc: vlm_cfg.max_pages_per_doc,
+            embedding_usage: indexing_cfg.embedding_usage.clone(),
         }
     }
 }

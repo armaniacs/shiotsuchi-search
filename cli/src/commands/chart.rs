@@ -53,9 +53,22 @@ pub fn run_chart(
                 let endpoint = vlm_cfg.resolved_endpoint();
                 let prompt = format!(
                     "VLM is enabled (provider: {}, endpoint: {}). \
+                     Document images (including scanned PDF content) will be sent \
+                     to this third-party API for text extraction.\n\
+                     \n\
+                     Data sent may include text, layouts, and embedded images from your notes. \
+                     The third-party provider may process and store this data according to their \
+                     policies (see: {}).\n\
+                     \n\
                      Do you consent to sending document images to this endpoint?\n\
                      Note: You can revoke consent later by setting `vlm.consent_obtained = false` in config.toml.",
-                    vlm_cfg.provider, endpoint
+                    vlm_cfg.provider,
+                    endpoint,
+                    match vlm_cfg.provider.as_str() {
+                        "openai" => "https://openai.com/policies",
+                        "anthropic" => "https://anthropic.com/privacy",
+                        _ => "your provider's privacy policy",
+                    },
                 );
                 let theme = crate::util::dialoguer_theme();
                 let agreed = dialoguer::Confirm::with_theme(&*theme)
@@ -88,23 +101,13 @@ pub fn run_chart(
             (vlm_cfg.enabled, vlm_cfg.consent_obtained)
         };
 
-    let config = IndexConfig {
-        vaults: vaults.to_vec(),
-        include_extensions: indexing_cfg.include_extensions.clone(),
-        exclude_dirs: indexing_cfg.exclude_dirs.clone(),
-        auto_exclude_hidden: indexing_cfg.auto_exclude_hidden,
-        follow_links: indexing_cfg.follow_links,
-        dynamic_threshold: indexing_cfg.dynamic_threshold,
-        user_dictionary: indexing_cfg.user_dictionary.clone(),
-        enable_pdf_extraction: indexing_cfg.enable_pdf_extraction,
-        backlink_scoring: indexing_cfg.backlink_scoring,
-        vlm_enabled: vlm_enabled_effective,
-        vlm_consent_obtained: vlm_consent_effective,
-        vlm_provider: vlm_cfg.provider.clone(),
-        vlm_model: vlm_cfg.model.clone(),
-        vlm_max_pages_per_doc: vlm_cfg.max_pages_per_doc,
-        embedding_usage: indexing_cfg.embedding_usage.clone(),
+    let effective_vlm_cfg = {
+        let mut c = vlm_cfg.clone();
+        c.enabled = vlm_enabled_effective;
+        c.consent_obtained = vlm_consent_effective;
+        c
     };
+    let config = IndexConfig::from_cli_configs(vaults.to_vec(), indexing_cfg, &effective_vlm_cfg);
 
     let embedder = match embedder_cfg.create_embedder(&indexing_cfg.embedding_usage) {
         Ok(Some(e)) => {

@@ -77,9 +77,14 @@ pub async fn auth_middleware(
 }
 
 /// Health check endpoint.
-pub async fn handle_health() -> Json<serde_json::Value> {
+pub async fn handle_health(
+    State(state): State<Arc<AppState>>,
+) -> Json<serde_json::Value> {
+    // Check DB readiness: run a lightweight query
+    let db_ok = state.db.lock().await.ping().is_ok();
     Json(serde_json::json!({
-        "status": "ok",
+        "status": if db_ok { "ok" } else { "degraded" },
+        "database": if db_ok { "connected" } else { "unreachable" },
     }))
 }
 
@@ -99,17 +104,9 @@ pub async fn handle_search(
         ));
     }
 
-    let mode = match params.mode.as_str() {
-        "fts" => crate::models::SearchMode::Fts,
-        "vec" => crate::models::SearchMode::Vec,
-        "hybrid" => crate::models::SearchMode::Hybrid,
-        other => {
-            return Err(ApiError::BadRequest(format!(
-                "invalid mode '{}': must be 'fts', 'vec', or 'hybrid'",
-                other
-            )));
-        }
-    };
+    let mode: crate::models::SearchMode = params.mode.parse().map_err(|e| {
+        ApiError::BadRequest(format!("invalid mode '{}': {}", params.mode, e))
+    })?;
 
     let db = state.db.lock().await;
 
@@ -176,49 +173,35 @@ pub async fn handle_search(
 
     let total = if params.mode == "fts" {
         let fts5_query = crate::tokenizer::simple_and_query(&query);
-        db.fts_search(&fts5_query, 1_000_000, params.vault.as_deref(), None, None)
-            .map(|hits| hits.len())
+        db.fts_search_count(&fts5_query, params.vault.as_deref())
             .unwrap_or_else(|_| results.len())
     } else {
         results.len()
     };
 
     // Apply offset/limit slicing (skip for cursor-based — already paginated)
+    let map_to_item = |r: crate::models::ChunkSearchResult| {
+        let snippet = crate::search::extract_snippet(&r.content, &query, 5, 200);
+        let snippet = crate::sensitive::mask_sensitive_data(&snippet, state.sensitive_config.as_ref());
+        let file_path = crate::sensitive::mask_sensitive_data(&r.file_path, state.sensitive_config.as_ref());
+        SearchResultItem {
+            file_path,
+            title: r.title,
+            parent_header: r.parent_header,
+            snippet,
+            score: r.score,
+            vault_name: r.vault_name,
+        }
+    };
+
     let items: Vec<SearchResultItem> = if use_cursor {
-        results
-            .into_iter()
-            .map(|r| {
-                let snippet = crate::search::extract_snippet(&r.content, &query, 5, 200);
-                let snippet =
-                    crate::sensitive::mask_sensitive_data(&snippet, state.sensitive_config.as_ref());
-                SearchResultItem {
-                    file_path: r.file_path,
-                    title: r.title,
-                    parent_header: r.parent_header,
-                    snippet,
-                    score: r.score,
-                    vault_name: r.vault_name,
-                }
-            })
-            .collect()
+        results.into_iter().map(map_to_item).collect()
     } else {
         results
             .into_iter()
             .skip(params.offset)
             .take(params.limit)
-            .map(|r| {
-                let snippet = crate::search::extract_snippet(&r.content, &query, 5, 200);
-                let snippet =
-                    crate::sensitive::mask_sensitive_data(&snippet, state.sensitive_config.as_ref());
-                SearchResultItem {
-                    file_path: r.file_path,
-                    title: r.title,
-                    parent_header: r.parent_header,
-                    snippet,
-                    score: r.score,
-                    vault_name: r.vault_name,
-                }
-            })
+            .map(map_to_item)
             .collect()
     };
 
@@ -264,27 +247,61 @@ pub async fn handle_list(
     let offset = params.offset;
     let limit = params.limit.min(200); // cap at 200
 
-    let mut all_files = Vec::new();
-    let mut total = 0usize;
     let db = state.db.lock().await;
-    for (vault_name, _vault_path) in config.resolved_vaults() {
-        match db.list_cached_paths(&vault_name) {
+    let vaults = config.resolved_vaults();
+
+    // Phase 1: fast per-vault counts (no file data loaded yet)
+    let mut vault_counts: Vec<(String, usize)> = Vec::with_capacity(vaults.len());
+    for (vault_name, _vault_path) in &vaults {
+        match db.count_cached_paths(vault_name) {
+            Ok(count) => vault_counts.push((vault_name.clone(), count)),
+            Err(e) => {
+                tracing::warn!("failed to count files for vault '{}': {}", vault_name, e);
+                vault_counts.push((vault_name.clone(), 0));
+            }
+        }
+    }
+
+    let total: usize = vault_counts.iter().map(|(_, c)| c).sum();
+
+    // Phase 2: determine which vaults overlap with the requested page
+    let mut remaining_offset = offset;
+    let mut remaining_limit = limit;
+    let mut files: Vec<FileItem> = Vec::with_capacity(limit.min(200));
+
+    for (vault_name, count) in &vault_counts {
+        if remaining_limit == 0 {
+            break;
+        }
+        if *count == 0 {
+            continue;
+        }
+        // Skip this vault entirely if offset hasn't reached it yet
+        if remaining_offset > 0 && remaining_offset >= *count {
+            remaining_offset = remaining_offset.saturating_sub(*count);
+            continue;
+        }
+
+        // Fetch paginated slice from this vault
+        let vault_offset = remaining_offset.min(count.saturating_sub(1));
+        let vault_limit = remaining_limit.min(count.saturating_sub(vault_offset));
+        match db.list_cached_paths_paginated(vault_name, vault_limit, vault_offset) {
             Ok(paths) => {
-                total += paths.len();
-                // Only collect files we might need: skip already-passed + current page + buffer
                 for path in paths {
-                    all_files.push(FileItem {
+                    files.push(FileItem {
                         path,
                         vault_name: vault_name.clone(),
                     });
                 }
             }
             Err(e) => {
-                eprintln!("Warning: failed to list files for vault '{}': {}", vault_name, e);
+                tracing::warn!("failed to list files for vault '{}': {}", vault_name, e);
             }
         }
+        remaining_offset = 0; // offset consumed after first non-skip vault
+        remaining_limit = remaining_limit.saturating_sub(vault_limit);
     }
-    let files: Vec<FileItem> = all_files.into_iter().skip(offset).take(limit).collect();
+
     let count = files.len();
     Ok(Json(serde_json::json!({
         "files": files,
@@ -312,30 +329,31 @@ pub async fn handle_read(
 
     // Try reading from disk first
     if let Some(config) = &state.config {
-        if let Some((_, vault_path)) = config.resolved_vaults().into_iter().find(|(name, _)| name == vault_name) {
-            let full_path = vault_path.join(file_path);
-            if let Ok(canonical) = full_path.canonicalize() {
-                if let Ok(canonical_vault) = vault_path.canonicalize() {
-                    if canonical.starts_with(&canonical_vault) {
-                        if let Ok(content) = tokio::fs::read_to_string(&canonical).await {
-                            let masked = crate::sensitive::mask_sensitive_data(
-                                &content,
-                                state.sensitive_config.as_ref(),
-                            );
-                            return Ok(Json(serde_json::json!({
-                                "path": file_path,
-                                "vault": vault_name,
-                                "content": masked,
-                                "source": "disk",
-                            })));
-                        }
-                    }
-                }
+        let resolved = config.resolved_vaults();
+        if let Ok(canonical_file) = crate::paths::resolve_file_in_vault(&resolved, vault_name, file_path) {
+            if let Ok(content) = tokio::fs::read_to_string(&canonical_file).await {
+                let masked = crate::sensitive::mask_sensitive_data(
+                    &content,
+                    state.sensitive_config.as_ref(),
+                );
+                return Ok(Json(serde_json::json!({
+                    "path": file_path,
+                    "vault": vault_name,
+                    "content": masked,
+                    "source": "disk",
+                })));
             }
         }
     }
 
     // Fallback: read from DB chunks
+    // Validate vault_name against resolved vaults when config is available,
+    // preventing queries against vaults not managed by this server instance.
+    if let Some(config) = &state.config {
+        let _ = crate::paths::resolve_vault_dir(&config.resolved_vaults(), vault_name)
+            .map_err(|_| ApiError::NotFound(format!("vault '{}' not found", vault_name)))?;
+    }
+
     let db = state.db.lock().await;
     let chunks = db.get_chunks_for_file(vault_name, file_path)
         .map_err(|e| ApiError::Internal(format!("database error: {}", e)))?;
@@ -363,10 +381,13 @@ pub async fn handle_read(
 }
 
 /// Constant-time string comparison to prevent timing side-channel attacks.
-/// Always compares all bytes regardless of length to avoid leaking key length.
+/// Always compares `max(a.len(), b.len())` bytes, padding shorter input with zeroes.
 fn constant_time_eq(a: &str, b: &str) -> bool {
-    let mut result = (a.len() != b.len()) as u8;
-    for (ca, cb) in a.bytes().zip(b.bytes()) {
+    let max_len = a.len().max(b.len());
+    let a_padded = a.bytes().chain(std::iter::repeat(0));
+    let b_padded = b.bytes().chain(std::iter::repeat(0));
+    let mut result = 0u8;
+    for (ca, cb) in a_padded.zip(b_padded).take(max_len) {
         result |= ca ^ cb;
     }
     result == 0
@@ -1199,5 +1220,68 @@ mod tests {
             all_paths.iter().collect::<std::collections::HashSet<_>>().len(),
             "all results across pages must be unique (no duplicates)"
         );
+    }
+
+    #[tokio::test]
+    async fn test_read_rejects_unknown_vault() {
+        let (router, _tmp) = setup_test_router();
+        // The default test config has only "default" vault. Requesting a
+        // non-existent vault should return 404 (not fall through to DB).
+        let req = Request::builder()
+            .uri("/api/v1/read?vault=nonexistent&path=test.md")
+            .body(Body::empty())
+            .unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn test_read_returns_not_found_for_missing_file() {
+        let (router, _tmp) = setup_test_router();
+        let req = Request::builder()
+            .uri("/api/v1/read?path=nonexistent.md")
+            .body(Body::empty())
+            .unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[test]
+    fn test_constant_time_eq_equal_strings() {
+        assert!(constant_time_eq("secret-key-123", "secret-key-123"));
+        assert!(constant_time_eq("", ""));
+        assert!(constant_time_eq("a", "a"));
+    }
+
+    #[test]
+    fn test_constant_time_eq_different_strings_same_length() {
+        assert!(!constant_time_eq("secret-key-123", "secret-key-456"));
+        assert!(!constant_time_eq("abcdef", "abcdeg"));
+        assert!(!constant_time_eq("abc", "xyz"));
+    }
+
+    #[test]
+    fn test_constant_time_eq_different_lengths() {
+        assert!(!constant_time_eq("short", "longer-string"));
+        assert!(!constant_time_eq("", "non-empty"));
+        assert!(!constant_time_eq("abc", "abcd"));
+    }
+
+    #[test]
+    fn test_constant_time_eq_edge_cases() {
+        assert!(!constant_time_eq("key", "KEY"));
+        assert!(!constant_time_eq("key ", "key"));
+        assert!(!constant_time_eq(" key", "key"));
+    }
+
+    #[test]
+    fn test_constant_time_eq_different_lengths_constant_time() {
+        // Verify that different-length comparisons use the max length loop
+        // (padding the shorter input with zeroes).
+        assert!(!constant_time_eq("short", "longer-string"));
+        assert!(!constant_time_eq("", "non-empty"));
+        assert!(!constant_time_eq("a", ""));
+        assert!(!constant_time_eq("very-long-key-that-exceeds-32-bytes", "short"));
+        assert!(!constant_time_eq("abc123", "abc123xyz"));
     }
 }

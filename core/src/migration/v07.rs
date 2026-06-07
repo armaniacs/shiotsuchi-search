@@ -5,20 +5,9 @@ pub fn migrate(conn: &Connection) -> Result<(), crate::db::DbError> {
     // Defensively check for v6 columns — if missing, add them before proceeding.
     // This self-heals any database that was bumped to a version >= 6 via the
     // old (buggy) migration ordering where v7 ran before v6.
-    let cols: Vec<String> = {
-        let mut stmt = conn.prepare("PRAGMA table_info(chunks)")?;
-        let rows = stmt.query_map([], |r| r.get::<_, String>(1))?;
-        rows.collect::<Result<Vec<_>, _>>()?
-    };
-    if !cols.iter().any(|c| c == "tags") {
-        conn.execute_batch("ALTER TABLE chunks ADD COLUMN tags TEXT NOT NULL DEFAULT ''")?;
-    }
-    if !cols.iter().any(|c| c == "frontmatter_date") {
-        conn.execute_batch("ALTER TABLE chunks ADD COLUMN frontmatter_date TEXT NOT NULL DEFAULT ''")?;
-    }
-    if !cols.iter().any(|c| c == "title") {
-        conn.execute_batch("ALTER TABLE chunks ADD COLUMN title TEXT NOT NULL DEFAULT ''")?;
-    }
+    super::add_column_if_missing(conn, "chunks", "tags", "TEXT NOT NULL DEFAULT ''")?;
+    super::add_column_if_missing(conn, "chunks", "frontmatter_date", "TEXT NOT NULL DEFAULT ''")?;
+    super::add_column_if_missing(conn, "chunks", "title", "TEXT NOT NULL DEFAULT ''")?;
     conn.execute_batch("
         CREATE TABLE IF NOT EXISTS tasks (
             id INTEGER PRIMARY KEY,

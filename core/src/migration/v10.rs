@@ -1,19 +1,8 @@
 use rusqlite::Connection;
 
 pub fn migrate(conn: &Connection) -> Result<(), crate::db::DbError> {
-    // v9→v10: add char_count to file_cache, create tag_counts table.
-    // Multi-statement migration: wrap in transaction for crash safety.
-    conn.execute_batch("BEGIN TRANSACTION")?;
-    let fc_cols: Vec<String> = {
-        let mut stmt = conn.prepare("PRAGMA table_info(file_cache)")?;
-        let rows = stmt.query_map([], |r| r.get::<_, String>(1))?;
-        rows.collect::<Result<Vec<_>, _>>()?
-    };
-    if !fc_cols.iter().any(|c| c == "char_count") {
-        conn.execute_batch(
-            "ALTER TABLE file_cache ADD COLUMN char_count INTEGER NOT NULL DEFAULT 0",
-        )?;
-    }
+    // Transaction is managed by migration::run() — don't BEGIN/COMMIT here.
+    super::add_column_if_missing(conn, "file_cache", "char_count", "INTEGER NOT NULL DEFAULT 0")?;
     conn.execute_batch("
         CREATE TABLE IF NOT EXISTS tag_counts (
             tag        TEXT NOT NULL,
@@ -28,6 +17,5 @@ pub fn migrate(conn: &Connection) -> Result<(), crate::db::DbError> {
     // via .chars().count() in reindex_file(), so upgraded databases get
     // accurate values on the next re-index — same design as tag_counts.
     conn.execute_batch("PRAGMA user_version = 10")?;
-    conn.execute_batch("COMMIT")?;
     Ok(())
 }

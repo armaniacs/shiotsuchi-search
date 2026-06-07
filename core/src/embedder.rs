@@ -5,10 +5,7 @@ use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 use tokenizers::Tokenizer;
-use std::fs::File;
-use std::io::Read;
 use hex;
-use sha2::{Digest, Sha256};
 
 use crate::api_embedder::ApiClient;
 
@@ -47,17 +44,7 @@ enum EmbedderBackend {
 
 /// Compute the SHA-256 hash of a file for model version tracking.
 fn compute_model_id(path: &Path) -> std::io::Result<String> {
-    let mut file = File::open(path)?;
-    let mut hasher = Sha256::new();
-    let mut buffer = [0; 8192];
-    loop {
-        let bytes = file.read(&mut buffer)?;
-        if bytes == 0 {
-            break;
-        }
-        hasher.update(&buffer[..bytes]);
-    }
-    Ok(hex::encode(hasher.finalize()))
+    crate::indexer::sha256_file(path)
 }
 
 impl Embedder {
@@ -497,8 +484,18 @@ pub fn verify_model_hash(model_path: &Path) -> Result<bool, std::io::Error> {
     }
 
     use sha2::{Digest, Sha256};
-    let data = std::fs::read(model_path)?;
-    let hash = hex::encode(Sha256::digest(&data));
+    use std::io::Read;
+    let mut file = std::fs::File::open(model_path)?;
+    let mut hasher = Sha256::new();
+    let mut buffer = [0; 8192];
+    loop {
+        let bytes = file.read(&mut buffer)?;
+        if bytes == 0 {
+            break;
+        }
+        hasher.update(&buffer[..bytes]);
+    }
+    let hash = hex::encode(hasher.finalize());
     Ok(hash.eq_ignore_ascii_case(EXPECTED_MODEL_SHA256))
 }
 
