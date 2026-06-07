@@ -103,4 +103,7 @@
 | `2026-06-06-62-feat-search-pagination-cursor.md` | PBI-62: カーソルベースページネーション (composite rank+rowid keyset) |
 | `2026-06-06-60-fix-embedder-large-enum.md` | PBI-60: EmbedderBackend large_enum_variant 修正（PBI 作成時点で既に完了済み） |
 | `2026-06-04-53-backlog-structured-logging.md` | PBI-53: 構造化ログ・トレーシング導入（→ 53a/53b/53c/53d に分割、全完了） |
+| `2026-05-25-15-backlog-mcp-read-write-extension.md` | PBI-15: MCP Read-Write 拡張 — 却下（読み取り専用ポリシー） |
+| `2026-06-06-59-feat-search-context-struct.md` | PBI-59: SearchExecutionParams 構造体 — Clippy 警告除去 + 引数統合 |
+| `2026-06-06-61-fix-dependency-updates.md` | PBI-61: 依存クレート更新（criterion 0.5→0.8.2, rusqlite/indicatif 更新確認） |
 
