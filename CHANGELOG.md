@@ -9,9 +9,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.24] - 2026-06-08
+
 ### Changed
 
 - **BREAKING**: `SearchMode::FromStr` error type changed from `&'static str` to `SearchModeError` (thiserror). Code explicitly matching `Result<SearchMode, &'static str>` will not compile. Most consumers using `Err(_)` or `e.to_string()` are unaffected. `SearchModeError` implements `Display` and is re-exported from `shiotsuchi_core` crate root.
+- **`IndexConfig::from_cli_configs()`**: Deduplicated config building across 5 CLI commands (chart/clean/doctor/dredge/scan). New field additions only need updates in one place.
+- **McpConfig → ShiotsuchiConfig bridge**: Added `to_core_config()` method to unify config resolution. `spawn_rebuild` now takes an `IndexConfig` parameter for config consistency.
+- **`resolve_vault_dir`/`resolve_file_in_vault`**: Unified path traversal protection. Moved from `indexer.rs` to `paths.rs` (dedicated module).
+- **`table_has_column()`/`add_column_if_missing()`**: Extracted ALTER TABLE guard pattern from 7 migration files (v05–v11).
+- **`effective_max_pages_per_doc()`**: VLM page limit with 50p hard cap to prevent runaway API costs from unusually large documents.
+- **HTML UI**: Localized to Japanese (`lang="ja"`, tab/button/label/message translations). a11y improvements: removed `autofocus`, added `aria-required`, empty query error feedback, `aria-label` on result cards.
+
+### Fixed
+
+- **constant_time_eq**: Zero-padding for timing-safe API key comparison. Short inputs no longer leak key length (Blue Team / Test Experts).
+- **Migration `run()` transaction safety**: Outer `BEGIN/COMMIT` wraps all migrations. Inner BEGIN/COMMIT removed from migration files to prevent nested transaction conflicts (SRE / Test Experts).
+- **`handle_read` DB fallback vault validation**: Added `resolve_vault_dir()` guard before DB file read to prevent cross-vault data access (Red Team / Test Experts).
+- **`handle_search` total count**: `fts_search_count()` uses `SELECT count(*)` instead of fetching up to 1M rows (Tuning Expert).
+- **`handle_list` pagination**: Added `count_cached_paths()`/`list_cached_paths_paginated()` for per-vault SQL-level `LIMIT/OFFSET` — no longer loads all paths into memory.
+- **`handle_health` readiness probe**: Added `ping()` (SELECT 1) DB connectivity check to health endpoint (SRE/Ops).
+- **`clear_vlm_hashes` WAL checkpoint**: Added `wal_checkpoint()` call for consistency with other mass-modification methods (Data Integrity Expert).
+- **`purge_all_user_data` error handling**: Conditional DELETE via `sqlite_master` table existence check — no longer swallows I/O errors.
+- **file_path sensitive data masking**: HTTP search results now apply `mask_sensitive_data()` to `file_path` field alongside snippet.
+- **VLM consent flow**: Interactive consent result (enabled/consent_obtained) now propagates to `IndexConfig` for the same run. Privacy disclosure added to consent prompt (Compliance / Ethics).
+- **VLM PDF hash streaming**: `sha256_file()` replaces `std::fs::read()` for streaming 8KB-buffer SHA-256 computation — no longer loads entire file into memory (Edge & Mobile Strategist).
+- **VLM cache hash reuse**: `compute_model_id()` now delegates to `sha256_file()`, eliminating duplicate streaming SHA-256 code.
+- **SearchResultItem mapping dedup**: Cursor and offset-based result mapping unified via shared closure.
+- **`doctor` known fields sync**: Expanded `known` field list from 6 to 10 to match `IndexingConfig` fields (Domain Logic / Refactoring Evangelist).
+- **`eprintln!` → `tracing::warn!`**: Replaced 4 raw stderr log calls with structured tracing across `handlers.rs` and `mcp/src/main.rs` (SRE/Ops).
+- **Health check**: `/api/v1/health` now returns `"database": "connected"` or `"unreachable"` status.
+
+### Testing
+
+- **658 tests passing** (470 core + 144 CLI + 44 MCP) — 0 failures, 0 clippy warnings.
+- 3 new tests: `constant_time_eq_different_lengths`, `migration_run_wrapped_in_transaction`, `migration_run_rolls_back_on_error`.
+- Zero regressions across all workspace crates.
+
+### Documentation
+
+- PBI-59 (SearchExecutionParams), PBI-61 (Dependency updates) archived to `.plan/archived/` as completed.
+- PBI-15 (MCP Read-Write extension) archived as rejected.
+- Checking Team review report: `plans/2026-06-07-1953-checking-team-refactor-0607.md`
 
 ## [0.4.23] - 2026-06-07
 
