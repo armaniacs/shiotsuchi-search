@@ -175,8 +175,9 @@ pub fn run_dive(
         backlink_scoring,
         cursor: None,
     };
+    let conn = db.write_conn.borrow();
     let output = search(
-        &db,
+        &conn,
         &tokenizer,
         &request,
     )?;

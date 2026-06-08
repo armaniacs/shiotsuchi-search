@@ -60,7 +60,7 @@ shiotsuchi-search/
 3. **SHA-256 hash tracking**: Only re-indexes files whose content changed. Uses `file_cache` table.
 4. **Chunk-based schema**: Files are split into chunks (by headers/paragraphs) for RAG retrieval. Each chunk has its own FTS5 entry and optional vector embedding.
 5. **Dual retrieval**: FTS5 BM25 for keyword search + sqlite-vec `vec0` for semantic search, combinable via Hybrid RRF.
-6. **WAL mode**: Enabled on database open for concurrent read/write between CLI and MCP server.
+6. **WAL mode + read_conn separation**: Enabled on database open for concurrent read/write. `NoteDatabase` holds two connections: `write_conn` for indexing and `read_conn` (opened with `SQLITE_OPEN_READ_ONLY`) for searches. 22 read-only methods use `get_read_conn()` which returns a separate `RefCell<Connection>`, eliminating `RefCell` contention between readers and writers.
 7. **tokio runtime in MCP**: Enables async MCP progress notifications during background `rebuild_index`.
 8. **Vaporetto model embedding at build time**: Tokenizer model can be embedded via `build.rs` for zero-runtime-dependency deployment.
 9. **Multi-vault support**: Single SQLite database can serve multiple notes directories. Each chunk and file_cache entry carries a `vault_name` column to distinguish origins. Config uses `[vaults.xxx]` sections (see config format below).
@@ -99,21 +99,27 @@ index_directory() / index_file()
         └── db.insert_embeddings()
             └── vec_chunks (vec0 virtual table for KNN search)
 
-Search flow:
+Search flow (HTTP server):
     query
      │
      ▼
-    search(db, tokenizer, query, limit, mode, embedder?, min_score?)
+    ReadOnlyDb::open(state.db_path)    ← per-request, non-blocking
      │
-     ├── Mode::Fts → search_fts() → fts_chunks MATCH (BM25 ranking)
-     ├── Mode::Vec → search_vec() → embed → vec_chunks KNN (cosine distance)
+     ▼
+    search(&conn, tokenizer, ...)      ← takes &Connection (not &NoteDatabase)
+     │
+     ├── Mode::Fts → fts_search_inner(conn, ...) → fts_chunks MATCH (BM25 ranking)
+     ├── Mode::Vec → vec_search_inner(conn, ...) → embed → vec_chunks KNN
      └── Mode::Hybrid → search_hybrid() → RRF merge of FTS + Vec results
      │
      ▼
     extract_snippet() ──► ChunkSearchResult[]
      │
      ▼
-    Structured Markdown output with context delimiters
+    JSON response
+
+    CLI/MCP search flow (uses NoteDatabase):
+    query → search(&*conn, tokenizer, ...)  (conn from get_read_conn())
 ```
 
 ## Entry Points
@@ -122,7 +128,7 @@ Search flow:
 |--------|------|---------|
 | `shiotsuchi` | `cli/src/main.rs` | CLI tool (index, search, watch, stats, prune, list, clean, config-migrate, init, setup, delete, doctor, synonym, tasks, check-ignore, serve) |
 | `shiotsuchi-mcp` | `mcp/src/main.rs` | MCP server for Claude Desktop (tokio async) |
-| HTTP server | `core/src/server/` | REST API + browser UI, launched via `shiotsuchi serve`. Provides `/ui`, `/api/v1/{search,stats,list,read,health}`. Rate-limited to 30 req/s. Auth via `X-API-Key` or `Authorization: Bearer` header. |
+| HTTP server | `core/src/server/` | REST API + browser UI, launched via `shiotsuchi serve`. Provides `/ui`, `/api/v1/{search,stats,list,read,health}`. Rate-limited to 30 req/s. Auth via `X-API-Key` or `Authorization: Bearer` header. **No shared Mutex** — each request opens a `ReadOnlyDb`, enabling true concurrent reads via WAL. |
 
 ## Crate Dependencies
 

@@ -1,5 +1,4 @@
 use serde_json::{json, Value};
-use shiotsuchi_core::db::NoteDatabase;
 
 use super::ToolContext;
 
@@ -8,7 +7,7 @@ pub(crate) fn handle_index_status(
     ctx: &ToolContext<'_>,
     _args: &Value,
 ) -> Result<Value, Box<dyn std::error::Error>> {
-    let db = NoteDatabase::open(ctx.db_path)?;
+    let db = ctx.db.lock().unwrap();
     let stats = db.stats()?;
     const BYTES_PER_MB: f64 = 1_048_576.0;
     let text = format!(

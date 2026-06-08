@@ -33,8 +33,8 @@ pub(crate) fn table_has_column(
     table: &str,
     column: &str,
 ) -> Result<bool, rusqlite::Error> {
-    validate_sql_ident(table).map_err(|e| rusqlite::Error::InvalidParameterName(e))?;
-    validate_sql_ident(column).map_err(|e| rusqlite::Error::InvalidParameterName(e))?;
+    validate_sql_ident(table).map_err(rusqlite::Error::InvalidParameterName)?;
+    validate_sql_ident(column).map_err(rusqlite::Error::InvalidParameterName)?;
     let sql = format!("PRAGMA table_info({})", table);
     let mut stmt = conn.prepare(&sql)?;
     let cols: Vec<String> = stmt
@@ -53,8 +53,8 @@ pub(crate) fn add_column_if_missing(
     column: &str,
     definition: &str,
 ) -> Result<(), rusqlite::Error> {
-    validate_sql_ident(table).map_err(|e| rusqlite::Error::InvalidParameterName(e))?;
-    validate_sql_ident(column).map_err(|e| rusqlite::Error::InvalidParameterName(e))?;
+    validate_sql_ident(table).map_err(rusqlite::Error::InvalidParameterName)?;
+    validate_sql_ident(column).map_err(rusqlite::Error::InvalidParameterName)?;
     if !table_has_column(conn, table, column)? {
         conn.execute_batch(&format!(
             "ALTER TABLE {} ADD COLUMN {} {}",

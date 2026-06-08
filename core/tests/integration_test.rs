@@ -48,7 +48,7 @@ fn test_end_to_end_index_and_search() {
     assert_eq!(results.len(), 3);
 
     // FTS search
-    let _search_results = search(&db, &tokenizer, &SearchRequest {
+    let _search_results = search(&*db.read_conn.as_ref().unwrap().borrow(), &tokenizer, &SearchRequest {
         query: "search engine",
         limit: 10,
         mode: SearchMode::Fts,
@@ -67,7 +67,7 @@ fn test_end_to_end_index_and_search() {
         cursor: None,
     }).unwrap().results;
 
-    let ja_results = search(&db, &tokenizer, &SearchRequest {
+    let ja_results = search(&*db.read_conn.as_ref().unwrap().borrow(), &tokenizer, &SearchRequest {
         query: "形態素",
         limit: 10,
         mode: SearchMode::Fts,

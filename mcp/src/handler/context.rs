@@ -1,5 +1,4 @@
 use serde_json::{json, Value};
-use shiotsuchi_core::db::NoteDatabase;
 
 use super::ToolContext;
 
@@ -13,7 +12,7 @@ pub(crate) fn handle_get_surrounding_context(
         .ok_or("chunk_id must be an integer")?;
     let window = args["window"].as_u64().unwrap_or(2).min(5) as usize;
 
-    let db = NoteDatabase::open(ctx.db_path)?;
+    let db = ctx.db.lock().unwrap();
     // Validate that the chunk belongs to a known, accessible vault
     let chunk_vault = db
         .get_chunk_vault_name(chunk_id)?

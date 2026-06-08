@@ -7,7 +7,9 @@ Published name: `shiotsuchi-core`
 
 ### `db.rs` — Database Operations
 
-**Type**: `NoteDatabase { write_conn: RefCell<Connection> }`
+**Types**:
+- `NoteDatabase { write_conn: RefCell<Connection>, read_conn: Option<RefCell<Connection>> }` — Primary DB handle for CLI/watcher/MCP (write + read via separate connections for WAL concurrency)
+- `ReadOnlyDb { conn: Connection }` — Lightweight read-only wrapper opened per-request in the HTTP server (true concurrent reads via WAL)
 
 **Schema** (v11, created by `create_schema()` + migrations):
 
@@ -84,30 +86,20 @@ CREATE VIRTUAL TABLE IF NOT EXISTS vec_chunks USING vec0(
 );
 ```
 
-**Key Methods**:
-- `open(path)` / `open_in_memory()` — Open SQLite DB, enable WAL, register sqlite-vec extension, run migrations
-- `open_readonly(path)` — Read-only connection (for MCP search handlers)
-- `reindex_file(p: &ReindexParams)` — Delete old chunks and insert new ones in a single atomic transaction, including tasks, note_links, tag_counts, and char_count
-- `insert_chunks(chunks)` — Insert chunk batch in transaction, returns assigned IDs (reads `vault_name` from each chunk)
-- `insert_embeddings(pairs)` — Insert (chunk_id, embedding) pairs for vector search
-- `delete_file_fully(vault_name, path)` — Atomically remove all data for a file: tag_counts, chunks, FTS/vec, tasks, file_cache, note_links — all in one transaction
-- `delete_chunks_for_file(vault_name, file_path)` — Remove all chunks/FTS/vec/tasks entries for a file in a specific vault
-- `delete_file_cache(vault_name, path)` / `delete_note_links_for_source(path, vault)` — Targeted cleanup
-- `fts_search(fts5_query, limit, vault_filter, after_rank, after_rowid)` — Execute FTS5 MATCH with BM25 ranking (results joined with chunks for vault_name). `after_rank`/`after_rowid` support composite keyset pagination via `(rank > ?) OR (rank = ? AND rowid > ?)`.
-- `vec_search(embedding, limit, vault_filter, include_embeddings)` — Execute vec0 KNN search with cosine distance
-- `get_chunks_by_ids(ids)` — Fetch chunks by IDs, preserving order (includes vault_name)
-- `get_surrounding_chunks(chunk_id, window)` — Fetch chunks before/after a given chunk (for context, includes vault_name)
-- `get_chunk_vault_name(chunk_id)` — Return vault_name for a chunk (used for MCP vault auth check)
-- `cached_hash(vault_name, path)` / `upsert_file_cache(vault_name, ..., char_count)` / `delete_file_cache(vault_name, path)` — Per-vault incremental index tracking (char_count must be provided)
-- `list_cached_paths(vault_name)` — Indexed file paths for a specific vault
-- `get_dominant_model_id()` — Returns the most common non-"none" `model_id` stored in `file_cache`
-- `stats()` — Vault statistics (total_chunks, total_files, vec_indexed_chunks, db_path, total_chars from file_cache.char_count, top_tags from tag_counts, etc.)
-- `tag_stats(limit)` — Returns top N tags by frequency (reads from tag_counts table, not chunks)
-- `insert_tasks(vault_name, file_path, tasks)` / `delete_tasks_for_file(vault_name, file_path)` — Task list management
-- `query_tasks(keyword, include_checked)` — Search tasks with optional keyword filter
-- `get_tags_for_file(vault_name, path)` / `decrement_tag_count(vault_name, tag)` — Tag counts maintenance helpers
-- `update_backlink_counts_for_vault(vault_name)` — Recalculate backlink counts for all files in a vault
+**Key Methods** (NoteDatabase):
+- `open(path)` / `open_in_memory()` — Open SQLite DB, enable WAL, register sqlite-vec extension, run migrations. `open()` also opens a second read-only connection via `open_readonly()` for WAL-mode concurrent reads.
+- `open_readonly(path)` — Static method returning a raw `Connection` with `SQLITE_OPEN_READ_ONLY` flag
+- `get_read_conn()` — Internal helper returning a `Ref<'_, Connection>` borrow of the read-only connection (falls back to `write_conn` for in-memory DBs)
+- 22 read-only methods delegate to `_inner` functions via `get_read_conn()`: `fts_search`, `fts_search_count`, `vec_search`, `stats`, `cached_hash`, `cached_mtime`, `cached_file_size`, `cached_vlm_hash`, `list_cached_paths`, `count_cached_paths`, `list_cached_paths_paginated`, `get_chunk_vault_name`, `get_chunks_by_ids`, `get_surrounding_chunks`, `get_dominant_model_id`, `get_chunks_for_file`, `get_backlink_counts_for_chunks`, `ping`, `get_tags_for_file`, `query_tasks`, `tag_stats`, `count_expired`
+- Write methods remain on `write_conn` (unchanged): `reindex_file`, `insert_chunks`, `insert_embeddings`, `delete_file_fully`, `upsert_file_cache`, `wal_checkpoint`, `migrate`, etc.
 - `migrate()` — Schema migration (v1→v11, crash-safe with versioned blocks)
+
+**ReadOnlyDb** (HTTP server per-request):
+- `open(path)` — Opens a single `SQLITE_OPEN_READ_ONLY` connection; registers sqlite-vec extension if not yet registered
+- Same 22 read methods as `NoteDatabase`, each delegating to the shared `_inner` functions
+
+**`_inner` Functions**:
+All 22 read-only method bodies are extracted as `pub(crate)` free functions taking `&Connection` (e.g. `fts_search_inner(conn, ...)`). Both `NoteDatabase` and `ReadOnlyDb` delegate to these, eliminating duplication.
 
 **Error Type**: `DbError { Sqlite(rusqlite::Error), NotFound(String), Io(std::io::Error), Other(String) }`
 
@@ -205,10 +197,11 @@ Progress is cumulative: `(processed_so_far, total_across_all_vaults)`.
 ### `search.rs` — Search Engine
 
 **Key Function**:
-- `search(db, tokenizer, req: &SearchRequest)` → `Result<SearchOutput>`
-  - `SearchOutput { results: Vec<ChunkSearchResult>, next_cursor: Option<String> }`
-  - `next_cursor` is an opaque base64 string encoding `v2:rank:rowid`. `None` when no more pages.
-  - Use `next_cursor` as the `cursor` field in the next `SearchRequest` for keyset pagination.
+- `search(conn, tokenizer, req: &SearchRequest)` → `Result<SearchOutput>` — First argument is `&Connection` (not `&NoteDatabase`), allowing both `NoteDatabase` and `ReadOnlyDb` to use it
+- `build_results(conn, hits, mode, min_score)` → `Vec<ChunkSearchResult>` — Same: takes `&Connection`
+- `SearchOutput { results: Vec<ChunkSearchResult>, next_cursor: Option<String> }`
+- `next_cursor` is an opaque base64 string encoding `v2:rank:rowid`. `None` when no more pages.
+- Use `next_cursor` as the `cursor` field in the next `SearchRequest` for keyset pagination.
 
 **Modes** (`SearchMode` enum):
 - `Fts` — Keyword search via FTS5 BM25 (works without model). Lower score = more relevant.
@@ -370,4 +363,4 @@ The v04 migration (which drops and recreates `vec_chunks` to switch to `FLOAT` t
 - CI: Set `SHIOTSUCHI_MODEL_PATH` for full tests
 - In-memory DB for unit tests
 - `tempfile` for disk-based DB tests
-- 554+ tests across core (388), CLI (142), MCP (33)
+- 660+ tests across core (~475), CLI (~144), MCP (44)

@@ -87,13 +87,14 @@ Trigger a full re-index of the vault in the background. Sends MCP `notifications
 ```
 tools/call
     │
-    ├── "rebuild_index" → spawn_rebuild() [background tokio task]
+    ├── "rebuild_index" → spawn_rebuild() [background tokio task, own NoteDatabase]
     │                       └── index_directory() with progress callback
     │
     └── other tools → handler::call_tool()
-                        ├── "search_local_notes" → open_readonly() → search()
-                        ├── "get_surrounding_context" → open() → get_surrounding_chunks()
-                        └── "index_status" → open() → stats()
+                        ├──  shared db (Mutex<NoteDatabase> opened at startup)
+                        ├── "search_local_notes" → ctx.db.lock() → search()
+                        ├── "get_surrounding_context" → ctx.db.lock() → get_surrounding_chunks()
+                        └── "index_status" → ctx.db.lock() → stats()
 ```
 
 ## Implementation Files
@@ -107,7 +108,7 @@ tools/call
 
 - Internal errors are mapped to generic `"Internal tool execution error"` to avoid information leakage
 - Uses `get_tokenizer()` for cached tokenizer access (avoids per-request model init cost)
-- Opens DB connection per request (lightweight under SQLite WAL)
+- `NoteDatabase::open()` is called once at startup and shared across all handlers via `Arc<std::sync::Mutex<NoteDatabase>>` (connection pooling). No per-request open overhead. `rebuild_index` opens its own `NoteDatabase` to avoid blocking the shared one during long-running indexing.
 - `rebuild_index` errors are logged but not returned to client (background task)
 
 ## Configuration

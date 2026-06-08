@@ -1516,7 +1516,7 @@ mod tests {
         assert_eq!(results[0].2, IndexResult::Inserted);
 
         let hits = search(
-            &db, &tokenizer, &SearchRequest {
+            &*db.read_conn.as_ref().unwrap().borrow(), &tokenizer, &SearchRequest {
                 query: "Hello",
                 limit: 10,
                 mode: SearchMode::Fts,

@@ -1,6 +1,5 @@
 use serde_json::{json, Value};
 use shiotsuchi_core::{
-    db::NoteDatabase,
     models::SearchMode,
     rate_limiter::SlidingWindowRateLimiter,
     search::{extract_snippet, search, SearchRequest},
@@ -84,7 +83,8 @@ pub(crate) fn handle_search_local_notes(
     shiotsuchi_core::resolve_vault_dir(ctx.vaults, target_name)
         .map_err(|e| e.to_string())?;
 
-    let db = NoteDatabase::open(ctx.db_path)?;
+    let db = ctx.db.lock().unwrap();
+    let db_conn = db.read_conn.as_ref().unwrap().borrow();
     let tokenizer = match get_tokenizer() {
         Ok(t) => t,
         Err(_) => {
@@ -111,7 +111,7 @@ pub(crate) fn handle_search_local_notes(
         backlink_scoring: ctx.backlink_scoring,
         cursor: None,
     };
-    let output = search(&db, &tokenizer, &request)?;
+    let output = search(&db_conn, &tokenizer, &request)?;
 
     let markdown = format_results_markdown(&output.results, &query);
     let masked =

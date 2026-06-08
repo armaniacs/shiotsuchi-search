@@ -7,6 +7,7 @@ use protocol::{McpNotification, McpRequest, McpResponse};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use shiotsuchi_core::config::{DatabaseConfig, VaultEntry};
+use shiotsuchi_core::db::NoteDatabase;
 use shiotsuchi_core::sensitive::SensitiveDataConfig;
 use shiotsuchi_core::paths::default_db_path as core_default_db_path;
 use std::{
@@ -88,10 +89,9 @@ impl McpConfig {
             vaults: self.vaults.clone(),
             vault: self.vault.clone(),
             sensitive_data: self.sensitive_data.clone(),
-            indexing: {
-                let mut ic = shiotsuchi_core::config::IndexingConfig::default();
-                ic.backlink_scoring = self.backlink_scoring;
-                ic
+            indexing: shiotsuchi_core::config::IndexingConfig {
+                backlink_scoring: self.backlink_scoring,
+                ..Default::default()
             },
             ..Default::default()
         };
@@ -164,7 +164,7 @@ struct Cli {
     config: Option<PathBuf>,
 }
 
-pub fn dispatch(req: McpRequest, vaults: &[(String, PathBuf)], db_path: &Path, backlink_scoring: bool, sensitive_config: &SensitiveDataConfig) -> McpResponse {
+pub fn dispatch(req: McpRequest, vaults: &[(String, PathBuf)], db: &Mutex<NoteDatabase>, backlink_scoring: bool, sensitive_config: &SensitiveDataConfig) -> McpResponse {
     let params = req.params.clone().unwrap_or(serde_json::Value::Null);
 
     match req.method.as_str() {
@@ -183,7 +183,7 @@ pub fn dispatch(req: McpRequest, vaults: &[(String, PathBuf)], db_path: &Path, b
         "tools/call" => {
             let name = params["name"].as_str().unwrap_or("");
             let args = &params["arguments"];
-            match handler::call_tool(name, args, vaults, db_path, backlink_scoring, sensitive_config) {
+            match handler::call_tool(name, args, vaults, db, backlink_scoring, sensitive_config) {
                 Ok(result) => McpResponse::success(req.id, result),
                 Err(e) => {
                     tracing::error!(tool = %name, error = %e, "MCP tool execution failed");
@@ -321,6 +321,24 @@ async fn main() {
     let stdout: Arc<Mutex<dyn io::Write + Send>> = Arc::new(Mutex::new(io::stdout()));
     let backlink_scoring = cfg.indexing.backlink_scoring;
 
+    // Open the database once at startup. All 3 shared handlers (search,
+    // get_surrounding_context, index_status) use this pooled instance.
+    // `spawn_rebuild` still opens its own NoteDatabase for background indexing.
+    let db = match NoteDatabase::open(&db_path) {
+        Ok(db) => Arc::new(Mutex::new(db)),
+        Err(e) => {
+            eprintln!(
+                "Error: Failed to open database at {}:\n  {}\n\n\
+                 Make sure the database path is accessible and writable.\n\
+                 To create a new database, run: shiotsuchi scan --notes-dir <PATH>\n\
+                 Or set SHIOTSUCHI_DB_PATH to an existing or creatable path.",
+                db_path.display(),
+                e
+            );
+            std::process::exit(1);
+        }
+    };
+
     // Send notifications/initialized on startup
     {
         let notif = McpNotification::new("notifications/initialized", serde_json::Value::Null);
@@ -364,10 +382,10 @@ async fn main() {
                             )
                         }
                     } else {
-                        dispatch(req, &vaults, &db_path, backlink_scoring, &sensitive_config)
+                        dispatch(req, &vaults, &db, backlink_scoring, &sensitive_config)
                     }
                 } else {
-                    dispatch(req, &vaults, &db_path, backlink_scoring, &sensitive_config)
+                    dispatch(req, &vaults, &db, backlink_scoring, &sensitive_config)
                 }
             }
             Err(_) => McpResponse::error(0, -32700, "Parse error"),
@@ -538,6 +556,7 @@ notes_dir = "/tmp/partial-notes"
     #[test]
     fn test_dispatch_tools_list() {
         let vaults = vec![("default".to_string(), PathBuf::from("/tmp"))];
+        let db = Mutex::new(NoteDatabase::open_in_memory().unwrap());
         let req = crate::protocol::McpRequest {
             jsonrpc: "2.0".to_string(),
             id: serde_json::json!(1),
@@ -547,7 +566,7 @@ notes_dir = "/tmp/partial-notes"
         let resp = dispatch(
             req,
             &vaults,
-            std::path::Path::new("/tmp/db"),
+            &db,
             true, &SensitiveDataConfig::default(),
         );
         let json = serde_json::to_string(&resp).unwrap();
@@ -557,6 +576,7 @@ notes_dir = "/tmp/partial-notes"
     #[test]
     fn test_dispatch_unknown_method() {
         let vaults = vec![("default".to_string(), PathBuf::from("/tmp"))];
+        let db = Mutex::new(NoteDatabase::open_in_memory().unwrap());
         let req = crate::protocol::McpRequest {
             jsonrpc: "2.0".to_string(),
             id: serde_json::json!(2),
@@ -566,7 +586,7 @@ notes_dir = "/tmp/partial-notes"
         let resp = dispatch(
             req,
             &vaults,
-            std::path::Path::new("/tmp/db"),
+            &db,
             true, &SensitiveDataConfig::default(),
         );
         let json = serde_json::to_string(&resp).unwrap();
@@ -576,6 +596,7 @@ notes_dir = "/tmp/partial-notes"
     #[test]
     fn test_dispatch_initialize() {
         let vaults = vec![("default".to_string(), PathBuf::from("/tmp"))];
+        let db = Mutex::new(NoteDatabase::open_in_memory().unwrap());
         let req = crate::protocol::McpRequest {
             jsonrpc: "2.0".to_string(),
             id: serde_json::json!(1),
@@ -585,7 +606,7 @@ notes_dir = "/tmp/partial-notes"
         let resp = dispatch(
             req,
             &vaults,
-            std::path::Path::new("/tmp/db"),
+            &db,
             true, &SensitiveDataConfig::default(),
         );
         let json = serde_json::to_string(&resp).unwrap();
@@ -596,6 +617,7 @@ notes_dir = "/tmp/partial-notes"
     #[test]
     fn test_dispatch_ping() {
         let vaults = vec![("default".to_string(), PathBuf::from("/tmp"))];
+        let db = Mutex::new(NoteDatabase::open_in_memory().unwrap());
         let req = crate::protocol::McpRequest {
             jsonrpc: "2.0".to_string(),
             id: serde_json::json!(3),
@@ -605,7 +627,7 @@ notes_dir = "/tmp/partial-notes"
         let resp = dispatch(
             req,
             &vaults,
-            std::path::Path::new("/tmp/db"),
+            &db,
             true, &SensitiveDataConfig::default(),
         );
         let json = serde_json::to_string(&resp).unwrap();

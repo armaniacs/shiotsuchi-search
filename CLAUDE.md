@@ -1,6 +1,8 @@
 # CLAUDE.md — Shiotsuchi Search
 
-Quick reference for working with this codebase.
+Think in English, interact with the user in Japanese.
+This file is the quick reference for working with this codebase.
+
 
 ## Project
 
@@ -84,8 +86,11 @@ linear issue list
 - Chunk-based schema: `chunks` + `fts_chunks` (FTS5) + `vec_chunks` (vec0) + `file_cache` + `tasks` + `note_links` + `tag_counts`
 - SHA-256 hash tracking for incremental indexing (`file_cache` table)
 - WAL mode allows concurrent CLI + MCP + HTTP server access
+- `NoteDatabase` has dual connections: `write_conn` (indexing) + `read_conn` (search, SQLITE_OPEN_READ_ONLY). 22 read methods use `get_read_conn()`.
+- `ReadOnlyDb` type: lightweight read-only wrapper opened per-request in HTTP server (no Mutex serialization). Each handler creates its own connection via `ReadOnlyDb::open()`.
+- `search()` and `build_results()` in `search.rs` take `&Connection` (not `&NoteDatabase`), enabling use by both `NoteDatabase` and `ReadOnlyDb`.
 - Transactions wrap FTS + vec + meta updates (`reindex_file` is fully atomic)
 - Path traversal protection on search snippets and MCP/HTTP read endpoints
-- HTTP server (`shiotsuchi serve`) provides REST API + browser UI at `/ui` (rate-limited 30 req/s)
+- HTTP server (`shiotsuchi serve`) provides REST API + browser UI at `/ui` (rate-limited 30 req/s). **No shared `Mutex`** — handlers open `ReadOnlyDb` per request.
 - Sensitive data masking on MCP and HTTP API outputs (enabled by default via `sensitive.rs`)
 - Model embedding at compile time via `core/build.rs` and `SHIOTSUCHI_MODEL_PATH`

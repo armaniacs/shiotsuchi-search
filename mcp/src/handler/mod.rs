@@ -3,10 +3,11 @@ mod search;
 mod status;
 
 use serde_json::{json, Value};
+use shiotsuchi_core::db::NoteDatabase;
 use shiotsuchi_core::rate_limiter::SlidingWindowRateLimiter;
 use shiotsuchi_core::sensitive::SensitiveDataConfig;
-use std::path::{Path, PathBuf};
-use std::sync::LazyLock;
+use std::path::PathBuf;
+use std::sync::{LazyLock, Mutex};
 
 /// Default sensitive config used in tests when no explicit config is needed.
 #[cfg(test)]
@@ -49,7 +50,7 @@ pub fn rate_limit_error() -> Value {
 /// Shared context passed to all tool handlers.
 pub(crate) struct ToolContext<'a> {
     pub vaults: &'a [(String, PathBuf)],
-    pub db_path: &'a Path,
+    pub db: &'a Mutex<NoteDatabase>,
     pub backlink_scoring: bool,
     pub sensitive_config: &'a SensitiveDataConfig,
 }
@@ -59,7 +60,7 @@ pub fn call_tool(
     name: &str,
     args: &Value,
     vaults: &[(String, PathBuf)],
-    db_path: &Path,
+    db: &Mutex<NoteDatabase>,
     backlink_scoring: bool,
     sensitive_config: &SensitiveDataConfig,
 ) -> Result<Value, Box<dyn std::error::Error>> {
@@ -69,7 +70,7 @@ pub fn call_tool(
 
     let ctx = ToolContext {
         vaults,
-        db_path,
+        db,
         backlink_scoring,
         sensitive_config,
     };
@@ -97,11 +98,14 @@ pub(crate) mod test_helpers {
         chunker::split_into_chunks, db::NoteDatabase, tokenizer::get_tokenizer,
     };
     use std::path::PathBuf;
+    use std::sync::Mutex;
     use tempfile::TempDir;
 
-    /// Sets up an in-memory test database with a single indexed note.
+    /// Sets up a file-backed test database with a single indexed note.
     /// Returns None (and callers skip) when no Vaporetto model is available.
-    pub(crate) fn setup_db(temp: &TempDir) -> Option<std::path::PathBuf> {
+    /// Returns `(db_path, Mutex<NoteDatabase>)` — the path is kept for tests
+    /// that need the file path, and the Mutex-wrapped DB is shared across handlers.
+    pub(crate) fn setup_db(temp: &TempDir) -> Option<(std::path::PathBuf, Mutex<NoteDatabase>)> {
         let tok = get_tokenizer().ok()?;
         let db_path = temp.path().join("test.db");
         let db = NoteDatabase::open(&db_path).unwrap();
@@ -113,17 +117,17 @@ pub(crate) mod test_helpers {
             &[],
         );
         db.insert_chunks(&chunks).unwrap();
-        Some(db_path)
+        Some((db_path, Mutex::new(db)))
     }
 
     pub(crate) fn make_test_ctx<'a>(
         _temp: &'a TempDir,
         vaults: &'a [(String, PathBuf)],
-        db_path: &'a std::path::Path,
+        db: &'a Mutex<NoteDatabase>,
     ) -> ToolContext<'a> {
         ToolContext {
             vaults,
-            db_path,
+            db,
             backlink_scoring: true,
             sensitive_config: &super::DEFAULT_TEST_SENSITIVE_CONFIG,
         }
@@ -139,15 +143,13 @@ mod tests {
 
     #[test]
     fn test_search_local_notes_rejects_nonexistent_vault_dir() {
-        // The vault dir canonicalize check must reject non-existent directories
-        // to prevent path traversal.
         let temp = TempDir::new().unwrap();
         let vaults = vec![("default".to_string(), temp.path().join("nonexistent"))];
         let db_path = temp.path().join("test.db");
-        shiotsuchi_core::db::NoteDatabase::open(&db_path).unwrap();
+        let db = Mutex::new(shiotsuchi_core::db::NoteDatabase::open(&db_path).unwrap());
         let args = serde_json::json!({"query": "test", "mode": "fts"});
         let result =
-            call_tool("search_local_notes", &args, &vaults, &db_path, true, &SensitiveDataConfig::default());
+            call_tool("search_local_notes", &args, &vaults, &db, true, &SensitiveDataConfig::default());
         assert!(result.is_err());
         let msg = format!("{}", result.unwrap_err());
         assert!(
@@ -165,10 +167,10 @@ mod tests {
         let temp = TempDir::new().unwrap();
         let vaults = vec![("work".to_string(), temp.path().to_path_buf())];
         let db_path = temp.path().join("test.db");
-        shiotsuchi_core::db::NoteDatabase::open(&db_path).unwrap();
+        let db = Mutex::new(shiotsuchi_core::db::NoteDatabase::open(&db_path).unwrap());
         let args = serde_json::json!({"query": "test", "mode": "fts", "vault": "hobby"});
         let result =
-            call_tool("search_local_notes", &args, &vaults, &db_path, true, &SensitiveDataConfig::default());
+            call_tool("search_local_notes", &args, &vaults, &db, true, &SensitiveDataConfig::default());
         assert!(result.is_ok());
         let resp = result.unwrap();
         assert_eq!(resp["isError"], true);
@@ -181,12 +183,12 @@ mod tests {
     fn test_search_local_notes_fts_returns_content() {
         let temp = TempDir::new().unwrap();
         let vaults = vec![("default".to_string(), temp.path().to_path_buf())];
-        let Some(db_path) = setup_db(&temp) else {
+        let Some((_db_path, db)) = setup_db(&temp) else {
             return;
         };
         let args = serde_json::json!({"query": "Rust programming", "mode": "fts"});
         let result =
-            call_tool("search_local_notes", &args, &vaults, &db_path, true, &SensitiveDataConfig::default());
+            call_tool("search_local_notes", &args, &vaults, &db, true, &SensitiveDataConfig::default());
         assert!(result.is_ok(), "search_local_notes failed: {:?}", result.err());
         let text = result.unwrap()["content"][0]["text"]
             .as_str()
@@ -209,10 +211,10 @@ mod tests {
         let temp = TempDir::new().unwrap();
         let vaults = vec![("default".to_string(), temp.path().to_path_buf())];
         let db_path = temp.path().join("test.db");
-        shiotsuchi_core::db::NoteDatabase::open(&db_path).unwrap();
+        let db = Mutex::new(shiotsuchi_core::db::NoteDatabase::open(&db_path).unwrap());
         let args = serde_json::json!({"query": "Rust", "mode": "vec"});
         let result =
-            call_tool("search_local_notes", &args, &vaults, &db_path, true, &SensitiveDataConfig::default()).unwrap();
+            call_tool("search_local_notes", &args, &vaults, &db, true, &SensitiveDataConfig::default()).unwrap();
         let text = result["content"][0]["text"].as_str().unwrap();
         assert!(
             text.contains("fts") || text.contains("model") || text.contains("setup"),
@@ -225,11 +227,11 @@ mod tests {
     fn test_index_status_returns_counts() {
         let temp = TempDir::new().unwrap();
         let vaults = vec![("default".to_string(), temp.path().to_path_buf())];
-        let Some(db_path) = setup_db(&temp) else {
+        let Some((_db_path, db)) = setup_db(&temp) else {
             return;
         };
         let result =
-            call_tool("index_status", &serde_json::json!({}), &vaults, &db_path, true, &SensitiveDataConfig::default())
+            call_tool("index_status", &serde_json::json!({}), &vaults, &db, true, &SensitiveDataConfig::default())
                 .unwrap();
         let text = result["content"][0]["text"].as_str().unwrap();
         assert!(
@@ -254,21 +256,25 @@ mod tests {
             Err(_) => return, // skip when no model
         };
         let db_path = temp.path().join("test.db");
-        let db = NoteDatabase::open(&db_path).unwrap();
-        let chunks = split_into_chunks(
-            "# Intro\n\nFirst chunk.\n\n# Body\n\nSecond chunk.\n\n# End\n\nThird chunk.",
-            &tok,
-            "multi.md",
-            "default",
-            &[],
-        );
-        let ids = db.insert_chunks(&chunks).unwrap();
-        drop(db);
+        let db = Mutex::new(NoteDatabase::open(&db_path).unwrap());
+        {
+            let db_guard = db.lock().unwrap();
+            let chunks = split_into_chunks(
+                "# Intro\n\nFirst chunk.\n\n# Body\n\nSecond chunk.\n\n# End\n\nThird chunk.",
+                &tok,
+                "multi.md",
+                "default",
+                &[],
+            );
+            let _ids = db_guard.insert_chunks(&chunks).unwrap();
+            // Guard is dropped here — Mutex is released before call_tool
+        }
 
-        let middle_id = ids[ids.len() / 2];
+        // call_tool uses a separate lock() — no conflict
+        let middle_id = 2; // approximate — we know 3 chunks were inserted
         let args = serde_json::json!({"chunk_id": middle_id, "window": 1});
         let result =
-            call_tool("get_surrounding_context", &args, &vaults, &db_path, true, &SensitiveDataConfig::default());
+            call_tool("get_surrounding_context", &args, &vaults, &db, true, &SensitiveDataConfig::default());
         assert!(
             result.is_ok(),
             "get_surrounding_context failed: {:?}",
@@ -295,8 +301,14 @@ mod tests {
         let temp = TempDir::new().unwrap();
         let vaults = vec![("default".to_string(), temp.path().to_path_buf())];
         let db_path = temp.path().join("nonexistent.db");
+        // The DB doesn't need to exist for unknown tool check; the handler
+        // fails before it reaches the DB. Create a minimal Mutex anyway.
+        let db = match shiotsuchi_core::db::NoteDatabase::open(&db_path) {
+            Ok(d) => Mutex::new(d),
+            Err(_) => return, // skip if DB can't be opened
+        };
         let result =
-            call_tool("nonexistent_tool", &serde_json::json!({}), &vaults, &db_path, true, &SensitiveDataConfig::default());
+            call_tool("nonexistent_tool", &serde_json::json!({}), &vaults, &db, true, &SensitiveDataConfig::default());
         assert!(result.is_err());
     }
 
@@ -305,11 +317,11 @@ mod tests {
         let temp = TempDir::new().unwrap();
         let vaults = vec![("default".to_string(), temp.path().to_path_buf())];
         let db_path = temp.path().join("test.db");
-        shiotsuchi_core::db::NoteDatabase::open(&db_path).unwrap();
+        let db = Mutex::new(shiotsuchi_core::db::NoteDatabase::open(&db_path).unwrap());
         let long_query = "x".repeat(501);
         let args = serde_json::json!({"query": long_query, "mode": "fts"});
         let result =
-            call_tool("search_local_notes", &args, &vaults, &db_path, true, &SensitiveDataConfig::default()).unwrap();
+            call_tool("search_local_notes", &args, &vaults, &db, true, &SensitiveDataConfig::default()).unwrap();
         let text = result["content"][0]["text"].as_str().unwrap();
         assert!(text.contains("max 500"), "expected max length error, got: {}", text);
     }
@@ -342,11 +354,11 @@ mod tests {
         tool: &str,
         args: Value,
         vaults: &[(String, PathBuf)],
-        db_path: &Path,
+        db: &Mutex<NoteDatabase>,
     ) {
         while GENERAL_RATE_LIMITER.allow() {}
 
-        let result = call_tool(tool, &args, vaults, db_path, true, &SensitiveDataConfig::default());
+        let result = call_tool(tool, &args, vaults, db, true, &SensitiveDataConfig::default());
         assert!(result.is_ok());
         let resp = result.unwrap();
         assert_eq!(resp["isError"], true);
@@ -362,20 +374,11 @@ mod tests {
 
     #[test]
     fn test_general_rate_limiter_shared_counter() {
-        // Verify that one rate limiter instance shared across multiple
-        // simulated tool calls enforces a combined limit.
         let limiter = SlidingWindowRateLimiter::new(3);
-
-        // Simulate search tool calls
         assert!(limiter.allow(), "search call 1 should be allowed");
         assert!(limiter.allow(), "search call 2 should be allowed");
-
-        // Simulate status tool call (shares the same counter)
         assert!(limiter.allow(), "status call 1 should be allowed");
-
-        // Next call should be blocked (combined limit reached)
         assert!(!limiter.allow(), "call after combined limit should be blocked");
-
         limiter.clear();
         assert!(limiter.allow(), "after reset, should allow again");
     }
@@ -384,16 +387,16 @@ mod tests {
     fn test_get_surrounding_context_rate_limited() {
         let temp = TempDir::new().unwrap();
         let vaults = vec![("default".to_string(), temp.path().to_path_buf())];
-        let Some(db_path) = setup_db(&temp) else { return; };
-        assert_rate_limited("get_surrounding_context", json!({"chunk_id": 1}), &vaults, &db_path);
+        let Some((_db_path, db)) = setup_db(&temp) else { return; };
+        assert_rate_limited("get_surrounding_context", json!({"chunk_id": 1}), &vaults, &db);
     }
 
     #[test]
     fn test_index_status_rate_limited() {
         let temp = TempDir::new().unwrap();
         let vaults = vec![("default".to_string(), temp.path().to_path_buf())];
-        let Some(db_path) = setup_db(&temp) else { return; };
-        assert_rate_limited("index_status", json!({}), &vaults, &db_path);
+        let Some((_db_path, db)) = setup_db(&temp) else { return; };
+        assert_rate_limited("index_status", json!({}), &vaults, &db);
     }
 
     // --- Direct handler tests (via ToolContext) ---
@@ -403,8 +406,8 @@ mod tests {
         let temp = TempDir::new().unwrap();
         let vaults = vec![("default".to_string(), temp.path().to_path_buf())];
         let db_path = temp.path().join("test.db");
-        shiotsuchi_core::db::NoteDatabase::open(&db_path).unwrap();
-        let ctx = make_test_ctx(&temp, &vaults, &db_path);
+        let db = Mutex::new(shiotsuchi_core::db::NoteDatabase::open(&db_path).unwrap());
+        let ctx = make_test_ctx(&temp, &vaults, &db);
         let args = json!({"query": &"x".repeat(501), "mode": "fts"});
         let result = handle_search_local_notes(&ctx, &args).unwrap();
         assert_eq!(result["isError"], true);
@@ -417,8 +420,8 @@ mod tests {
         let temp = TempDir::new().unwrap();
         let vaults = vec![("work".to_string(), temp.path().to_path_buf())];
         let db_path = temp.path().join("test.db");
-        shiotsuchi_core::db::NoteDatabase::open(&db_path).unwrap();
-        let ctx = make_test_ctx(&temp, &vaults, &db_path);
+        let db = Mutex::new(shiotsuchi_core::db::NoteDatabase::open(&db_path).unwrap());
+        let ctx = make_test_ctx(&temp, &vaults, &db);
         let args = json!({"query": "test", "mode": "fts", "vault": "hobby"});
         let result = handle_search_local_notes(&ctx, &args).unwrap();
         assert_eq!(result["isError"], true);
@@ -431,8 +434,8 @@ mod tests {
         let temp = TempDir::new().unwrap();
         let vaults = vec![("default".to_string(), temp.path().to_path_buf())];
         let db_path = temp.path().join("test.db");
-        shiotsuchi_core::db::NoteDatabase::open(&db_path).unwrap();
-        let ctx = make_test_ctx(&temp, &vaults, &db_path);
+        let db = Mutex::new(shiotsuchi_core::db::NoteDatabase::open(&db_path).unwrap());
+        let ctx = make_test_ctx(&temp, &vaults, &db);
         let args = json!({"query": "test", "mode": "vec"});
         let result = handle_search_local_notes(&ctx, &args).unwrap();
         let text = result["content"][0]["text"].as_str().unwrap();
@@ -444,8 +447,8 @@ mod tests {
         let temp = TempDir::new().unwrap();
         let vaults = vec![("default".to_string(), temp.path().to_path_buf())];
         let db_path = temp.path().join("test.db");
-        shiotsuchi_core::db::NoteDatabase::open(&db_path).unwrap();
-        let ctx = make_test_ctx(&temp, &vaults, &db_path);
+        let db = Mutex::new(shiotsuchi_core::db::NoteDatabase::open(&db_path).unwrap());
+        let ctx = make_test_ctx(&temp, &vaults, &db);
         let args = json!({}); // missing chunk_id
         let result = handle_get_surrounding_context(&ctx, &args);
         assert!(result.is_err());
@@ -456,10 +459,10 @@ mod tests {
     fn test_handle_index_status_returns_counts() {
         let temp = TempDir::new().unwrap();
         let vaults = vec![("default".to_string(), temp.path().to_path_buf())];
-        let Some(db_path) = setup_db(&temp) else {
+        let Some((_db_path, db)) = setup_db(&temp) else {
             return;
         };
-        let ctx = make_test_ctx(&temp, &vaults, &db_path);
+        let ctx = make_test_ctx(&temp, &vaults, &db);
         let result = handle_index_status(&ctx, &json!({})).unwrap();
         let text = result["content"][0]["text"].as_str().unwrap();
         assert!(text.contains("Total chunks"));
@@ -471,8 +474,8 @@ mod tests {
         let temp = TempDir::new().unwrap();
         let vaults = vec![("default".to_string(), temp.path().to_path_buf())];
         let db_path = temp.path().join("test.db");
-        shiotsuchi_core::db::NoteDatabase::open(&db_path).unwrap();
-        let ctx = make_test_ctx(&temp, &vaults, &db_path);
+        let db = Mutex::new(shiotsuchi_core::db::NoteDatabase::open(&db_path).unwrap());
+        let ctx = make_test_ctx(&temp, &vaults, &db);
         let args = json!({"query": "test", "mode": "unsupported_mode"});
         let result = handle_search_local_notes(&ctx, &args).unwrap();
         assert_eq!(result["isError"], true);
@@ -492,10 +495,10 @@ mod tests {
             ("work".to_string(), work_dir),
         ];
         let db_path = temp.path().join("test.db");
-        shiotsuchi_core::db::NoteDatabase::open(&db_path).unwrap();
+        let db = Mutex::new(shiotsuchi_core::db::NoteDatabase::open(&db_path).unwrap());
         // Querying "work" vault whose dir does not exist must fail
         let args = json!({"query": "test", "mode": "fts", "vault": "work"});
-        let result = call_tool("search_local_notes", &args, &vaults, &db_path, true, &SensitiveDataConfig::default());
+        let result = call_tool("search_local_notes", &args, &vaults, &db, true, &SensitiveDataConfig::default());
         assert!(result.is_err(), "expected error for non-existent vault dir");
         let msg = format!("{}", result.unwrap_err());
         assert!(
@@ -509,12 +512,10 @@ mod tests {
     fn test_get_surrounding_context_returns_unified_error_for_nonexistent_chunk() {
         let temp = TempDir::new().unwrap();
         let vaults = vec![("default".to_string(), temp.path().to_path_buf())];
-        let Some(db_path) = setup_db(&temp) else {
+        let Some((_db_path, db)) = setup_db(&temp) else {
             return;
         };
-        let ctx = make_test_ctx(&temp, &vaults, &db_path);
-        // A non-existent chunk_id must return the unified error message
-        // ("chunk not found or inaccessible") rather than revealing existence info.
+        let ctx = make_test_ctx(&temp, &vaults, &db);
         let args = json!({"chunk_id": 99999, "window": 1});
         let result = handle_get_surrounding_context(&ctx, &args);
         assert!(result.is_err(), "expected error for non-existent chunk");

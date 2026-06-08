@@ -1,6 +1,5 @@
 use clap::Parser;
 use shiotsuchi_core::config::ShiotsuchiConfig;
-use shiotsuchi_core::db::NoteDatabase;
 use shiotsuchi_core::server::handlers::{AppState, create_router};
 use shiotsuchi_core::tokenizer::get_tokenizer;
 use std::sync::Arc;
@@ -60,15 +59,13 @@ pub async fn run_serve(
         );
         std::process::exit(1);
     }
-    let db = NoteDatabase::open(&db_path)?;
-
     let tokenizer = get_tokenizer().map_err(|e| {
         eprintln!("{}", crate::msg_fmt!(crate::messages::ERR_SERVE_TOKENIZER, e));
         e
     })?;
 
     let state = Arc::new(AppState {
-        db: Arc::new(tokio::sync::Mutex::new(db)),
+        db_path: db_path.clone(),
         tokenizer: Some(tokenizer),
         synonyms: config.synonyms.clone(),
         hybrid_alpha: config.hybrid_alpha,

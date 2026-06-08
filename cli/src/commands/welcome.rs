@@ -306,9 +306,9 @@ fn run_onboarding(
                 cfg.embedding_usage.monthly_limit = Some(limit.parse::<u64>().unwrap());
 
                 // Persist the embedding_usage settings to disk
-                let mut disk_cfg = ShiotsuchiConfig::load_from(&config_path)?;
+                let mut disk_cfg = ShiotsuchiConfig::load_from(config_path)?;
                 disk_cfg.embedding_usage = cfg.embedding_usage.clone();
-                disk_cfg.save_to(&config_path)?;
+                disk_cfg.save_to(config_path)?;
             }
         }
 

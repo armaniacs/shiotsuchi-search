@@ -53,6 +53,7 @@ pub enum DbError {
 /// read-only connection for search (WAL allows concurrent readers).
 pub struct NoteDatabase {
     pub write_conn: RefCell<Connection>,
+    pub read_conn:  Option<RefCell<Connection>>,
 }
 
 impl NoteDatabase {
@@ -79,7 +80,11 @@ impl NoteDatabase {
         }
         let conn = Connection::open(&path)?;
         conn.pragma_update(None, "journal_mode", "WAL")?;
-        let db = Self { write_conn: RefCell::new(conn) };
+        let read_conn = Self::open_readonly(&path)?;
+        let db = Self {
+            write_conn: RefCell::new(conn),
+            read_conn: Some(RefCell::new(read_conn)),
+        };
         db.migrate()?;
         #[cfg(unix)]
         if is_fresh {
@@ -105,7 +110,10 @@ impl NoteDatabase {
         // (see register_vec_extension doc-comment).
         unsafe { register_vec_extension(); }
         let conn = Connection::open_in_memory()?;
-        let db = Self { write_conn: RefCell::new(conn) };
+        let db = Self {
+            write_conn: RefCell::new(conn),
+            read_conn: None,
+        };
         db.migrate()?;
         Ok(db)
     }
@@ -114,6 +122,15 @@ impl NoteDatabase {
     pub fn open_readonly<P: AsRef<Path>>(path: P) -> Result<Connection, DbError> {
         let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
         Ok(conn)
+    }
+
+    /// Return a borrowed read-only connection, falling back to write_conn
+    /// for in-memory databases that cannot support a separate reader.
+    fn get_read_conn(&self) -> std::cell::Ref<'_, Connection> {
+        match &self.read_conn {
+            Some(rc) => rc.borrow(),
+            None => self.write_conn.borrow(),
+        }
     }
 
     fn migrate(&self) -> Result<(), DbError> {
@@ -392,44 +409,20 @@ impl NoteDatabase {
 
     /// Returns the stored hash for a file, or None if not cached.
     pub fn cached_hash(&self, vault_name: &str, path: &str) -> Result<Option<String>, DbError> {
-        let conn = self.write_conn.borrow();
-        match conn.query_row(
-            "SELECT hash FROM file_cache WHERE vault_name = ?1 AND path = ?2",
-            params![vault_name, path],
-            |r| r.get(0),
-        ) {
-            Ok(h) => Ok(Some(h)),
-            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-            Err(e) => Err(DbError::Sqlite(e)),
-        }
+        let conn = self.get_read_conn();
+        cached_hash_inner(&conn, vault_name, path)
     }
 
     /// Read cached mtime for a file. Used as a fast pre-check before reading file content.
     pub fn cached_mtime(&self, vault_name: &str, path: &str) -> Result<Option<i64>, DbError> {
-        let conn = self.write_conn.borrow();
-        match conn.query_row(
-            "SELECT mtime FROM file_cache WHERE vault_name = ?1 AND path = ?2",
-            params![vault_name, path],
-            |r| r.get(0),
-        ) {
-            Ok(m) => Ok(Some(m)),
-            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-            Err(e) => Err(DbError::Sqlite(e)),
-        }
+        let conn = self.get_read_conn();
+        cached_mtime_inner(&conn, vault_name, path)
     }
 
     /// Read cached file_size for a file. Paired with cached_mtime for two-stage skip.
     pub fn cached_file_size(&self, vault_name: &str, path: &str) -> Result<Option<i64>, DbError> {
-        let conn = self.write_conn.borrow();
-        match conn.query_row(
-            "SELECT file_size FROM file_cache WHERE vault_name = ?1 AND path = ?2",
-            params![vault_name, path],
-            |r| r.get(0),
-        ) {
-            Ok(s) => Ok(Some(s)),
-            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-            Err(e) => Err(DbError::Sqlite(e)),
-        }
+        let conn = self.get_read_conn();
+        cached_file_size_inner(&conn, vault_name, path)
     }
 
     /// Clear all vlm_hash values in file_cache, forcing VLM re-extraction on next index.
@@ -444,16 +437,8 @@ impl NoteDatabase {
 
     /// Read cached vlm_hash for a file. Returns None if not set.
     pub fn cached_vlm_hash(&self, vault_name: &str, path: &str) -> Result<Option<String>, DbError> {
-        let conn = self.write_conn.borrow();
-        match conn.query_row(
-            "SELECT vlm_hash FROM file_cache WHERE vault_name = ?1 AND path = ?2",
-            params![vault_name, path],
-            |r| r.get(0),
-        ) {
-            Ok(h) => Ok(h),
-            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-            Err(e) => Err(DbError::Sqlite(e)),
-        }
+        let conn = self.get_read_conn();
+        cached_vlm_hash_inner(&conn, vault_name, path)
     }
 
     /// Delete file_cache entry for a file.
@@ -517,27 +502,8 @@ impl NoteDatabase {
     /// Count expired files (older than retention_days) without deleting them.
     /// Returns the total count across all vaults in the map.
     pub fn count_expired(&self, retention_days: &std::collections::HashMap<String, u32>) -> Result<usize, DbError> {
-        use std::time::{SystemTime, UNIX_EPOCH};
-
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as i64;
-
-        let mut total = 0;
-        let conn = self.write_conn.borrow();
-
-        for (vault_name, days) in retention_days {
-            let cutoff_mtime = now - (*days as i64 * 86_400_000);
-            let count: i64 = conn.query_row(
-                "SELECT COUNT(*) FROM file_cache WHERE vault_name = ?1 AND mtime < ?2",
-                params![vault_name, cutoff_mtime],
-                |r| r.get(0),
-            )?;
-            total += count as usize;
-        }
-
-        Ok(total)
+        let conn = self.get_read_conn();
+        count_expired_inner(&conn, retention_days)
     }
 
     /// Delete ALL user data across all tables while keeping the schema intact.
@@ -587,99 +553,22 @@ impl NoteDatabase {
         after_rank: Option<f64>,
         after_rowid: Option<i64>,
     ) -> Result<Vec<(i64, f64)>, DbError> {
-        let conn = self.write_conn.borrow();
-
-        // Build SQL with optional composite cursor (after_rank, after_rowid) filter.
-        // Keyset pagination: (rank > ? OR (rank = ? AND rowid > ?))
-        let mut sql_parts = Vec::new();
-        let mut params: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
-
-        let use_cursor = after_rank.is_some() && after_rowid.is_some();
-
-        if let Some(vault) = vault_filter {
-            sql_parts.push(
-                "SELECT c.id, bm25(fts_chunks, 1.0) AS score
-                 FROM fts_chunks
-                 JOIN chunks c ON c.id = fts_chunks.rowid
-                 WHERE fts_chunks MATCH ?1 AND c.vault_name = ?2"
-                    .to_string(),
-            );
-            params.push(Box::new(fts5_query.to_string()));
-            params.push(Box::new(vault.to_string()));
-            if use_cursor {
-                let cursor_sql = format!(
-                    " AND (score > ?{} OR (score = ?{} AND c.id > ?{}))",
-                    params.len() + 1,
-                    params.len() + 2,
-                    params.len() + 3,
-                );
-                sql_parts.push(cursor_sql);
-                params.push(Box::new(after_rank.unwrap()));
-                params.push(Box::new(after_rank.unwrap()));
-                params.push(Box::new(after_rowid.unwrap()));
-            }
-            sql_parts.push(format!(" ORDER BY score, c.id LIMIT ?{}", params.len() + 1));
-            params.push(Box::new(limit as i64));
-        } else {
-            sql_parts.push(
-                "SELECT rowid, rank FROM fts_chunks WHERE fts_chunks MATCH ?1".to_string(),
-            );
-            params.push(Box::new(fts5_query.to_string()));
-            if use_cursor {
-                let cursor_sql = format!(
-                    " AND (rank > ?{} OR (rank = ?{} AND rowid > ?{}))",
-                    params.len() + 1,
-                    params.len() + 2,
-                    params.len() + 3,
-                );
-                sql_parts.push(cursor_sql);
-                params.push(Box::new(after_rank.unwrap()));
-                params.push(Box::new(after_rank.unwrap()));
-                params.push(Box::new(after_rowid.unwrap()));
-            }
-            sql_parts.push(format!(" ORDER BY rank, rowid LIMIT ?{}", params.len() + 1));
-            params.push(Box::new(limit as i64));
-        }
-
-        let sql = sql_parts.join(" ");
-        let params_refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|p| p.as_ref()).collect();
-        let mut stmt = conn.prepare(&sql)?;
-        let rows = stmt.query_map(params_refs.as_slice(), |r| {
-            Ok((r.get::<_, i64>(0)?, r.get::<_, f64>(1)?))
-        })?;
-        rows.collect::<SqliteResult<Vec<_>>>().map_err(DbError::Sqlite)
+        let conn = self.get_read_conn();
+        fts_search_inner(&conn, fts5_query, limit, vault_filter, after_rank, after_rowid)
     }
 
     /// Return the total number of matching rows for an FTS5 query.
     ///
     /// Unlike `fts_search`, this uses `SELECT count(*)` instead of fetching
     /// result rows, so it is efficient even for large result sets.
+    #[allow(dead_code)]  // used in tests; _inner variant used in production
     pub(crate) fn fts_search_count(
         &self,
         fts5_query: &str,
         vault_filter: Option<&str>,
     ) -> Result<usize, DbError> {
-        let conn = self.write_conn.borrow();
-        let (sql, params): (String, Vec<Box<dyn rusqlite::ToSql>>) =
-            if let Some(vault) = vault_filter {
-                let sql = format!(
-                    "SELECT count(*) FROM fts_chunks JOIN chunks c ON c.id = fts_chunks.rowid \
-                     WHERE fts_chunks MATCH ?1 AND c.vault_name = ?2"
-                );
-                let p: Vec<Box<dyn rusqlite::ToSql>> = vec![
-                    Box::new(fts5_query.to_string()),
-                    Box::new(vault.to_string()),
-                ];
-                (sql, p)
-            } else {
-                let sql = "SELECT count(*) FROM fts_chunks WHERE fts_chunks MATCH ?1".to_string();
-                let p: Vec<Box<dyn rusqlite::ToSql>> =
-                    vec![Box::new(fts5_query.to_string())];
-                (sql, p)
-            };
-        let params_refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|p| p.as_ref()).collect();
-        let count: i64 = conn.query_row(&sql, params_refs.as_slice(), |r| r.get(0))?;
-        Ok(count as usize)
+        let conn = self.get_read_conn();
+        fts_search_count_inner(&conn, fts5_query, vault_filter)
     }
 
     /// Vector KNN search on vec_chunks.
@@ -696,149 +585,27 @@ impl NoteDatabase {
         vault_filter: Option<&str>,
         include_embeddings: bool,
     ) -> Result<Vec<(i64, f64, Vec<f32>)>, DbError> {
-        let conn = self.write_conn.borrow();
-        let blob: Vec<u8> = embedding.iter().flat_map(|f| f.to_le_bytes()).collect();
-        let (sql, params): (String, Vec<Box<dyn rusqlite::ToSql>>) = if let Some(vault) = vault_filter {
-            let select_cols = if include_embeddings {
-                "v.chunk_id, v.distance, v.embedding"
-            } else {
-                "v.chunk_id, v.distance, NULL AS embedding"
-            };
-            (
-                format!(
-                    "SELECT {} FROM vec_chunks v
-                     JOIN chunks c ON c.id = v.chunk_id
-                     WHERE v.embedding MATCH ?1 AND c.vault_name = ?2 AND k = ?3
-                     ORDER BY v.distance", select_cols
-                ),
-                vec![
-                    Box::new(blob),
-                    Box::new(vault.to_string()),
-                    Box::new(limit as i64),
-                ],
-            )
-        } else {
-            let select_cols = if include_embeddings {
-                "chunk_id, distance, embedding"
-            } else {
-                "chunk_id, distance, NULL AS embedding"
-            };
-            (
-                format!(
-                    "SELECT {} FROM vec_chunks
-                     WHERE embedding MATCH ?1 AND k = ?2
-                     ORDER BY distance", select_cols
-                ),
-                vec![
-                    Box::new(blob),
-                    Box::new(limit as i64),
-                ],
-            )
-        };
-        let params_refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|p| p.as_ref()).collect();
-        let mut stmt = conn.prepare(&sql)?;
-        let rows = stmt.query_map(params_refs.as_slice(), |r| {
-            let chunk_id: i64 = r.get(0)?;
-            let distance: f64 = r.get(1)?;
-            // When include_embeddings is false, the embedding column is NULL.
-            let emb_blob: Vec<u8> = r.get::<_, Option<Vec<u8>>>(2)?.unwrap_or_default();
-            let emb_vec: Vec<f32> = if emb_blob.is_empty() {
-                vec![]
-            } else {
-                emb_blob.chunks_exact(4)
-                    .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
-                    .collect()
-            };
-            Ok((chunk_id, distance, emb_vec))
-        })?;
-        rows.collect::<SqliteResult<Vec<_>>>().map_err(DbError::Sqlite)
+        let conn = self.get_read_conn();
+        vec_search_inner(&conn, embedding, limit, vault_filter, include_embeddings)
     }
 
     /// Return the vault_name for a chunk, or None if not found.
     /// Used by MCP get_surrounding_context to validate vault access.
     pub fn get_chunk_vault_name(&self, chunk_id: i64) -> Result<Option<String>, DbError> {
-        let conn = self.write_conn.borrow();
-        match conn.query_row(
-            "SELECT vault_name FROM chunks WHERE id = ?1",
-            params![chunk_id],
-            |r| r.get(0),
-        ) {
-            Ok(vault) => Ok(Some(vault)),
-            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-            Err(e) => Err(DbError::Sqlite(e)),
-        }
+        let conn = self.get_read_conn();
+        get_chunk_vault_name_inner(&conn, chunk_id)
     }
 
     /// Fetch chunks by ids, preserving order.
     pub fn get_chunks_by_ids(&self, ids: &[i64]) -> Result<Vec<Chunk>, DbError> {
-        if ids.is_empty() { return Ok(vec![]); }
-        let conn = self.write_conn.borrow();
-        let placeholders: String = ids.iter().enumerate()
-            .map(|(i, _)| format!("?{}", i + 1))
-            .collect::<Vec<_>>()
-            .join(",");
-        let sql = format!(
-            "SELECT id, file_path, chunk_index, parent_header, content, tokenized_content, vault_name, tags, frontmatter_date, title, emphasized_text FROM chunks WHERE id IN ({})",
-            placeholders
-        );
-        let mut stmt = conn.prepare(&sql)?;
-        let params_vec: Vec<&dyn rusqlite::ToSql> = ids.iter()
-            .map(|id| id as &dyn rusqlite::ToSql)
-            .collect();
-        let rows = stmt.query_map(params_vec.as_slice(), |r| {
-            Ok(Chunk {
-                id: Some(r.get(0)?),
-                file_path: r.get(1)?,
-                chunk_index: r.get(2)?,
-                parent_header: r.get(3)?,
-                content: r.get(4)?,
-                tokenized_content: r.get(5)?,
-                vault_name: r.get(6)?,
-                tags: r.get(7)?,
-                frontmatter_date: r.get(8)?,
-                title: r.get(9)?,
-                emphasized_text: r.get(10)?,
-            })
-        })?;
-        rows.collect::<SqliteResult<Vec<_>>>().map_err(DbError::Sqlite)
+        let conn = self.get_read_conn();
+        get_chunks_by_ids_inner(&conn, ids)
     }
 
     /// Fetch chunks surrounding a given chunk_id (for MCP get_surrounding_context).
     pub fn get_surrounding_chunks(&self, chunk_id: i64, window: usize) -> Result<Vec<Chunk>, DbError> {
-        let conn = self.write_conn.borrow();
-        let (file_path, vault_name): (String, String) = conn.query_row(
-            "SELECT file_path, vault_name FROM chunks WHERE id = ?1", [chunk_id], |r| {
-                Ok((r.get(0)?, r.get(1)?))
-            }
-        ).map_err(|e| match e {
-            rusqlite::Error::QueryReturnedNoRows => DbError::NotFound(chunk_id.to_string()),
-            other => DbError::Sqlite(other),
-        })?;
-        let chunk_index: i64 = conn.query_row(
-            "SELECT chunk_index FROM chunks WHERE id = ?1", [chunk_id], |r| r.get(0)
-        )?;
-        let w = window as i64;
-        let mut stmt = conn.prepare(
-            "SELECT id, file_path, chunk_index, parent_header, content, tokenized_content, vault_name, tags, frontmatter_date, title, emphasized_text FROM chunks
-             WHERE vault_name = ?1 AND file_path = ?2 AND chunk_index BETWEEN ?3 AND ?4
-             ORDER BY chunk_index"
-        )?;
-        let rows = stmt.query_map(params![vault_name, file_path, chunk_index - w, chunk_index + w], |r| {
-            Ok(Chunk {
-                id: Some(r.get(0)?),
-                file_path: r.get(1)?,
-                chunk_index: r.get(2)?,
-                parent_header: r.get(3)?,
-                content: r.get(4)?,
-                tokenized_content: r.get(5)?,
-                vault_name: r.get(6)?,
-                tags: r.get(7)?,
-                frontmatter_date: r.get(8)?,
-                title: r.get(9)?,
-                emphasized_text: r.get(10)?,
-            })
-        })?;
-        rows.collect::<SqliteResult<Vec<_>>>().map_err(DbError::Sqlite)
+        let conn = self.get_read_conn();
+        get_surrounding_chunks_inner(&conn, chunk_id, window)
     }
 
     /// Return the most frequently stored model_id in file_cache, excluding "none".
@@ -847,36 +614,20 @@ impl NoteDatabase {
     /// from the currently loaded model, existing vector embeddings may be stale.
     /// Returns `None` when the cache is empty or all entries have model_id = "none".
     pub fn get_dominant_model_id(&self) -> Result<Option<String>, DbError> {
-        let conn = self.write_conn.borrow();
-        let result: SqliteResult<String> = conn.query_row(
-            "SELECT model_id FROM file_cache WHERE model_id != 'none' GROUP BY model_id ORDER BY COUNT(*) DESC, model_id ASC LIMIT 1",
-            [],
-            |r| r.get(0),
-        );
-        match result {
-            Ok(id) => Ok(Some(id)),
-            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-            Err(e) => Err(DbError::Sqlite(e)),
-        }
+        let conn = self.get_read_conn();
+        get_dominant_model_id_inner(&conn)
     }
 
     /// List all file paths in file_cache for a given vault.
     pub fn list_cached_paths(&self, vault_name: &str) -> Result<Vec<String>, DbError> {
-        let conn = self.write_conn.borrow();
-        let mut stmt = conn.prepare("SELECT path FROM file_cache WHERE vault_name = ?1")?;
-        let rows = stmt.query_map(params![vault_name], |r| r.get(0))?;
-        rows.collect::<SqliteResult<Vec<_>>>().map_err(DbError::Sqlite)
+        let conn = self.get_read_conn();
+        list_cached_paths_inner(&conn, vault_name)
     }
 
     /// Return the number of cached file paths for a vault.
     pub fn count_cached_paths(&self, vault_name: &str) -> Result<usize, DbError> {
-        let conn = self.write_conn.borrow();
-        let count: i64 = conn.query_row(
-            "SELECT count(*) FROM file_cache WHERE vault_name = ?1",
-            params![vault_name],
-            |r| r.get(0),
-        )?;
-        Ok(count as usize)
+        let conn = self.get_read_conn();
+        count_cached_paths_inner(&conn, vault_name)
     }
 
     /// Return a paginated slice of cached file paths for a vault.
@@ -887,12 +638,8 @@ impl NoteDatabase {
         limit: usize,
         offset: usize,
     ) -> Result<Vec<String>, DbError> {
-        let conn = self.write_conn.borrow();
-        let mut stmt = conn.prepare(
-            "SELECT path FROM file_cache WHERE vault_name = ?1 ORDER BY path LIMIT ?2 OFFSET ?3",
-        )?;
-        let rows = stmt.query_map(params![vault_name, limit as i64, offset as i64], |r| r.get(0))?;
-        rows.collect::<SqliteResult<Vec<_>>>().map_err(DbError::Sqlite)
+        let conn = self.get_read_conn();
+        list_cached_paths_paginated_inner(&conn, vault_name, limit, offset)
     }
 
     /// Get all chunks for a file, ordered by chunk_index.
@@ -902,26 +649,8 @@ impl NoteDatabase {
         vault_name: &str,
         file_path: &str,
     ) -> Result<Vec<Chunk>, DbError> {
-        let conn = self.write_conn.borrow();
-        let mut stmt = conn.prepare(
-            "SELECT id, file_path, chunk_index, parent_header, content, tokenized_content, vault_name, tags, frontmatter_date, title, emphasized_text FROM chunks WHERE vault_name = ?1 AND file_path = ?2 ORDER BY chunk_index"
-        )?;
-        let rows = stmt.query_map(params![vault_name, file_path], |r| {
-            Ok(Chunk {
-                id: Some(r.get(0)?),
-                file_path: r.get(1)?,
-                chunk_index: r.get(2)?,
-                parent_header: r.get(3)?,
-                content: r.get(4)?,
-                tokenized_content: r.get(5)?,
-                vault_name: r.get(6)?,
-                tags: r.get(7)?,
-                frontmatter_date: r.get(8)?,
-                title: r.get(9)?,
-                emphasized_text: r.get(10)?,
-            })
-        })?;
-        rows.collect::<SqliteResult<Vec<_>>>().map_err(DbError::Sqlite)
+        let conn = self.get_read_conn();
+        get_chunks_for_file_inner(&conn, vault_name, file_path)
     }
 
     /// Recalculate backlink_count for all files in a vault based on note_links.
@@ -942,36 +671,14 @@ impl NoteDatabase {
         &self,
         chunk_ids: &[i64],
     ) -> Result<std::collections::HashMap<i64, i64>, DbError> {
-        if chunk_ids.is_empty() {
-            return Ok(std::collections::HashMap::new());
-        }
-        let conn = self.write_conn.borrow();
-        let placeholders: String = chunk_ids.iter().enumerate()
-            .map(|(i, _)| format!("?{}", i + 1))
-            .collect::<Vec<_>>()
-            .join(",");
-        let sql = format!(
-            "SELECT c.id, fc.backlink_count FROM chunks c \
-             JOIN file_cache fc ON fc.vault_name = c.vault_name AND fc.path = c.file_path \
-             WHERE c.id IN ({})",
-            placeholders
-        );
-        let mut stmt = conn.prepare(&sql)?;
-        let params_vec: Vec<&dyn rusqlite::ToSql> = chunk_ids.iter()
-            .map(|id| id as &dyn rusqlite::ToSql)
-            .collect();
-        let rows = stmt.query_map(params_vec.as_slice(), |r| {
-            Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?))
-        })?;
-        rows.collect::<rusqlite::Result<std::collections::HashMap<i64, i64>>>()
-            .map_err(DbError::Sqlite)
+        let conn = self.get_read_conn();
+        get_backlink_counts_for_chunks_inner(&conn, chunk_ids)
     }
 
     /// Lightweight DB connectivity check. Used by health/readiness probes.
     pub fn ping(&self) -> Result<(), DbError> {
-        let conn = self.write_conn.borrow();
-        conn.query_row("SELECT 1", [], |_| Ok(()))?;
-        Ok(())
+        let conn = self.get_read_conn();
+        ping_inner(&conn)
     }
 
     /// Execute WAL checkpoint(TRUNCATE) to flush all WAL data into the main .db file.
@@ -985,12 +692,8 @@ impl NoteDatabase {
     /// Return the concatenated tags (comma-separated) for all chunks of a file.
     /// Used by cleanup_deleted to decrement tag_counts before deleting chunks.
     pub fn get_tags_for_file(&self, vault_name: &str, path: &str) -> Result<String, DbError> {
-        let conn = self.write_conn.borrow();
-        let mut stmt = conn.prepare(
-            "SELECT COALESCE(GROUP_CONCAT(tags), '') FROM chunks WHERE vault_name = ?1 AND file_path = ?2"
-        )?;
-        stmt.query_row(params![vault_name, path], |r| r.get(0))
-            .map_err(DbError::Sqlite)
+        let conn = self.get_read_conn();
+        get_tags_for_file_inner(&conn, vault_name, path)
     }
 
     /// Decrement the count for a tag in a vault by 1.
@@ -1011,90 +714,648 @@ impl NoteDatabase {
 
     /// Vault statistics.
     pub fn stats(&self) -> Result<VaultStats, DbError> {
-        let conn = self.write_conn.borrow();
-        // rusqlite 0.38+ disabled FromSql for usize by default; retrieve as i64 and cast.
-        let total_chunks: i64 = conn.query_row("SELECT COUNT(*) FROM chunks", [], |r| r.get(0))?;
-        let total_files: i64 = conn.query_row("SELECT COUNT(*) FROM file_cache", [], |r| r.get(0))?;
-        let vec_indexed: i64 = conn.query_row("SELECT COUNT(*) FROM vec_chunks", [], |r| r.get(0))?;
-        let total_size: i64 = conn.query_row(
-            "SELECT page_count * page_size FROM pragma_page_count(), pragma_page_size()",
-            [], |r| r.get(0),
-        )?;
-        let total_chars: i64 = conn.query_row(
-            "SELECT COALESCE(SUM(char_count), 0) FROM file_cache", [], |r| r.get(0)
-        )?;
-        let last_indexed: Option<i64> = conn.query_row(
-            "SELECT MAX(mtime) FROM file_cache", [], |r| r.get(0)
-        ).ok();
-        let db_path = conn.path().map(PathBuf::from).unwrap_or_default();
-
-        let top_tags = self.tag_stats(10)?;
-
-        Ok(VaultStats {
-            total_chunks: total_chunks as usize,
-            total_files: total_files as usize,
-            total_size_bytes: total_size as usize,
-            last_indexed_at: last_indexed,
-            db_path,
-            vec_indexed_chunks: vec_indexed as usize,
-            embedder_status: String::new(), // filled by caller
-            total_chars: total_chars as usize,
-            top_tags,
-        })
+        let conn = self.get_read_conn();
+        stats_inner(&conn)
     }
 
     /// Query tasks with optional keyword filter and checked-state filter.
     pub fn query_tasks(&self, keyword: Option<&str>, include_checked: bool) -> Result<Vec<Task>, DbError> {
-        let conn = self.write_conn.borrow();
-        let checked_filter = if include_checked {
-            String::new()
-        } else {
-            " AND checked = 0".to_string()
-        };
-        let has_keyword = keyword.is_some_and(|k| !k.is_empty());
-        let keyword_filter = if has_keyword {
-            " AND content LIKE ?1".to_string()
-        } else {
-            String::new()
-        };
-        let sql = format!(
-            "SELECT id, vault_name, file_path, content, checked, line_number FROM tasks WHERE 1=1{}{} ORDER BY vault_name, file_path, line_number",
-            checked_filter, keyword_filter
-        );
-        let mut stmt = conn.prepare(&sql)?;
-        let params: Vec<Box<dyn rusqlite::ToSql>> = if has_keyword {
-            vec![Box::new(format!("%{}%", keyword.unwrap()))]
-        } else {
-            vec![]
-        };
-        let params_refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|p| p.as_ref()).collect();
-        let rows = stmt.query_map(params_refs.as_slice(), |r| {
-            Ok(Task {
-                id: Some(r.get(0)?),
-                vault_name: r.get(1)?,
-                file_path: r.get(2)?,
-                content: r.get(3)?,
-                checked: r.get::<_, i32>(4)? != 0,
-                line_number: r.get::<_, i64>(5)? as usize,
-            })
-        })?;
-        rows.collect::<SqliteResult<Vec<_>>>().map_err(DbError::Sqlite)
+        let conn = self.get_read_conn();
+        query_tasks_inner(&conn, keyword, include_checked)
     }
 
     /// Returns the top N tags by occurrence count across all chunks.
     /// Tags are stored as comma-separated values in the `tags` column.
     pub fn tag_stats(&self, limit: usize) -> Result<Vec<(String, usize)>, DbError> {
-        let conn = self.write_conn.borrow();
-        let mut stmt = conn.prepare(
-            "SELECT tag, count FROM tag_counts WHERE count > 0 ORDER BY count DESC, tag ASC LIMIT ?"
-        )?;
-        let rows = stmt.query_map(params![limit as i64], |r| {
-            Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)? as usize))
-        })?;
-        rows.collect::<SqliteResult<Vec<_>>>().map_err(DbError::Sqlite)
+        let conn = self.get_read_conn();
+        tag_stats_inner(&conn, limit)
     }
 }
 
+// ── _inner functions (extracted read methods, usable by NoteDatabase and ReadOnlyDb) ──
+
+pub(crate) fn cached_hash_inner(conn: &Connection, vault_name: &str, path: &str) -> Result<Option<String>, DbError> {
+    match conn.query_row(
+        "SELECT hash FROM file_cache WHERE vault_name = ?1 AND path = ?2",
+        params![vault_name, path],
+        |r| r.get(0),
+    ) {
+        Ok(h) => Ok(Some(h)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(DbError::Sqlite(e)),
+    }
+}
+
+pub(crate) fn cached_mtime_inner(conn: &Connection, vault_name: &str, path: &str) -> Result<Option<i64>, DbError> {
+    match conn.query_row(
+        "SELECT mtime FROM file_cache WHERE vault_name = ?1 AND path = ?2",
+        params![vault_name, path],
+        |r| r.get(0),
+    ) {
+        Ok(m) => Ok(Some(m)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(DbError::Sqlite(e)),
+    }
+}
+
+pub(crate) fn cached_file_size_inner(conn: &Connection, vault_name: &str, path: &str) -> Result<Option<i64>, DbError> {
+    match conn.query_row(
+        "SELECT file_size FROM file_cache WHERE vault_name = ?1 AND path = ?2",
+        params![vault_name, path],
+        |r| r.get(0),
+    ) {
+        Ok(s) => Ok(Some(s)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(DbError::Sqlite(e)),
+    }
+}
+
+pub(crate) fn cached_vlm_hash_inner(conn: &Connection, vault_name: &str, path: &str) -> Result<Option<String>, DbError> {
+    match conn.query_row(
+        "SELECT vlm_hash FROM file_cache WHERE vault_name = ?1 AND path = ?2",
+        params![vault_name, path],
+        |r| r.get(0),
+    ) {
+        Ok(h) => Ok(h),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(DbError::Sqlite(e)),
+    }
+}
+
+pub(crate) fn count_expired_inner(conn: &Connection, retention_days: &std::collections::HashMap<String, u32>) -> Result<usize, DbError> {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as i64;
+
+    let mut total = 0;
+
+    for (vault_name, days) in retention_days {
+        let cutoff_mtime = now - (*days as i64 * 86_400_000);
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM file_cache WHERE vault_name = ?1 AND mtime < ?2",
+            params![vault_name, cutoff_mtime],
+            |r| r.get(0),
+        )?;
+        total += count as usize;
+    }
+
+    Ok(total)
+}
+
+pub(crate) fn fts_search_inner(
+    conn: &Connection,
+    fts5_query: &str,
+    limit: usize,
+    vault_filter: Option<&str>,
+    after_rank: Option<f64>,
+    after_rowid: Option<i64>,
+) -> Result<Vec<(i64, f64)>, DbError> {
+    let mut sql_parts = Vec::new();
+    let mut params: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+
+    let use_cursor = after_rank.is_some() && after_rowid.is_some();
+
+    if let Some(vault) = vault_filter {
+        sql_parts.push(
+            "SELECT c.id, bm25(fts_chunks, 1.0) AS score
+             FROM fts_chunks
+             JOIN chunks c ON c.id = fts_chunks.rowid
+             WHERE fts_chunks MATCH ?1 AND c.vault_name = ?2"
+                .to_string(),
+        );
+        params.push(Box::new(fts5_query.to_string()));
+        params.push(Box::new(vault.to_string()));
+        if use_cursor {
+            let cursor_sql = format!(
+                " AND (score > ?{} OR (score = ?{} AND c.id > ?{}))",
+                params.len() + 1,
+                params.len() + 2,
+                params.len() + 3,
+            );
+            sql_parts.push(cursor_sql);
+            params.push(Box::new(after_rank.unwrap()));
+            params.push(Box::new(after_rank.unwrap()));
+            params.push(Box::new(after_rowid.unwrap()));
+        }
+        sql_parts.push(format!(" ORDER BY score, c.id LIMIT ?{}", params.len() + 1));
+        params.push(Box::new(limit as i64));
+    } else {
+        sql_parts.push(
+            "SELECT rowid, rank FROM fts_chunks WHERE fts_chunks MATCH ?1".to_string(),
+        );
+        params.push(Box::new(fts5_query.to_string()));
+        if use_cursor {
+            let cursor_sql = format!(
+                " AND (rank > ?{} OR (rank = ?{} AND rowid > ?{}))",
+                params.len() + 1,
+                params.len() + 2,
+                params.len() + 3,
+            );
+            sql_parts.push(cursor_sql);
+            params.push(Box::new(after_rank.unwrap()));
+            params.push(Box::new(after_rank.unwrap()));
+            params.push(Box::new(after_rowid.unwrap()));
+        }
+        sql_parts.push(format!(" ORDER BY rank, rowid LIMIT ?{}", params.len() + 1));
+        params.push(Box::new(limit as i64));
+    }
+
+    let sql = sql_parts.join(" ");
+    let params_refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(params_refs.as_slice(), |r| {
+        Ok((r.get::<_, i64>(0)?, r.get::<_, f64>(1)?))
+    })?;
+    rows.collect::<SqliteResult<Vec<_>>>().map_err(DbError::Sqlite)
+}
+
+pub(crate) fn fts_search_count_inner(
+    conn: &Connection,
+    fts5_query: &str,
+    vault_filter: Option<&str>,
+) -> Result<usize, DbError> {
+    let (sql, params): (String, Vec<Box<dyn rusqlite::ToSql>>) =
+        if let Some(vault) = vault_filter {
+            let sql = "SELECT count(*) FROM fts_chunks JOIN chunks c ON c.id = fts_chunks.rowid \
+                 WHERE fts_chunks MATCH ?1 AND c.vault_name = ?2".to_string();
+            let p: Vec<Box<dyn rusqlite::ToSql>> = vec![
+                Box::new(fts5_query.to_string()),
+                Box::new(vault.to_string()),
+            ];
+            (sql, p)
+        } else {
+            let sql = "SELECT count(*) FROM fts_chunks WHERE fts_chunks MATCH ?1".to_string();
+            let p: Vec<Box<dyn rusqlite::ToSql>> =
+                vec![Box::new(fts5_query.to_string())];
+            (sql, p)
+        };
+    let params_refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+    let count: i64 = conn.query_row(&sql, params_refs.as_slice(), |r| r.get(0))?;
+    Ok(count as usize)
+}
+
+pub(crate) fn vec_search_inner(
+    conn: &Connection,
+    embedding: &[f32],
+    limit: usize,
+    vault_filter: Option<&str>,
+    include_embeddings: bool,
+) -> Result<Vec<(i64, f64, Vec<f32>)>, DbError> {
+    let blob: Vec<u8> = embedding.iter().flat_map(|f| f.to_le_bytes()).collect();
+    let (sql, params): (String, Vec<Box<dyn rusqlite::ToSql>>) = if let Some(vault) = vault_filter {
+        let select_cols = if include_embeddings {
+            "v.chunk_id, v.distance, v.embedding"
+        } else {
+            "v.chunk_id, v.distance, NULL AS embedding"
+        };
+        (
+            format!(
+                "SELECT {} FROM vec_chunks v
+                 JOIN chunks c ON c.id = v.chunk_id
+                 WHERE v.embedding MATCH ?1 AND c.vault_name = ?2 AND k = ?3
+                 ORDER BY v.distance", select_cols
+            ),
+            vec![
+                Box::new(blob),
+                Box::new(vault.to_string()),
+                Box::new(limit as i64),
+            ],
+        )
+    } else {
+        let select_cols = if include_embeddings {
+            "chunk_id, distance, embedding"
+        } else {
+            "chunk_id, distance, NULL AS embedding"
+        };
+        (
+            format!(
+                "SELECT {} FROM vec_chunks
+                 WHERE embedding MATCH ?1 AND k = ?2
+                 ORDER BY distance", select_cols
+            ),
+            vec![
+                Box::new(blob),
+                Box::new(limit as i64),
+            ],
+        )
+    };
+    let params_refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(params_refs.as_slice(), |r| {
+        let chunk_id: i64 = r.get(0)?;
+        let distance: f64 = r.get(1)?;
+        let emb_blob: Vec<u8> = r.get::<_, Option<Vec<u8>>>(2)?.unwrap_or_default();
+        let emb_vec: Vec<f32> = if emb_blob.is_empty() {
+            vec![]
+        } else {
+            emb_blob.chunks_exact(4)
+                .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+                .collect()
+        };
+        Ok((chunk_id, distance, emb_vec))
+    })?;
+    rows.collect::<SqliteResult<Vec<_>>>().map_err(DbError::Sqlite)
+}
+
+pub(crate) fn get_chunk_vault_name_inner(conn: &Connection, chunk_id: i64) -> Result<Option<String>, DbError> {
+    match conn.query_row(
+        "SELECT vault_name FROM chunks WHERE id = ?1",
+        params![chunk_id],
+        |r| r.get(0),
+    ) {
+        Ok(vault) => Ok(Some(vault)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(DbError::Sqlite(e)),
+    }
+}
+
+pub(crate) fn get_chunks_by_ids_inner(conn: &Connection, ids: &[i64]) -> Result<Vec<Chunk>, DbError> {
+    if ids.is_empty() { return Ok(vec![]); }
+    let placeholders: String = ids.iter().enumerate()
+        .map(|(i, _)| format!("?{}", i + 1))
+        .collect::<Vec<_>>()
+        .join(",");
+    let sql = format!(
+        "SELECT id, file_path, chunk_index, parent_header, content, tokenized_content, vault_name, tags, frontmatter_date, title, emphasized_text FROM chunks WHERE id IN ({})",
+        placeholders
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let params_vec: Vec<&dyn rusqlite::ToSql> = ids.iter()
+        .map(|id| id as &dyn rusqlite::ToSql)
+        .collect();
+    let rows = stmt.query_map(params_vec.as_slice(), |r| {
+        Ok(Chunk {
+            id: Some(r.get(0)?),
+            file_path: r.get(1)?,
+            chunk_index: r.get(2)?,
+            parent_header: r.get(3)?,
+            content: r.get(4)?,
+            tokenized_content: r.get(5)?,
+            vault_name: r.get(6)?,
+            tags: r.get(7)?,
+            frontmatter_date: r.get(8)?,
+            title: r.get(9)?,
+            emphasized_text: r.get(10)?,
+        })
+    })?;
+    rows.collect::<SqliteResult<Vec<_>>>().map_err(DbError::Sqlite)
+}
+
+pub(crate) fn get_surrounding_chunks_inner(conn: &Connection, chunk_id: i64, window: usize) -> Result<Vec<Chunk>, DbError> {
+    let (file_path, vault_name): (String, String) = conn.query_row(
+        "SELECT file_path, vault_name FROM chunks WHERE id = ?1", [chunk_id], |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        }
+    ).map_err(|e| match e {
+        rusqlite::Error::QueryReturnedNoRows => DbError::NotFound(chunk_id.to_string()),
+        other => DbError::Sqlite(other),
+    })?;
+    let chunk_index: i64 = conn.query_row(
+        "SELECT chunk_index FROM chunks WHERE id = ?1", [chunk_id], |r| r.get(0)
+    )?;
+    let w = window as i64;
+    let mut stmt = conn.prepare(
+        "SELECT id, file_path, chunk_index, parent_header, content, tokenized_content, vault_name, tags, frontmatter_date, title, emphasized_text FROM chunks
+         WHERE vault_name = ?1 AND file_path = ?2 AND chunk_index BETWEEN ?3 AND ?4
+         ORDER BY chunk_index"
+    )?;
+    let rows = stmt.query_map(params![vault_name, file_path, chunk_index - w, chunk_index + w], |r| {
+        Ok(Chunk {
+            id: Some(r.get(0)?),
+            file_path: r.get(1)?,
+            chunk_index: r.get(2)?,
+            parent_header: r.get(3)?,
+            content: r.get(4)?,
+            tokenized_content: r.get(5)?,
+            vault_name: r.get(6)?,
+            tags: r.get(7)?,
+            frontmatter_date: r.get(8)?,
+            title: r.get(9)?,
+            emphasized_text: r.get(10)?,
+        })
+    })?;
+    rows.collect::<SqliteResult<Vec<_>>>().map_err(DbError::Sqlite)
+}
+
+pub(crate) fn get_dominant_model_id_inner(conn: &Connection) -> Result<Option<String>, DbError> {
+    let result: SqliteResult<String> = conn.query_row(
+        "SELECT model_id FROM file_cache WHERE model_id != 'none' GROUP BY model_id ORDER BY COUNT(*) DESC, model_id ASC LIMIT 1",
+        [],
+        |r| r.get(0),
+    );
+    match result {
+        Ok(id) => Ok(Some(id)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(DbError::Sqlite(e)),
+    }
+}
+
+pub(crate) fn list_cached_paths_inner(conn: &Connection, vault_name: &str) -> Result<Vec<String>, DbError> {
+    let mut stmt = conn.prepare("SELECT path FROM file_cache WHERE vault_name = ?1")?;
+    let rows = stmt.query_map(params![vault_name], |r| r.get(0))?;
+    rows.collect::<SqliteResult<Vec<_>>>().map_err(DbError::Sqlite)
+}
+
+pub(crate) fn count_cached_paths_inner(conn: &Connection, vault_name: &str) -> Result<usize, DbError> {
+    let count: i64 = conn.query_row(
+        "SELECT count(*) FROM file_cache WHERE vault_name = ?1",
+        params![vault_name],
+        |r| r.get(0),
+    )?;
+    Ok(count as usize)
+}
+
+pub(crate) fn list_cached_paths_paginated_inner(
+    conn: &Connection,
+    vault_name: &str,
+    limit: usize,
+    offset: usize,
+) -> Result<Vec<String>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT path FROM file_cache WHERE vault_name = ?1 ORDER BY path LIMIT ?2 OFFSET ?3",
+    )?;
+    let rows = stmt.query_map(params![vault_name, limit as i64, offset as i64], |r| r.get(0))?;
+    rows.collect::<SqliteResult<Vec<_>>>().map_err(DbError::Sqlite)
+}
+
+pub(crate) fn get_chunks_for_file_inner(
+    conn: &Connection,
+    vault_name: &str,
+    file_path: &str,
+) -> Result<Vec<Chunk>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT id, file_path, chunk_index, parent_header, content, tokenized_content, vault_name, tags, frontmatter_date, title, emphasized_text FROM chunks WHERE vault_name = ?1 AND file_path = ?2 ORDER BY chunk_index"
+    )?;
+    let rows = stmt.query_map(params![vault_name, file_path], |r| {
+        Ok(Chunk {
+            id: Some(r.get(0)?),
+            file_path: r.get(1)?,
+            chunk_index: r.get(2)?,
+            parent_header: r.get(3)?,
+            content: r.get(4)?,
+            tokenized_content: r.get(5)?,
+            vault_name: r.get(6)?,
+            tags: r.get(7)?,
+            frontmatter_date: r.get(8)?,
+            title: r.get(9)?,
+            emphasized_text: r.get(10)?,
+        })
+    })?;
+    rows.collect::<SqliteResult<Vec<_>>>().map_err(DbError::Sqlite)
+}
+
+pub(crate) fn get_backlink_counts_for_chunks_inner(
+    conn: &Connection,
+    chunk_ids: &[i64],
+) -> Result<std::collections::HashMap<i64, i64>, DbError> {
+    if chunk_ids.is_empty() {
+        return Ok(std::collections::HashMap::new());
+    }
+    let placeholders: String = chunk_ids.iter().enumerate()
+        .map(|(i, _)| format!("?{}", i + 1))
+        .collect::<Vec<_>>()
+        .join(",");
+    let sql = format!(
+        "SELECT c.id, fc.backlink_count FROM chunks c \
+         JOIN file_cache fc ON fc.vault_name = c.vault_name AND fc.path = c.file_path \
+         WHERE c.id IN ({})",
+        placeholders
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let params_vec: Vec<&dyn rusqlite::ToSql> = chunk_ids.iter()
+        .map(|id| id as &dyn rusqlite::ToSql)
+        .collect();
+    let rows = stmt.query_map(params_vec.as_slice(), |r| {
+        Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?))
+    })?;
+    rows.collect::<rusqlite::Result<std::collections::HashMap<i64, i64>>>()
+        .map_err(DbError::Sqlite)
+}
+
+pub(crate) fn ping_inner(conn: &Connection) -> Result<(), DbError> {
+    conn.query_row("SELECT 1", [], |_| Ok(()))?;
+    Ok(())
+}
+
+pub(crate) fn get_tags_for_file_inner(conn: &Connection, vault_name: &str, path: &str) -> Result<String, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT COALESCE(GROUP_CONCAT(tags), '') FROM chunks WHERE vault_name = ?1 AND file_path = ?2"
+    )?;
+    stmt.query_row(params![vault_name, path], |r| r.get(0))
+        .map_err(DbError::Sqlite)
+}
+
+pub(crate) fn stats_inner(conn: &Connection) -> Result<VaultStats, DbError> {
+    let total_chunks: i64 = conn.query_row("SELECT COUNT(*) FROM chunks", [], |r| r.get(0))?;
+    let total_files: i64 = conn.query_row("SELECT COUNT(*) FROM file_cache", [], |r| r.get(0))?;
+    let vec_indexed: i64 = conn.query_row("SELECT COUNT(*) FROM vec_chunks", [], |r| r.get(0))?;
+    let total_size: i64 = conn.query_row(
+        "SELECT page_count * page_size FROM pragma_page_count(), pragma_page_size()",
+        [], |r| r.get(0),
+    )?;
+    let total_chars: i64 = conn.query_row(
+        "SELECT COALESCE(SUM(char_count), 0) FROM file_cache", [], |r| r.get(0)
+    )?;
+    let last_indexed: Option<i64> = conn.query_row(
+        "SELECT MAX(mtime) FROM file_cache", [], |r| r.get(0)
+    ).ok();
+    let db_path = conn.path().map(PathBuf::from).unwrap_or_default();
+    let top_tags = tag_stats_inner(conn, 10)?;
+    Ok(VaultStats {
+        total_chunks: total_chunks as usize,
+        total_files: total_files as usize,
+        total_size_bytes: total_size as usize,
+        last_indexed_at: last_indexed,
+        db_path,
+        vec_indexed_chunks: vec_indexed as usize,
+        embedder_status: String::new(),
+        total_chars: total_chars as usize,
+        top_tags,
+    })
+}
+
+pub(crate) fn query_tasks_inner(
+    conn: &Connection,
+    keyword: Option<&str>,
+    include_checked: bool,
+) -> Result<Vec<Task>, DbError> {
+    let checked_filter = if include_checked {
+        String::new()
+    } else {
+        " AND checked = 0".to_string()
+    };
+    let has_keyword = keyword.is_some_and(|k| !k.is_empty());
+    let keyword_filter = if has_keyword {
+        " AND content LIKE ?1".to_string()
+    } else {
+        String::new()
+    };
+    let sql = format!(
+        "SELECT id, vault_name, file_path, content, checked, line_number FROM tasks WHERE 1=1{}{} ORDER BY vault_name, file_path, line_number",
+        checked_filter, keyword_filter
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let params: Vec<Box<dyn rusqlite::ToSql>> = if has_keyword {
+        vec![Box::new(format!("%{}%", keyword.unwrap()))]
+    } else {
+        vec![]
+    };
+    let params_refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+    let rows = stmt.query_map(params_refs.as_slice(), |r| {
+        Ok(Task {
+            id: Some(r.get(0)?),
+            vault_name: r.get(1)?,
+            file_path: r.get(2)?,
+            content: r.get(3)?,
+            checked: r.get::<_, i32>(4)? != 0,
+            line_number: r.get::<_, i64>(5)? as usize,
+        })
+    })?;
+    rows.collect::<SqliteResult<Vec<_>>>().map_err(DbError::Sqlite)
+}
+
+pub(crate) fn tag_stats_inner(conn: &Connection, limit: usize) -> Result<Vec<(String, usize)>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT tag, count FROM tag_counts WHERE count > 0 ORDER BY count DESC, tag ASC LIMIT ?"
+    )?;
+    let rows = stmt.query_map(params![limit as i64], |r| {
+        Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)? as usize))
+    })?;
+    rows.collect::<SqliteResult<Vec<_>>>().map_err(DbError::Sqlite)
+}
+
+/// Read-only DB wrapper — opens a single SQLITE_OPEN_READ_ONLY connection.
+/// Used by HTTP handlers: each request opens its own ReadOnlyDb, enabling
+/// true concurrent reads via SQLite WAL.
+pub struct ReadOnlyDb {
+    pub(crate) conn: Connection,
+}
+
+impl ReadOnlyDb {
+    /// Open a read-only connection to the database at `path`.
+    pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, DbError> {
+        // SAFETY: sqlite3_auto_extension is called once globally via Once
+        unsafe { register_vec_extension(); }
+        let conn = NoteDatabase::open_readonly(path)?;
+        Ok(Self { conn })
+    }
+
+    pub fn cached_hash(&self, vault_name: &str, path: &str) -> Result<Option<String>, DbError> {
+        cached_hash_inner(&self.conn, vault_name, path)
+    }
+
+    pub fn cached_mtime(&self, vault_name: &str, path: &str) -> Result<Option<i64>, DbError> {
+        cached_mtime_inner(&self.conn, vault_name, path)
+    }
+
+    pub fn cached_file_size(&self, vault_name: &str, path: &str) -> Result<Option<i64>, DbError> {
+        cached_file_size_inner(&self.conn, vault_name, path)
+    }
+
+    pub fn cached_vlm_hash(&self, vault_name: &str, path: &str) -> Result<Option<String>, DbError> {
+        cached_vlm_hash_inner(&self.conn, vault_name, path)
+    }
+
+    pub fn count_expired(&self, retention_days: &std::collections::HashMap<String, u32>) -> Result<usize, DbError> {
+        count_expired_inner(&self.conn, retention_days)
+    }
+
+    pub fn fts_search(
+        &self,
+        fts5_query: &str,
+        limit: usize,
+        vault_filter: Option<&str>,
+        after_rank: Option<f64>,
+        after_rowid: Option<i64>,
+    ) -> Result<Vec<(i64, f64)>, DbError> {
+        fts_search_inner(&self.conn, fts5_query, limit, vault_filter, after_rank, after_rowid)
+    }
+
+    pub fn fts_search_count(
+        &self,
+        fts5_query: &str,
+        vault_filter: Option<&str>,
+    ) -> Result<usize, DbError> {
+        fts_search_count_inner(&self.conn, fts5_query, vault_filter)
+    }
+
+    pub fn vec_search(
+        &self,
+        embedding: &[f32],
+        limit: usize,
+        vault_filter: Option<&str>,
+        include_embeddings: bool,
+    ) -> Result<Vec<(i64, f64, Vec<f32>)>, DbError> {
+        vec_search_inner(&self.conn, embedding, limit, vault_filter, include_embeddings)
+    }
+
+    pub fn get_chunk_vault_name(&self, chunk_id: i64) -> Result<Option<String>, DbError> {
+        get_chunk_vault_name_inner(&self.conn, chunk_id)
+    }
+
+    pub fn get_chunks_by_ids(&self, ids: &[i64]) -> Result<Vec<Chunk>, DbError> {
+        get_chunks_by_ids_inner(&self.conn, ids)
+    }
+
+    pub fn get_surrounding_chunks(&self, chunk_id: i64, window: usize) -> Result<Vec<Chunk>, DbError> {
+        get_surrounding_chunks_inner(&self.conn, chunk_id, window)
+    }
+
+    pub fn get_dominant_model_id(&self) -> Result<Option<String>, DbError> {
+        get_dominant_model_id_inner(&self.conn)
+    }
+
+    pub fn list_cached_paths(&self, vault_name: &str) -> Result<Vec<String>, DbError> {
+        list_cached_paths_inner(&self.conn, vault_name)
+    }
+
+    pub fn count_cached_paths(&self, vault_name: &str) -> Result<usize, DbError> {
+        count_cached_paths_inner(&self.conn, vault_name)
+    }
+
+    pub fn list_cached_paths_paginated(
+        &self,
+        vault_name: &str,
+        limit: usize,
+        offset: usize,
+    ) -> Result<Vec<String>, DbError> {
+        list_cached_paths_paginated_inner(&self.conn, vault_name, limit, offset)
+    }
+
+    pub fn get_chunks_for_file(&self, vault_name: &str, file_path: &str) -> Result<Vec<Chunk>, DbError> {
+        get_chunks_for_file_inner(&self.conn, vault_name, file_path)
+    }
+
+    pub fn get_backlink_counts_for_chunks(
+        &self,
+        chunk_ids: &[i64],
+    ) -> Result<std::collections::HashMap<i64, i64>, DbError> {
+        get_backlink_counts_for_chunks_inner(&self.conn, chunk_ids)
+    }
+
+    pub fn ping(&self) -> Result<(), DbError> {
+        ping_inner(&self.conn)
+    }
+
+    pub fn get_tags_for_file(&self, vault_name: &str, path: &str) -> Result<String, DbError> {
+        get_tags_for_file_inner(&self.conn, vault_name, path)
+    }
+
+    pub fn stats(&self) -> Result<VaultStats, DbError> {
+        stats_inner(&self.conn)
+    }
+
+    pub fn query_tasks(&self, keyword: Option<&str>, include_checked: bool) -> Result<Vec<Task>, DbError> {
+        query_tasks_inner(&self.conn, keyword, include_checked)
+    }
+
+    pub fn tag_stats(&self, limit: usize) -> Result<Vec<(String, usize)>, DbError> {
+        tag_stats_inner(&self.conn, limit)
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -1772,6 +2033,16 @@ mod tests {
             .as_millis() as i64
     }
 
+    /// Create a file-backed `NoteDatabase` with a temporary directory.
+    /// Returns `(TempDir, NoteDatabase)` — the `TempDir` is kept alive for the
+    /// lifetime of the test so that the database file is not deleted early.
+    fn create_file_db() -> (TempDir, NoteDatabase) {
+        let dir = TempDir::new().unwrap();
+        let db_path = dir.path().join("test.db");
+        let db = NoteDatabase::open(&db_path).unwrap();
+        (dir, db)
+    }
+
     fn insert_test_file(db: &NoteDatabase, vault_name: &str, file_path: &str, content: &str, mtime: i64) {
         let chunk = Chunk {
             id: None,
@@ -1948,5 +2219,286 @@ mod tests {
             "SELECT COUNT(*) FROM vec_chunks WHERE chunk_id = ?1", [chunk_id], |r| r.get(0),
         ).unwrap();
         assert_eq!(count, 0);
+    }
+
+    // ── read_conn (read-only connection) tests ────────────────────────
+
+    // ── read_conn (read-only connection) tests ────────────────────────
+
+    #[test]
+    fn test_read_conn_exists_on_file_db() {
+        let (_dir, db) = create_file_db();
+
+        // read_conn should be Some for file-backed databases
+        assert!(db.read_conn.is_some(), "read_conn should be Some for file-backed DB");
+
+        // Write attempt on read_conn should return SQLITE_READONLY
+        let conn = db.read_conn.as_ref().unwrap().borrow();
+        let result = conn.execute("CREATE TABLE __should_not_exist__ (x INT)", []);
+        let err = result.expect_err("write on read-only connection should fail");
+        match &err {
+            rusqlite::Error::SqliteFailure(ffi_err, _) => {
+                assert_eq!(
+                    ffi_err.code,
+                    rusqlite::ffi::ErrorCode::ReadOnly,
+                    "expected SQLITE_READONLY, got: {:?}",
+                    ffi_err,
+                );
+            }
+            other => panic!("expected SqliteFailure(ReadOnly), got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_read_conn_none_for_in_memory() {
+        let db = NoteDatabase::open_in_memory().unwrap();
+        // In-memory databases cannot have a separate read-only connection
+        // because WAL is not supported; read_conn falls back to write_conn.
+        assert!(db.read_conn.is_none(), "read_conn should be None for in-memory DB");
+    }
+
+    #[test]
+    fn test_read_conn_returns_same_search_results() {
+        let (_dir, db) = create_file_db();
+
+        // Insert a chunk via write_conn
+        let chunks = vec![Chunk {
+            id: None,
+            file_path: "test.md".into(),
+            chunk_index: 0,
+            parent_header: None,
+            content: "hello world search test".into(),
+            tokenized_content: "hello world search test".into(),
+            vault_name: "default".to_string(),
+            tags: String::new(),
+            frontmatter_date: String::new(),
+            title: String::new(),
+            emphasized_text: String::new(),
+        }];
+        db.insert_chunks(&chunks).unwrap();
+
+        // Search via the read_conn path (used by get_read_conn() for file-backed DBs)
+        let results = db.fts_search("search", 10, None, None, None).unwrap();
+        assert!(!results.is_empty(), "should find the chunk via read_conn");
+
+        // Verify other read methods work on read_conn
+        assert!(db.ping().is_ok(), "ping should work on read_conn");
+        assert_eq!(db.stats().unwrap().total_chunks, 1);
+    }
+
+    #[test]
+    fn test_vec_search_via_read_conn() {
+        let (_dir, db) = create_file_db();
+
+        // Insert a chunk
+        let chunks = vec![Chunk {
+            id: None,
+            file_path: "vec_test.md".into(),
+            chunk_index: 0,
+            parent_header: None,
+            content: "vector search test".into(),
+            tokenized_content: "vector search test".into(),
+            vault_name: "default".to_string(),
+            tags: String::new(),
+            frontmatter_date: String::new(),
+            title: String::new(),
+            emphasized_text: String::new(),
+        }];
+        let ids = db.insert_chunks(&chunks).unwrap();
+        let chunk_id = ids[0];
+
+        // Insert embedding
+        let embedding = vec![0.1f32; 1024];
+        db.insert_embeddings(&[(chunk_id, embedding.clone())]).unwrap();
+
+        // vec_search via get_read_conn() should return results
+        let results = db.vec_search(&embedding, 10, None, false).unwrap();
+        assert_eq!(results.len(), 1, "should find the chunk via vec_search on read_conn");
+        assert_eq!(results[0].0, chunk_id, "returned chunk_id should match");
+    }
+
+    #[test]
+    fn test_read_conn_works_after_wal_checkpoint() {
+        let (_dir, db) = create_file_db();
+
+        // Insert data
+        let chunks = vec![Chunk {
+            id: None,
+            file_path: "checkpoint_test.md".into(),
+            chunk_index: 0,
+            parent_header: None,
+            content: "checkpoint test content".into(),
+            tokenized_content: "checkpoint test content".into(),
+            vault_name: "default".to_string(),
+            tags: String::new(),
+            frontmatter_date: String::new(),
+            title: String::new(),
+            emphasized_text: String::new(),
+        }];
+        db.insert_chunks(&chunks).unwrap();
+
+        // Force a WAL checkpoint (write operation on write_conn)
+        db.wal_checkpoint().unwrap();
+
+        // After checkpoint, read_conn should still work and see committed data
+        let results = db.fts_search("checkpoint", 10, None, None, None).unwrap();
+        assert!(!results.is_empty(), "should find data after checkpoint via read_conn");
+        assert_eq!(db.stats().unwrap().total_chunks, 1, "stats should report data after checkpoint");
+    }
+
+    #[test]
+    fn test_read_conn_and_write_conn_borrow_simultaneously() {
+        let (_dir, db) = create_file_db();
+        db.insert_chunks(&[Chunk {
+            id: None,
+            file_path: "a.md".into(),
+            chunk_index: 0,
+            parent_header: None,
+            content: "shared content".into(),
+            tokenized_content: "shared content".into(),
+            vault_name: "default".to_string(),
+            tags: String::new(),
+            frontmatter_date: String::new(),
+            title: String::new(),
+            emphasized_text: String::new(),
+        }])
+        .unwrap();
+
+        // Hold a mutable borrow on write_conn (simulates an active write)
+        let mut write_guard = db.write_conn.borrow_mut();
+
+        // Simultaneously acquire a shared borrow on read_conn
+        // These are different RefCells — no runtime borrow conflict.
+        let read_guard = db.read_conn.as_ref().unwrap().borrow();
+
+        // Both connections are usable at the same time
+        let count: i64 = read_guard
+            .query_row("SELECT COUNT(*) FROM chunks", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count, 1, "read_conn works while write_conn is mutably borrowed");
+
+        // write_conn can proceed independently
+        let tx = write_guard.transaction().unwrap();
+        tx.execute(
+            "INSERT INTO chunks (file_path, chunk_index, content, tokenized_content, vault_name) \
+             VALUES (?1, 0, '', '', 'default')",
+            params!["b.md"],
+        )
+        .unwrap();
+        tx.commit().unwrap();
+
+        // read_conn still sees the original committed data
+        let count2: i64 = read_guard
+            .query_row("SELECT COUNT(*) FROM chunks", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count2, 2, "write_conn changes are visible to read_conn via WAL");
+    }
+
+    #[test]
+    fn test_read_conn_vs_in_memory_parity() {
+        // in-memory DB:  get_read_conn() falls back to write_conn
+        let im_db = NoteDatabase::open_in_memory().unwrap();
+
+        // file-backed DB: get_read_conn() returns read_conn
+        let (_dir, file_db) = create_file_db();
+
+        // Insert identical data into both databases
+        for db in [&im_db, &file_db] {
+            let chunks = vec![Chunk {
+                id: None,
+                file_path: "parity.md".into(),
+                chunk_index: 0,
+                parent_header: None,
+                content: "parity test content for fts".into(),
+                tokenized_content: "parity test content for fts".into(),
+                vault_name: "default".to_string(),
+                tags: String::new(),
+                frontmatter_date: String::new(),
+                title: String::new(),
+                emphasized_text: String::new(),
+            }];
+            db.insert_chunks(&chunks).unwrap();
+            db.upsert_file_cache("default", "parity.md", "hash1", 1000, "model-x", 42, 0, None)
+                .unwrap();
+        }
+
+        // Core search methods return the same results regardless of
+        // whether get_read_conn() resolved to read_conn or write_conn.
+        assert_eq!(
+            im_db.fts_search("parity", 10, None, None, None)
+                .unwrap()
+                .len(),
+            file_db.fts_search("parity", 10, None, None, None)
+                .unwrap()
+                .len(),
+            "fts_search parity"
+        );
+        assert_eq!(
+            im_db.fts_search_count("parity", None).unwrap(),
+            file_db.fts_search_count("parity", None).unwrap(),
+            "fts_search_count parity"
+        );
+        assert_eq!(
+            im_db.stats().unwrap().total_chunks,
+            file_db.stats().unwrap().total_chunks,
+            "stats.total_chunks parity"
+        );
+        assert_eq!(
+            im_db.cached_hash("default", "parity.md").unwrap(),
+            file_db.cached_hash("default", "parity.md").unwrap(),
+            "cached_hash parity"
+        );
+        assert_eq!(
+            im_db.cached_mtime("default", "parity.md").unwrap(),
+            file_db.cached_mtime("default", "parity.md").unwrap(),
+            "cached_mtime parity"
+        );
+        assert_eq!(
+            im_db.cached_file_size("default", "parity.md").unwrap(),
+            file_db.cached_file_size("default", "parity.md").unwrap(),
+            "cached_file_size parity"
+        );
+        assert_eq!(
+            im_db.list_cached_paths("default").unwrap(),
+            file_db.list_cached_paths("default").unwrap(),
+            "list_cached_paths parity"
+        );
+        assert_eq!(
+            im_db.count_cached_paths("default").unwrap(),
+            file_db.count_cached_paths("default").unwrap(),
+            "count_cached_paths parity"
+        );
+        assert_eq!(
+            im_db.get_dominant_model_id().unwrap(),
+            file_db.get_dominant_model_id().unwrap(),
+            "get_dominant_model_id parity"
+        );
+    }
+
+    #[test]
+    fn test_read_conn_write_error_is_sqlite_readonly() {
+        let (_dir, db) = create_file_db();
+
+        // Attempt an INSERT INTO an application table via the read-only connection.
+        let conn = db.read_conn.as_ref().unwrap().borrow();
+        let result = conn.execute(
+            "INSERT INTO file_cache \
+             (vault_name, path, hash, mtime, model_id, file_size, char_count) \
+             VALUES (?1, ?2, ?3, 0, 'none', 0, 0)",
+            params!["default", "x.md", "hash"],
+        );
+
+        let err = result.expect_err("write on read_conn should fail");
+        match &err {
+            rusqlite::Error::SqliteFailure(ffi_err, _) => {
+                assert_eq!(
+                    ffi_err.code,
+                    rusqlite::ffi::ErrorCode::ReadOnly,
+                    "expected SQLITE_READONLY on INSERT via read_conn, got: {:?}",
+                    ffi_err,
+                );
+            }
+            other => panic!("expected SqliteFailure(ReadOnly), got: {:?}", other),
+        }
     }
 }

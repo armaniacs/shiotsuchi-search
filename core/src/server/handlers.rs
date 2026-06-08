@@ -1,5 +1,6 @@
 use crate::config::ShiotsuchiConfig;
 use crate::db::NoteDatabase;
+use crate::db::ReadOnlyDb;
 use crate::rate_limiter::SlidingWindowRateLimiter;
 use crate::search::SearchRequest;
 use crate::sensitive::SensitiveDataConfig;
@@ -12,6 +13,7 @@ use axum::response::Response;
 use axum::routing::get;
 use axum::{Json, Router};
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 use tower::ServiceBuilder;
@@ -29,7 +31,7 @@ fn check_rate_limit() -> Result<(), ApiError> {
 
 /// Shared application state.
 pub struct AppState {
-    pub db: Arc<tokio::sync::Mutex<NoteDatabase>>,
+    pub db_path: PathBuf,
     pub tokenizer: Option<Arc<crate::tokenizer::JapaneseTokenizer>>,
     pub synonyms: HashMap<String, Vec<String>>,
     pub hybrid_alpha: Option<f64>,
@@ -80,8 +82,10 @@ pub async fn auth_middleware(
 pub async fn handle_health(
     State(state): State<Arc<AppState>>,
 ) -> Json<serde_json::Value> {
-    // Check DB readiness: run a lightweight query
-    let db_ok = state.db.lock().await.ping().is_ok();
+    // Check DB readiness: open a lightweight read-only connection
+    let db_ok = NoteDatabase::open_readonly(&state.db_path)
+        .map(|conn| crate::db::ping_inner(&conn).is_ok())
+        .unwrap_or(false);
     Json(serde_json::json!({
         "status": if db_ok { "ok" } else { "degraded" },
         "database": if db_ok { "connected" } else { "unreachable" },
@@ -108,12 +112,12 @@ pub async fn handle_search(
         ApiError::BadRequest(format!("invalid mode '{}': {}", params.mode, e))
     })?;
 
-    let db = state.db.lock().await;
+    let db = ReadOnlyDb::open(&state.db_path)
+        .map_err(|e| ApiError::Internal(format!("failed to open database: {}", e)))?;
 
     // Cursor takes priority over offset for FTS mode
     let use_cursor = params.cursor.is_some() && mode == crate::models::SearchMode::Fts;
     let effective_limit = if use_cursor {
-        // For cursor-based pagination, just fetch the page size
         params.limit
     } else {
         params.limit.saturating_add(params.offset)
@@ -141,26 +145,23 @@ pub async fn handle_search(
             backlink_scoring,
             cursor: params.cursor.as_deref(),
         };
-        let output = crate::search::search(&db, tokenizer, &request)
+        let output = crate::search::search(&db.conn, tokenizer, &request)
             .map_err(|e| ApiError::Internal(format!("search failed: {}", e)))?;
         (output.results, output.next_cursor)
     } else {
-        // No tokenizer — direct FTS search with cursor support
         let fts5_query = crate::tokenizer::simple_and_query(&query);
         let cursor_params = params.cursor.as_deref()
             .and_then(|c| crate::search::Cursor::decode(c).ok())
             .map(|c| (c.after_rank, c.after_rowid));
         let (after_rank, after_rowid) = cursor_params.unzip();
-        // Fetch one extra to detect if there are more pages
         let fetch_limit = effective_limit.saturating_add(1);
         let hits = db.fts_search(&fts5_query, fetch_limit, params.vault.as_deref(), after_rank, after_rowid)
             .map_err(|e| ApiError::Internal(format!("search failed: {}", e)))?;
         if hits.is_empty() {
             (vec![], None)
         } else {
-            let mut results = crate::search::build_results(&db, hits, crate::models::SearchMode::Fts, None)
+            let mut results = crate::search::build_results(&db.conn, hits, crate::models::SearchMode::Fts, None)
                 .map_err(|e| ApiError::Internal(format!("search failed: {}", e)))?;
-            // Compute next_cursor if we got more results than requested
             let next_cursor = if results.len() > params.limit {
                 results.truncate(params.limit);
                 results.last().map(|r| crate::search::Cursor { after_rank: r.score, after_rowid: r.chunk_id }.encode())
@@ -174,12 +175,11 @@ pub async fn handle_search(
     let total = if params.mode == "fts" {
         let fts5_query = crate::tokenizer::simple_and_query(&query);
         db.fts_search_count(&fts5_query, params.vault.as_deref())
-            .unwrap_or_else(|_| results.len())
+            .unwrap_or(results.len())
     } else {
         results.len()
     };
 
-    // Apply offset/limit slicing (skip for cursor-based — already paginated)
     let map_to_item = |r: crate::models::ChunkSearchResult| {
         let snippet = crate::search::extract_snippet(&r.content, &query, 5, 200);
         let snippet = crate::sensitive::mask_sensitive_data(&snippet, state.sensitive_config.as_ref());
@@ -221,9 +221,9 @@ pub async fn handle_stats(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     check_rate_limit()?;
-    let db = state.db.lock().await;
-    let stats = db
-        .stats()
+    let conn = NoteDatabase::open_readonly(&state.db_path)
+        .map_err(|e| ApiError::Internal(format!("database error: {}", e)))?;
+    let stats = crate::db::stats_inner(&conn)
         .map_err(|e| ApiError::Internal(format!("failed to get stats: {}", e)))?;
 
     Ok(Json(serde_json::json!({
@@ -247,13 +247,14 @@ pub async fn handle_list(
     let offset = params.offset;
     let limit = params.limit.min(200); // cap at 200
 
-    let db = state.db.lock().await;
+    let conn = NoteDatabase::open_readonly(&state.db_path)
+        .map_err(|e| ApiError::Internal(format!("database error: {}", e)))?;
     let vaults = config.resolved_vaults();
 
     // Phase 1: fast per-vault counts (no file data loaded yet)
     let mut vault_counts: Vec<(String, usize)> = Vec::with_capacity(vaults.len());
     for (vault_name, _vault_path) in &vaults {
-        match db.count_cached_paths(vault_name) {
+        match crate::db::count_cached_paths_inner(&conn, vault_name) {
             Ok(count) => vault_counts.push((vault_name.clone(), count)),
             Err(e) => {
                 tracing::warn!("failed to count files for vault '{}': {}", vault_name, e);
@@ -285,7 +286,7 @@ pub async fn handle_list(
         // Fetch paginated slice from this vault
         let vault_offset = remaining_offset.min(count.saturating_sub(1));
         let vault_limit = remaining_limit.min(count.saturating_sub(vault_offset));
-        match db.list_cached_paths_paginated(vault_name, vault_limit, vault_offset) {
+        match crate::db::list_cached_paths_paginated_inner(&conn, vault_name, vault_limit, vault_offset) {
             Ok(paths) => {
                 for path in paths {
                     files.push(FileItem {
@@ -354,8 +355,9 @@ pub async fn handle_read(
             .map_err(|_| ApiError::NotFound(format!("vault '{}' not found", vault_name)))?;
     }
 
-    let db = state.db.lock().await;
-    let chunks = db.get_chunks_for_file(vault_name, file_path)
+    let conn = NoteDatabase::open_readonly(&state.db_path)
+        .map_err(|e| ApiError::Internal(format!("database error: {}", e)))?;
+    let chunks = crate::db::get_chunks_for_file_inner(&conn, vault_name, file_path)
         .map_err(|e| ApiError::Internal(format!("database error: {}", e)))?;
 
     if chunks.is_empty() {
@@ -464,10 +466,10 @@ mod tests {
     fn setup_test_router() -> (Router, TempDir) {
         let tmp = TempDir::new().unwrap();
         let db_path = tmp.path().join("test.db");
-        let db = NoteDatabase::open(&db_path).unwrap();
+        let _db = NoteDatabase::open(&db_path).unwrap();
         let tokenizer = crate::tokenizer::get_tokenizer().ok();
         let state = Arc::new(AppState {
-            db: Arc::new(tokio::sync::Mutex::new(db)),
+            db_path: db_path.clone(),
             tokenizer,
             synonyms: HashMap::new(),
             hybrid_alpha: None,
@@ -773,10 +775,10 @@ mod tests {
     fn setup_test_router_with_auth(api_key: &str) -> (Router, TempDir) {
         let tmp = TempDir::new().unwrap();
         let db_path = tmp.path().join("test.db");
-        let db = NoteDatabase::open(&db_path).unwrap();
+        let _db = NoteDatabase::open(&db_path).unwrap();
         let tokenizer = crate::tokenizer::get_tokenizer().ok();
         let state = Arc::new(AppState {
-            db: Arc::new(tokio::sync::Mutex::new(db)),
+            db_path: db_path.clone(),
             tokenizer,
             synonyms: HashMap::new(),
             hybrid_alpha: None,
@@ -1042,10 +1044,11 @@ mod tests {
         let db_path = tmp.path().join("test.db");
         let db = NoteDatabase::open(&db_path).unwrap();
         insert_test_chunks(&db, 5);
+        drop(db);
 
         let tokenizer = crate::tokenizer::get_tokenizer().ok();
         let state = Arc::new(AppState {
-            db: Arc::new(tokio::sync::Mutex::new(db)),
+            db_path: db_path.clone(),
             tokenizer,
             synonyms: HashMap::new(),
             hybrid_alpha: None,
@@ -1126,10 +1129,11 @@ mod tests {
         let db_path = tmp.path().join("test.db");
         let db = NoteDatabase::open(&db_path).unwrap();
         insert_test_chunks(&db, 5);
+        drop(db);
 
         let tokenizer = crate::tokenizer::get_tokenizer().ok();
         let state = Arc::new(AppState {
-            db: Arc::new(tokio::sync::Mutex::new(db)),
+            db_path: db_path.clone(),
             tokenizer,
             synonyms: HashMap::new(),
             hybrid_alpha: None,
@@ -1160,10 +1164,11 @@ mod tests {
         let db_path = tmp.path().join("test.db");
         let db = NoteDatabase::open(&db_path).unwrap();
         insert_test_chunks(&db, 6);
+        drop(db);
 
         let tokenizer = crate::tokenizer::get_tokenizer().ok();
         let state = Arc::new(AppState {
-            db: Arc::new(tokio::sync::Mutex::new(db)),
+            db_path: db_path.clone(),
             tokenizer,
             synonyms: HashMap::new(),
             hybrid_alpha: None,
